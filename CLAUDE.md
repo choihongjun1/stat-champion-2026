@@ -22,7 +22,17 @@
 ## Statistical Principles
 - 시간 순서를 반드시 보존한다.
 - 미래 정보를 과거 시점의 feature로 사용하지 않는다.
+- feature는 observation origin 시점에 실제로 이용 가능했던 정보만 사용하고,
+  주요 feature에는 feature_asof / source_snapshot / available_at을 기록한다.
+- 소진공 스냅샷 union은 entity resolution에만 사용한다.
+  origin의 feature 계산에 origin 이후 스냅샷을 사용하지 않는다.
 - 현재 시점의 온라인 정보를 과거 분기의 feature로 소급하지 않는다.
+  (현재의 네이버·카카오 등록 여부·검색 순위는 현재 진단 표시용으로만 사용한다.
+   작성일이 있는 블로그·카페 언급만 과거 시점 feature로 재구성할 수 있다.)
+- 주 폐업 라벨은 인허가 폐업일자를 사용한다.
+  소진공 소멸은 폐업 라벨로 사용하지 않고 보조정보(sj_status, sj_gap_months)로만 사용한다.
+- master dataset의 모집단은 인허가 전체 점포다.
+  소진공 매칭 실패 점포를 삭제하지 않으며 complete-case 분석을 금지한다.
 - SHAP 값은 인과효과로 해석하지 않는다.
 - 예측모형의 feature를 임의로 변경한 결과를 인과적 counterfactual로 표현하지 않는다.
 - 아직 폐업하지 않은 사업체는 survival analysis에서 censoring을 고려한다.
