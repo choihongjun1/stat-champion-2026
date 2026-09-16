@@ -4,8 +4,8 @@
 !.env.example
 *.key
 
-# Data
-data/
+# Data (repo 루트의 원본 데이터만 — src/data/ 등 소스 패키지는 제외)
+/data/
 *.csv
 *.xlsx
 *.xls
