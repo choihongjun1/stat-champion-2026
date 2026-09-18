@@ -5,7 +5,7 @@
 *.key
 
 # Data
-data/
+/data/
 *.csv
 *.xlsx
 *.xls
