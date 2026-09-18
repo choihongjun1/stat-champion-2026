@@ -6,9 +6,13 @@ from shapely.geometry import Point, Polygon
 
 from src.data.config import CRS_STD
 from src.data.spatial import (
+    PROVISIONAL_QA_D1_MAX_M,
+    PROVISIONAL_QA_GAP_MIN_M,
     distance_distribution,
     make_points,
     nearest_analysis,
+    nearest_two_analysis,
+    separation_summary,
     threshold_sensitivity,
     within_join,
 )
@@ -103,6 +107,115 @@ def test_nearest_only_for_unmatched():
     within = within_join(pts, areas)
     near = nearest_analysis(pts, areas, within)
     assert list(near["store_id"]) == ["L2"]
+
+
+def _n2(lic_rows, areas=None, **kw):
+    """nearest_two_analysis를 within 결과와 함께 실행하는 헬퍼."""
+    areas = make_areas() if areas is None else areas
+    pts = make_points(make_lic(lic_rows))
+    within = within_join(pts, areas)
+    return nearest_two_analysis(pts, areas, within, **kw).set_index("store_id")
+
+
+def test_nearest_two_d1_d2_gap_ratio():
+    # (170, 50): C(x≤150)까지 20m, B(x≥200)까지 30m
+    r = _n2([("L1", 170.0, 50.0, False, False)]).loc["L1"]
+    assert r["nearest_trdar_cd_chk"] == "C"
+    assert abs(r["nearest_distance_m_chk"] - 20.0) < 1e-6
+    assert r["second_nearest_trdar_cd"] == "B"
+    assert abs(r["second_nearest_distance_m"] - 30.0) < 1e-6
+    assert abs(r["nearest_gap_m"] - 10.0) < 1e-6          # gap = d2 - d1
+    assert abs(r["nearest_ratio"] - (20.0 / 30.0)) < 1e-9  # ratio = d1 / d2
+    # d1은 20m 이내지만 gap이 20m 미만 → provisional flag False
+    assert not r["nearest_candidate_high_conf_provisional"]
+
+
+def test_nearest_two_provisional_flag_true():
+    # (160, 50): C까지 10m, B까지 40m → d1≤20 & gap≥20
+    r = _n2([("L1", 160.0, 50.0, False, False)]).loc["L1"]
+    assert r["nearest_distance_m_chk"] <= PROVISIONAL_QA_D1_MAX_M
+    assert r["nearest_gap_m"] >= PROVISIONAL_QA_GAP_MIN_M
+    assert r["nearest_candidate_high_conf_provisional"]
+
+
+def test_nearest_two_no_second_candidate_is_na():
+    # 후보가 1개뿐이면 d2/gap/ratio는 NA이고 flag는 False여야 한다
+    single = gpd.GeoDataFrame(
+        {"TRDAR_CD": ["A"], "TRDAR_CD_N": ["상권A"], "TRDAR_SE_1": ["골목상권"]},
+        geometry=[Polygon([(0, 0), (100, 0), (100, 100), (0, 100)])],
+        crs=CRS_STD,
+    )
+    r = _n2([("L1", 200.0, 50.0, False, False)], areas=single,
+            search_radii=(150.0,)).loc["L1"]
+    assert abs(r["nearest_distance_m_chk"] - 100.0) < 1e-6
+    assert r["second_nearest_trdar_cd"] is None
+    assert pd.isna(r["second_nearest_distance_m"])
+    assert pd.isna(r["nearest_gap_m"]) and pd.isna(r["nearest_ratio"])
+    assert not r["nearest_candidate_high_conf_provisional"]
+
+
+def test_nearest_two_dedupes_multipolygon_parts():
+    # 같은 상권코드의 MultiPolygon 파트가 1·2순위를 동시에 차지하면 안 된다
+    from shapely.geometry import MultiPolygon
+
+    areas = gpd.GeoDataFrame(
+        {"TRDAR_CD": ["A", "M"], "TRDAR_CD_N": ["상권A", "상권M"],
+         "TRDAR_SE_1": ["골목상권", "발달상권"]},
+        geometry=[
+            Polygon([(0, 0), (100, 0), (100, 100), (0, 100)]),
+            MultiPolygon([
+                Polygon([(200, 0), (210, 0), (210, 100), (200, 100)]),
+                Polygon([(220, 0), (230, 0), (230, 100), (220, 100)]),
+            ]),
+        ],
+        crs=CRS_STD,
+    )
+    # (190, 50): M 근처 파트 10m, M 먼 파트 30m, A 90m → 2순위는 A(90m)
+    r = _n2([("L1", 190.0, 50.0, False, False)], areas=areas).loc["L1"]
+    assert r["nearest_trdar_cd_chk"] == "M"
+    assert abs(r["nearest_distance_m_chk"] - 10.0) < 1e-6
+    assert r["second_nearest_trdar_cd"] == "A"
+    assert abs(r["second_nearest_distance_m"] - 90.0) < 1e-6
+
+
+def test_nearest_two_only_for_within_unmatched():
+    # within 성공점은 nearest QA 대상이 아니다 (기존 base assignment 동작 유지)
+    res = _n2([("L1", 10.0, 10.0, False, False),     # A 내부
+               ("L2", 170.0, 50.0, False, False)])   # 미매칭
+    assert list(res.index) == ["L2"]
+
+
+def test_nearest_two_does_not_assign_trdar_cd():
+    # nearest QA를 추가해도 within 실패점의 base assignment는 비어 있어야 한다
+    areas = make_areas()
+    pts = make_points(make_lic([("L1", 160.0, 50.0, False, False)]))
+    within = within_join(pts, areas).set_index("store_id")
+    n2 = nearest_two_analysis(pts, areas, within.reset_index())
+    assert pd.isna(within.loc["L1", "trdar_cd"])
+    assert not within.loc["L1", "in_polygon"]
+    assert "trdar_cd" not in n2.columns  # 배정 컬럼을 만들지 않는다
+    assert bool(n2.set_index("store_id").loc[
+        "L1", "nearest_candidate_high_conf_provisional"])
+
+
+def test_nearest_two_excludes_coord_missing_and_suspect():
+    res = _n2([("L1", 170.0, 50.0, False, False),
+               ("L2", None, None, True, False),
+               ("L3", 170.0, 50.0, False, True)])
+    assert list(res.index) == ["L1"]
+
+
+def test_separation_summary_shape():
+    df = pd.DataFrame({
+        "nearest_distance_m": [5.0, 15.0, 60.0],
+        "nearest_gap_m": [30.0, 2.0, 10.0],
+        "nearest_ratio": [0.14, 0.88, 0.86],
+        "nearest_candidate_high_conf_provisional": [True, False, False],
+    })
+    s = separation_summary(df)
+    assert s["d1"]["n"] == 3 and s["d1"]["median"] == 15.0
+    assert s["gap"]["median"] == 10.0
+    assert s["n_high_conf_provisional"] == 1
 
 
 def test_distance_distribution_and_sensitivity():
