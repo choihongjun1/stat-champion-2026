@@ -83,3 +83,42 @@ audit 수치는 일회성 검증 결과이며, 여기 기록된 내용만이 공
   근거: competing event(업종전환·이전)의 시점·유형 식별이 현 데이터로 부실
   (인허가는 이전 식별 불가, 소진공 소멸은 ID 재발급 오염).
 - **MDIS DML은 인과분석의 핵심 레버로 유지한다** (Stage 3 "핵심 1개 우선" 원칙의 그 1개).
+
+## 2026-09-19 — 상권 공간배정 규칙 (W1 공간조인 PR)
+- **Base spatial assignment는 within-only로 확정한다.** 점포 좌표가 상권 polygon 내부일 때만
+  `trdar_cd`를 확정하고, within 미매칭 점포의 상권 feature는 NA로 둔다.
+- **nearest 배정은 검증 표본으로 평가한 뒤 base assignment에서 제외했다.**
+  근거: 42건 검증 표본과 SHP 재계산에서 d1이 짧은 사례에도 비슷한 거리의 경쟁 polygon이
+  존재했다(예: d1 8.23m / d2 16.55m, gap 8.32m). 전체로도 d1 ≤ 20m인 4,526건 중 1,323건
+  (29.2%)이 gap < 20m다. 따라서 absolute nearest-distance 단독 threshold는 base assignment
+  근거로 충분하지 않다고 판단했다.
+- **d1 / d2 / gap / ratio는 QA·sensitivity provenance로만 보존한다.** 상권 배정에 사용하지 않는다.
+  `nearest_candidate_high_conf_provisional`(d1 ≤ 20m AND gap ≥ 20m)은 **provisional QA 기준**이며
+  통계적으로 확정된 최종 threshold가 아니다. ratio는 보조 지표로 저장만 하고 threshold를 두지 않는다.
+- ER의 좌표 반경 30m와 spatial nearest 거리는 **전혀 다른 개념**이며 값을 재사용하지 않는다.
+- `coord_missing` / `coord_suspect` 점포는 공간배정에서 제외하되 행은 보존한다(모집단 유지).
+- polygon 복수 후보는 임의 선택하지 않고 ambiguous로 보존한다.
+- 판정 한계: d1이 짧다는 사실만으로 배정이 옳다고 판정하지 않았다. 도로 건너편·서로 다른 상권
+  사이·대형 단지·polygon gap에서는 짧은 거리도 의미상 ambiguous하며, 현 표본으로 nearest 배정의
+  의미적 ground truth를 확보했다고 보지 않는다.
+- **상권 polygon의 historical geometry consistency는 여전히 미검증**이다(단일 스냅샷만 보유).
+  현재 결과는 현재 geometry 기준 assignment이며, 과거 origin feature로 쓸 때의 시간 정합성은
+  별도 과제로 남긴다.
+- 상권 영역 SHP의 invalid geometry 6건은 raw를 수정하지 않고 코드에서 `make_valid`로 처리한다.
+
+## 2026-09-19 — 개별공시지가 시점 메타데이터 확정
+- 연도별 `feature_asof`(기준일)와 `available_at`(결정·공시일)을 **별개로 확정**한다.
+  - 2024: feature_asof 2024-01-01 / available_at 2024-04-30
+  - 2025: feature_asof 2025-01-01 / available_at 2025-04-30
+  - 2026: feature_asof 2026-01-01 / available_at 2026-04-30
+- 의미: `feature_asof`는 가격의 기준일, `available_at`은 당시 예측자가 그 값을 실제로 알 수 있게 된
+  날짜다. **prediction origin이 해당 연도 available_at 이전이면 그 연도 land_price 사용은 leakage다.**
+  예) origin 2026-03-31 → `land_price_2026` 사용 금지(이전 연도 값 사용) / origin ≥ 2026-04-30 → 사용 가능.
+- 근거는 서울시 「연도별 개별공시지가 결정·공시」 보도자료다. 연도별 출처 URL은
+  `docs/DATA_CATALOG.md`의 "available_at 출처" 표와 코드의
+  `src/data/landprice.py: AVAILABLE_AT_SOURCES`에 기록한다.
+  (2024년분은 서울시 원 페이지 직접 접근이 되지 않아 국회도서관 지방의정포털에 보존된
+  서울특별시청 원 보도자료를 사용한다.)
+- origin별 feature selection 로직은 W1 공간조인 PR 범위 밖이며, W2가 위 메타데이터로 판단한다.
+- **2026년 공시지가 0원 필지는 값을 보존한다.** NA 변환·임의 대체를 하지 않으며, 처리 규칙은
+  별도 결정 대상으로 남긴다. (실측: 서울 raw 336건, 그중 3구 점포에 결합된 것 10건)

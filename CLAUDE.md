@@ -56,6 +56,7 @@
 - 분석 결과를 바꿀 수 있는 중요한 결정은 `docs/DECISIONS.md`에 기록한다.
 - 새로운 데이터는 사용 전 `docs/DATA_CATALOG.md`에 기록한다.
 - 한 번의 PR에는 가능한 한 하나의 목적만 담는다.
+- 그 목적에 해당하는 문서 갱신은 같은 목적에 포함되므로 같은 PR에 담는다.
 
 ## Before Implementing
 분석 방법을 임의로 추가하지 않는다. `docs/ANALYSIS_PLAN.md`와 `docs/DECISIONS.md`를 먼저 확인한다.
