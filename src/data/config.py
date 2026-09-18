@@ -39,3 +39,6 @@ MDIS_OUTPUT_DIR = REPO_ROOT / "outputs" / "mdis"
 MDIS_STAGE_A_PATH = MDIS_OUTPUT_DIR / "mdis_stage_a.parquet"
 MDIS_STAGE_B_PATH = MDIS_OUTPUT_DIR / "mdis_stage_b.parquet"
 MDIS_CODEBOOK_PATH = REPO_ROOT / "docs" / "MDIS_CODEBOOK.md"
+
+FIGURES_OUTPUT_DIR = REPO_ROOT / "outputs" / "figures"
+MDIS_PROPENSITY_FIGURE_PATH = FIGURES_OUTPUT_DIR / "mdis_propensity_overlap.png"
