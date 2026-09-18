@@ -12,3 +12,5 @@ pyproj==3.8.0
 # spatial join against the commercial-district polygons (src/data/spatial*.py)
 geopandas==1.1.4
 shapely==2.1.2
+# Kaplan-Meier curves for the closure label QA (src/data/labels.py)
+lifelines==0.30.3
