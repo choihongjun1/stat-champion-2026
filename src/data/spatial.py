@@ -4,8 +4,11 @@
 원칙:
 - SHP CRS는 파일명/문서가 아니라 실제 .prj/GeoDataFrame.crs로 검증한다 (실측 EPSG:5181).
 - 공간연산 전 모든 layer를 EPSG:5179로 명시적으로 통일한다 (projected x/y — lon/lat 아님).
-- within 미매칭 점포를 삭제하지 않는다. nearest는 거리·후보 정보만 산출하고
-  자동 배정하지 않는다 (threshold는 QA 후 별도 확정).
+- **base spatial assignment는 within-only다.** within 미매칭 점포를 삭제하지 않으며,
+  nearest 관련 값(d1/d2/gap/ratio)은 QA·sensitivity provenance로만 보존한다.
+  validation 결과 absolute nearest-distance 단독 threshold는 base assignment 근거로
+  충분하지 않다고 판단했다 (짧은 거리에서도 경쟁 polygon이 존재) — 이 모듈의 어떤
+  nearest 값도 trdar_cd를 채우는 데 사용하지 않는다.
 - 복수 polygon 후보는 임의로 첫 행을 선택하지 않고 ambiguous로 보존한다.
 - polygon geometry의 historical consistency(과거 경계 동일 여부)는 미검증이다.
   이 결과는 '현재 확보된 geometry 기준의 spatial assignment'일 뿐이며,
@@ -16,6 +19,7 @@ from __future__ import annotations
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import shapely
 from shapely.validation import make_valid
 
 from src.data.config import CRS_STD, RAW_DIR
@@ -25,6 +29,16 @@ EXPECTED_SHP_EPSG = 5181  # 실측 검증값 — 다르면 중단하고 보고
 
 # nearest tie 판정 허용 오차(m): 이 이내 거리 차이는 동일 순위 후보로 센다
 NEAREST_TIE_TOL = 0.01
+
+# 2순위 후보 탐색 반경(m). 후보가 2개 미만이면 다음 반경으로 확장한다.
+NEAREST_SEARCH_RADII_M = (100.0, 500.0, 2000.0, 20000.0)
+
+# --- provisional QA rule (확정 threshold 아님) -------------------------------
+# 아래 두 값은 "d1이 짧고 2순위와 충분히 떨어진 사례"를 세어 보기 위한
+# provisional QA 기준일 뿐이며, 통계적으로 확정된 최종 threshold가 아니다.
+# 이 기준으로 만들어지는 flag는 상권 배정에 절대 사용하지 않는다.
+PROVISIONAL_QA_D1_MAX_M = 20.0
+PROVISIONAL_QA_GAP_MIN_M = 20.0
 
 TRDAR_COLS = {
     "TRDAR_CD": "trdar_cd",
@@ -179,6 +193,115 @@ def nearest_analysis(points: gpd.GeoDataFrame, areas: gpd.GeoDataFrame,
         nearest_candidate_count=("nearest_trdar_cd", "nunique"),
     ).reset_index()
     return out
+
+
+def nearest_two_analysis(
+    points: gpd.GeoDataFrame,
+    areas: gpd.GeoDataFrame,
+    within_res: pd.DataFrame,
+    search_radii=NEAREST_SEARCH_RADII_M,
+) -> pd.DataFrame:
+    """within 미매칭 점포의 1·2순위 상권과 분리도 지표를 계산한다 (QA 전용).
+
+    반환 컬럼:
+      nearest_trdar_cd_chk / nearest_distance_m_chk  — 독립 재계산된 1순위 (교차검증용)
+      second_nearest_trdar_cd / second_nearest_distance_m — 2순위
+      nearest_gap_m   = d2 - d1
+      nearest_ratio   = d1 / d2   (0 <= ratio <= 1, 1에 가까울수록 후보 분리 나쁨)
+      nearest_candidate_high_conf_provisional — provisional QA flag (배정 금지)
+
+    후보는 TRDAR_CD 단위로 dedupe한다. 같은 상권의 MultiPolygon 파트가 1·2순위를
+    동시에 차지하는 geometry artifact를 막기 위함이다. 2순위 후보가 없으면 NA.
+    """
+    empty_cols = ["store_id", "nearest_trdar_cd_chk", "nearest_distance_m_chk",
+                  "second_nearest_trdar_cd", "second_nearest_distance_m",
+                  "nearest_gap_m", "nearest_ratio",
+                  "nearest_candidate_high_conf_provisional"]
+    unmatched_ids = set(within_res.loc[~within_res["in_polygon"], "store_id"])
+    un_pts = points[points["store_id"].isin(unmatched_ids)].reset_index(drop=True)
+    if len(un_pts) == 0 or len(areas) == 0:
+        return pd.DataFrame(columns=empty_cols)
+
+    pt_geoms = un_pts.geometry.to_numpy()
+    area_geoms = areas.geometry.to_numpy()
+    area_codes = areas["TRDAR_CD"].to_numpy()
+    sindex = areas.sindex
+
+    best: dict[int, list[tuple[float, str]]] = {}
+    pending = np.arange(len(un_pts))
+    for radius in search_radii:
+        if len(pending) == 0:
+            break
+        buffers = shapely.buffer(pt_geoms[pending], radius)
+        left, right = sindex.query(buffers, predicate="intersects")
+        if len(left):
+            dists = shapely.distance(pt_geoms[pending][left], area_geoms[right])
+            cand = pd.DataFrame({
+                "pos": pending[left],
+                "trdar_cd": area_codes[right],
+                "dist": dists,
+            })
+            # 같은 상권코드는 최소거리 1건으로 축약 (MultiPolygon 파트 중복 방지)
+            cand = cand.groupby(["pos", "trdar_cd"], sort=False)["dist"].min().reset_index()
+            cand = cand.sort_values(["pos", "dist"], kind="stable")
+            for pos, g in cand.groupby("pos", sort=False):
+                best[int(pos)] = list(zip(g["dist"].to_numpy(),
+                                          g["trdar_cd"].to_numpy()))[:2]
+        pending = np.array([p for p in pending if len(best.get(int(p), [])) < 2])
+
+    rows = []
+    for pos in range(len(un_pts)):
+        cands = best.get(pos, [])
+        d1 = float(cands[0][0]) if len(cands) >= 1 else np.nan
+        c1 = cands[0][1] if len(cands) >= 1 else None
+        d2 = float(cands[1][0]) if len(cands) >= 2 else np.nan
+        c2 = cands[1][1] if len(cands) >= 2 else None
+        gap = d2 - d1 if len(cands) >= 2 else np.nan
+        ratio = (d1 / d2) if (len(cands) >= 2 and d2 > 0) else np.nan
+        rows.append({
+            "store_id": un_pts["store_id"].iloc[pos],
+            "nearest_trdar_cd_chk": c1,
+            "nearest_distance_m_chk": d1,
+            "second_nearest_trdar_cd": c2,
+            "second_nearest_distance_m": d2,
+            "nearest_gap_m": gap,
+            "nearest_ratio": ratio,
+            "nearest_candidate_high_conf_provisional": bool(
+                (not np.isnan(d1)) and d1 <= PROVISIONAL_QA_D1_MAX_M
+                and (not np.isnan(gap)) and gap >= PROVISIONAL_QA_GAP_MIN_M
+            ),
+        })
+    out = pd.DataFrame(rows, columns=empty_cols)
+    # geometry artifact 방어: 2순위가 존재하면 서로 다른 상권이고 d2 >= d1이어야 한다
+    both = out["second_nearest_trdar_cd"].notna()
+    if both.any():
+        assert (out.loc[both, "second_nearest_trdar_cd"]
+                != out.loc[both, "nearest_trdar_cd_chk"]).all(), "1·2순위 상권코드 중복"
+        assert (out.loc[both, "nearest_gap_m"] >= -NEAREST_TIE_TOL).all(), "d2 < d1"
+    return out
+
+
+def separation_summary(df: pd.DataFrame) -> dict:
+    """d1/gap/ratio 분포 요약 (QA 리포트·검증 표본 공용)."""
+    def _q(s: pd.Series) -> dict:
+        s = s.dropna()
+        if s.empty:
+            return {"n": 0}
+        return {
+            "n": int(len(s)), "min": round(float(s.min()), 2),
+            "median": round(float(s.median()), 2),
+            "p90": round(float(s.quantile(0.90)), 2),
+            "max": round(float(s.max()), 2),
+        }
+    return {
+        "d1": _q(df.get("nearest_distance_m", pd.Series(dtype=float))),
+        "gap": _q(df.get("nearest_gap_m", pd.Series(dtype=float))),
+        "ratio": _q(df.get("nearest_ratio", pd.Series(dtype=float))),
+        "n_high_conf_provisional": int(
+            df.get("nearest_candidate_high_conf_provisional",
+                   pd.Series(dtype=bool)).fillna(False).sum()
+        ),
+    }
 
 
 def distance_distribution(d: pd.Series) -> dict:
