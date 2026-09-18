@@ -162,3 +162,23 @@ VARIABLE_DEFINITIONS = {
     "창업_준비활동_동종업종종사경험여부_bin": f"창업_준비활동_동종업종종사경험여부의 0/1 변환. {YESNO_YES_VALUE}(수행)->1, {YESNO_NO_VALUE}(미수행)->0.",
     "창업_준비활동_창업교육여부_bin": f"창업_준비활동_창업교육여부의 0/1 변환. {YESNO_YES_VALUE}(수행)->1, {YESNO_NO_VALUE}(미수행)->0.",
 }
+
+# --- A-4 검증 (W1_MDIS_AND_LABEL.md A-4) ---
+# mdis_stage_a/b에 이미 존재하는 최종 컬럼명만 사용한다 (원본 컬럼명이 아님).
+A4_CONTINUOUS_COVARIATES = [
+    "tenure_months",
+    "일반_합계종사자수",
+    "경영_영업비용_임차료",
+    "경영_판매처별매출_소비자비율",
+]
+A4_CATEGORICAL_COVARIATES = ["산업중분류코드", "행정구역시도코드"]
+A4_BINARY_COVARIATES = ["경영_부채여부_bin"]
+
+# |SMD| 이 값을 넘으면 처치군/대조군 불균형으로 표시한다 (관례적 기준, Austin 2009).
+SMD_FLAG_THRESHOLD = 0.1
+
+# 결측률이 이 값(%)을 넘는 변수는 팀 보고 대상이다 (W1_MDIS_AND_LABEL.md A-4).
+MISSING_RATE_REPORT_THRESHOLD = 30.0
+
+# stage_b 내 범주형 공변량의 최다 범주 비율이 이 값을 넘으면 쏠림으로 표시한다.
+CATEGORY_CONCENTRATION_THRESHOLD = 0.5
