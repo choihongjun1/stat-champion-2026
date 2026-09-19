@@ -72,6 +72,35 @@
   - 매칭 성공분 중: 동일 관측구간 소멸 72.0% / 선행 소멸 13.9%(갭 중앙값 6개월) / 폐업 후 잔존 12.9%(중앙값 9개월, 최대 18개월) / 미확인 1.2%
 - 결론: 소멸은 폐업 라벨 원천으로 부적합(커버리지·ID 오염·시점 해상도). 라벨 보조정보(`sj_status`, `sj_gap_months`)로만 사용 — `DECISIONS.md` 2026-09-13 참조.
 
+### 2-1. ER 산출물과 B-3 handoff (2026-09-19)
+
+`python -m src.data.matching`이 생성한다 (모두 git 미추적). **ER은 `sj_status`를 만들지 않는다.**
+B-3가 아래 산출물로 파생한다. 소진공 소멸은 주 폐업 라벨이 아니며 주 라벨은 인허가 `close_date`다.
+
+| 파일 | 단위 | B-3가 쓸 컬럼 |
+|---|---|---|
+| `outputs/matching/license_semas_matches.parquet` | 인허가 점포 (110,347행 전체) | `store_id`, `matched`, `ambiguous`, `sj_entity_id`, `sj_store_id`(매칭 당시 후보 ID), `match_tier`, `match_confidence`, `crowded_pnu`, `name_structure`, `unmatched_reason`, `license_date`, `close_date`, `status_name` |
+| `outputs/standardized/semas_entities.parquet` | 소진공 업소번호 (105,264행) | `sj_store_id`, `sj_entity_id`, `id_reissued`, `entity_n_ids`, **`entity_first_snapshot`, `entity_last_snapshot`**, `entity_latest_sj_store_id` |
+| `outputs/standardized/semas_panel.parquet` | 업소번호 × 스냅샷 (545,490행) | `snapshot`, `sj_store_id` (+ 표준화 속성). `sj_entity_id`는 없으므로 entities와 `sj_store_id`로 조인 |
+
+- **B-3는 SEMAS 존재구간·last_seen을 반드시 `sj_entity_id` 기준으로 계산한다.**
+  entities의 `entity_first_snapshot`/`entity_last_snapshot`을 그대로 쓰거나, 스냅샷별 이력이 필요하면
+  `panel ⋈ entities (sj_store_id)` 후 `sj_entity_id`로 묶는다.
+  **업소번호 기준 `first_snapshot`/`last_snapshot`은 쓰지 않는다** — 재발급된 4,700개 업소번호가 소멸처럼 보인다.
+- 재발급: unambiguous 1:1 링크만 한 entity로 묶었고(`id_reissued=True`), 재발급 전후를 다시 나누지 않는다.
+  ambiguous 링크 132건은 병합하지 않았으므로 각자 별도 entity다.
+- 매칭 구분: `matched=False & ambiguous=True`는 후보가 여럿이라 확정하지 않은 행, `matched=False & ambiguous=False`는
+  미매칭이다. 사유는 `unmatched_reason`(예: `tier4_name_not_exact_or_contained`, `ambiguous_candidates`).
+- 신뢰도: `match_confidence` high(Tier1·2) / medium(Tier3) / low(Tier4). Tier3 중 `crowded_pnu=True`(후보 51개 이상 PNU)는
+  표본상 오매칭 위험이 높아 후속 단계에서 별도 sensitivity 집합으로 비교할 수 있도록 flag를 보존했다.
+  ER에서는 자동 제외·강등하지 않는다 (`DECISIONS.md` 2026-09-19).
+- 시점 정합: **ER은 인허가 영업기간과 entity 관측구간의 겹침을 검사하지 않으며, 겹침이 짧다는 이유로
+  매칭을 미매칭으로 바꾸지 않는다.** 필요하면 B-3에서 `license_date`/`close_date`와
+  `entity_first/last_snapshot`으로 `overlap_days` 같은 값을 QA/provenance로 계산할 수 있다.
+  현재 매칭 중 겹침 90일 미만은 6,105건이며, SEMAS 관측이 2024-12~2026-06이라 최근 개업 점포는 겹침이
+  짧게 잡히는 경계 효과가 있다. `LABEL_SPEC.md`의 90일 겹침 조건과의 차이는 B-3 담당자와 별도 합의 사항이다.
+- 202503 스냅샷 경위도는 전량 서울 밖이라 entity 좌표·Tier4 매칭에 쓰지 않는다 (entity 좌표 출처 중 202503은 0건).
+
 ## 3. 서울 상권분석서비스 (열린데이터광장, CP949)
 
 - 추정매출·점포: 2021Q1~2026Q2 22개 분기 전부 존재. 상권변화지표: 36,300행 = 1,650상권 × 22분기.

@@ -4,11 +4,15 @@ import numpy as np
 import pandas as pd
 
 from src.data.matching import (
+    NAME_CONTAINMENT,
+    NAME_EXACT,
+    NAME_OTHER,
     bigram_jaccard,
     build_grid,
     match_coord_tier,
     match_exact_tiers,
     match_fuzzy_tier,
+    name_structure,
     neighbors_within,
     run_cascade,
     seq_ratio,
@@ -242,3 +246,124 @@ def test_cascade_confidence_levels():
     o = out.set_index("store_id")
     assert o.loc["L1", "match_confidence"] == "high"
     assert o.loc["L2", "match_confidence"] == "medium"  # fuzzy tier3
+
+
+# --- 이름 구조 (리뷰 후 validation 반영) ---
+
+def test_name_structure_classes():
+    assert name_structure("김밥천국", "김밥천국") == NAME_EXACT
+    assert name_structure("가보자", "가보자식당") == NAME_CONTAINMENT
+    assert name_structure("가보자식당", "가보자") == NAME_CONTAINMENT
+    assert name_structure("나라헤어", "유나헤어") == NAME_OTHER
+
+
+def test_four_char_single_substitution_scores_exactly_threshold():
+    # 0.75는 4자 상호의 1자 치환이 정확히 통과하는 하한이다 — 구조 조건이 필요한 이유
+    assert seq_ratio("나라헤어", "유나헤어") == 0.75
+    assert seq_ratio("서강국시", "서강낚시") == 0.75
+
+
+# --- Tier4 이름 구조 조건 ---
+
+def test_tier4_substitution_rejected_with_structure_rule():
+    lic = make_lic([("L1", None, "나라헤어", None, 100.0, 100.0)])
+    ents = make_entities([("S1", "S1", "유나헤어", "유나헤어", 110.0, 100.0)])
+    res, _ = match_coord_tier(lic, ents, radius=30.0, threshold=0.75,
+                              require_structure=True)
+    r = res.loc["L1"]
+    assert not r["matched"] and not r["ambiguous"]
+    assert r["unmatched_reason"] == "tier4_name_not_exact_or_contained"
+    assert r["name_structure"] == NAME_OTHER
+    assert r["best_sj_entity_id"] == "S1"  # provenance 보존
+
+
+def test_tier4_substitution_matched_when_rule_disabled():
+    # 구조 조건을 끄면 기존 동작(score만 비교)과 같아야 한다 (회귀 방지)
+    lic = make_lic([("L1", None, "나라헤어", None, 100.0, 100.0)])
+    ents = make_entities([("S1", "S1", "유나헤어", "유나헤어", 110.0, 100.0)])
+    res, _ = match_coord_tier(lic, ents, radius=30.0, threshold=0.75,
+                              require_structure=False)
+    assert res.loc["L1", "matched"]
+
+
+def test_tier4_containment_accepted():
+    lic = make_lic([("L1", None, "가보자", None, 100.0, 100.0)])
+    ents = make_entities([("S1", "S1", "가보자식당", "가보자식당", 101.0, 100.0)])
+    res, _ = match_coord_tier(lic, ents, radius=30.0, threshold=0.75,
+                              require_structure=True)
+    r = res.loc["L1"]
+    assert r["matched"] and r["name_structure"] == NAME_CONTAINMENT
+
+
+def test_tier4_skips_substitution_and_takes_farther_exact():
+    # 가까운 치환형 후보는 버리고, 더 먼 exact 후보를 택한다
+    lic = make_lic([("L1", None, "백조식당", None, 100.0, 100.0)])
+    ents = make_entities([
+        ("S1", "S1", "백세식당", "백세식당", 103.0, 100.0),
+        ("S2", "S2", "백조식당", "백조식당", 125.0, 100.0),
+    ])
+    res, _ = match_coord_tier(lic, ents, radius=30.0, threshold=0.75,
+                              require_structure=True)
+    r = res.loc["L1"]
+    assert r["matched"] and r["sj_entity_id"] == "S2"
+    assert r["name_structure"] == NAME_EXACT
+
+
+def test_tier4_entity_without_valid_coord_not_candidate():
+    # 202503처럼 좌표가 전부 suspect인 entity는 좌표가 NaN이라 Tier4 후보가 될 수 없다
+    lic = make_lic([("L1", None, "김밥천국", None, 100.0, 100.0)])
+    ents = make_entities([("S1", "S1", "김밥천국", "김밥천국", np.nan, np.nan)])
+    res, _ = match_coord_tier(lic, ents, radius=30.0, threshold=0.75)
+    r = res.loc["L1"]
+    assert not r["matched"]
+    assert r["unmatched_reason"] == "no_candidate_in_radius"
+
+
+# --- Tier3 혼잡 PNU ---
+
+def _crowded_cand(n_noise: int):
+    rows = [("S0", "P1", "김밥천곡", "김밥천곡", "S0")]
+    rows += [(f"N{i}", "P1", f"잡화{i:03d}상회", f"잡화{i:03d}상회", f"N{i}")
+             for i in range(n_noise)]
+    return make_cand(rows)
+
+
+def test_tier3_crowded_flag_only_by_default():
+    lic = make_lic([("L1", "P1", "김밥천국", None, None, None)])
+    res, _ = match_fuzzy_tier(lic, _crowded_cand(60), crowded_cc=50,
+                              crowded_min_score=None)
+    r = res.loc["L1"]
+    assert r["crowded_pnu"]
+    assert r["matched"]  # 기본값에서는 표시만 하고 매칭은 유지
+
+
+def test_tier3_crowded_low_score_demoted_to_ambiguous():
+    lic = make_lic([("L1", "P1", "김밥천국", None, None, None)])
+    res, _ = match_fuzzy_tier(lic, _crowded_cand(60), crowded_cc=50,
+                              crowded_min_score=0.9)
+    r = res.loc["L1"]
+    assert not r["matched"] and r["ambiguous"]  # 자동 매칭하지 않는다
+    assert r["unmatched_reason"] == "tier3_crowded_pnu_low_score"
+    assert r["best_sj_entity_id"] == "S0"  # 후보 provenance 보존
+
+
+def test_tier3_not_crowded_unaffected_by_crowded_rule():
+    lic = make_lic([("L1", "P1", "김밥천국", None, None, None)])
+    res, _ = match_fuzzy_tier(lic, _crowded_cand(5), crowded_cc=50,
+                              crowded_min_score=0.9)
+    r = res.loc["L1"]
+    assert not r["crowded_pnu"] and r["matched"]
+
+
+def test_cascade_keeps_specific_ambiguous_reason_and_all_rows():
+    lic = make_lic([
+        ("L1", "P1", "김밥천국", None, None, None),
+        ("L2", "P9", "아무거나", None, None, None),
+    ])
+    cand = _crowded_cand(60)
+    ents = make_entities([("S0", "S0", "김밥천곡", "김밥천곡", 0.0, 0.0)])
+    out, _, _ = run_cascade(lic, cand, ents, tier3_crowded_min_score=0.9)
+    assert len(out) == 2 and out["store_id"].is_unique
+    o = out.set_index("store_id")
+    assert o.loc["L1", "ambiguous"] and not o.loc["L1", "matched"]
+    assert o.loc["L1", "unmatched_reason"] == "tier3_crowded_pnu_low_score"

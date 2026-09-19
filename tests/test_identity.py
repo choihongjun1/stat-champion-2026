@@ -127,3 +127,63 @@ def test_entity_coord_skips_suspect_snapshot():
     ents = build_entities(panel, detect_id_reissue(panel)).set_index("sj_store_id")
     assert ents.loc["A", "x_5179"] == 950000.0
     assert ents.loc["A", "coord_snapshot"] == "202412"
+
+
+# --- entity 단위 재발급 provenance (리뷰 후 반영) ---
+
+def test_reissued_entity_not_split_and_flagged():
+    # OLD(202412~202503) → NEW(202506) 재발급: 한 entity로 유지 + id_reissued
+    panel = make_panel([
+        ("202412", "OLD", "P1", "국밥집"),
+        ("202503", "OLD", "P1", "국밥집"),
+        ("202506", "NEW", "P1", "국밥집"),
+    ])
+    e = build_entities(panel, detect_id_reissue(panel)).set_index("sj_store_id")
+    assert e.loc["OLD", "sj_entity_id"] == e.loc["NEW", "sj_entity_id"] == "OLD"
+    assert bool(e.loc["OLD", "id_reissued"]) and bool(e.loc["NEW", "id_reissued"])
+    assert e.loc["OLD", "entity_n_ids"] == 2
+    # ID 기준 last_snapshot은 OLD가 202503에 '소멸'한 것처럼 보이지만
+    assert e.loc["OLD", "last_snapshot"] == "202503"
+    # entity 기준으로는 202506까지 관측된다 — 재발급을 소멸로 오인하지 않는다
+    assert e.loc["OLD", "entity_last_snapshot"] == "202506"
+    assert e.loc["OLD", "entity_first_snapshot"] == "202412"
+    assert e.loc["OLD", "entity_latest_sj_store_id"] == "NEW"
+
+
+def test_ambiguous_reissue_not_flagged_as_reissued():
+    panel = make_panel([
+        ("202412", "OLD1", "P1", "미용실"),
+        ("202412", "OLD2", "P1", "미용실"),
+        ("202503", "NEW", "P1", "미용실"),
+    ])
+    e = build_entities(panel, detect_id_reissue(panel)).set_index("sj_store_id")
+    # ambiguous 링크는 병합하지 않으므로 세 ID 모두 단독 entity
+    assert e["sj_entity_id"].nunique() == 3
+    assert not e["id_reissued"].any()
+    assert e["id_link_ambiguous"].all()
+    assert e.loc["OLD1", "entity_last_snapshot"] == "202412"
+
+
+def test_single_id_entity_provenance_matches_id_level():
+    panel = make_panel([
+        ("202412", "A", "P1", "가게"),
+        ("202506", "A", "P1", "가게"),
+    ])
+    e = build_entities(panel, detect_id_reissue(panel)).set_index("sj_store_id")
+    assert not bool(e.loc["A", "id_reissued"])
+    assert e.loc["A", "entity_last_snapshot"] == e.loc["A", "last_snapshot"] == "202506"
+    assert e.loc["A", "entity_latest_sj_store_id"] == "A"
+
+
+def test_reissue_chain_three_ids_one_entity():
+    # A → B → C 연쇄 재발급도 하나의 entity (대표 = 최초 ID)
+    panel = make_panel([
+        ("202412", "A", "P1", "칼국수"),
+        ("202503", "B", "P1", "칼국수"),
+        ("202506", "C", "P1", "칼국수"),
+    ])
+    e = build_entities(panel, detect_id_reissue(panel)).set_index("sj_store_id")
+    assert set(e["sj_entity_id"]) == {"A"}
+    assert (e["entity_n_ids"] == 3).all()
+    assert (e["entity_last_snapshot"] == "202506").all()
+    assert (e["entity_latest_sj_store_id"] == "C").all()

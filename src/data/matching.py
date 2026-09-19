@@ -19,8 +19,12 @@
   candidate_count로 기록되는 evidence일 뿐, 이름 근거 없는 자동 매칭은 없다.
 - 좌표 단독 매칭 금지: tier 4도 이름 일치(threshold 이상)를 요구한다.
 
-임계값: 아래 값은 확정값이 아니라 잠정값이며, qa_report.md의 threshold
-sensitivity와 검증 표본 수작업 확인을 거쳐 확정한다 (DECISIONS 등재 후보).
+규칙 상태 (docs/DECISIONS.md 2026-09-19):
+- Tier4 최종 규칙: 반경 30m + 상호 exact/containment + name_score 0.75 이상.
+  검증 표본과 변경 13행 수작업 검토로 확정.
+- Tier3 threshold 0.75는 잠정 유지. 혼잡 PNU는 crowded_pnu 표시만 한다.
+- 인허가 영업기간과 소진공 관측구간의 겹침은 ER에서 검사하지 않는다 (B-3 판단).
+- sj_status는 이 모듈에서 만들지 않는다 (B-3 파생).
 """
 from __future__ import annotations
 
@@ -37,13 +41,29 @@ from src.data.names import _clean_base  # 상호 정규화와 동일한 문자 �
 
 MATCH_DIR = REPO_ROOT / "outputs" / "matching"
 
-# --- 잠정 파라미터 (확정 전, sensitivity QA 대상) ---
-FUZZY_THRESHOLD = 0.75      # tier 3/4 상호 유사도 하한 (잠정)
+# --- 매칭 파라미터 (sensitivity QA는 matching_validation.py) ---
+FUZZY_THRESHOLD = 0.75      # 상호 유사도 하한: tier3 잠정값 / tier4 score 하한(확정)
 FUZZY_MARGIN = 0.05         # 1위-2위 score 차이 하한 (미만이면 ambiguous)
-COORD_RADIUS_M = 30.0       # tier 4 탐색 반경 (잠정)
+COORD_RADIUS_M = 30.0       # tier 4 탐색 반경 (확정)
 COORD_MARGIN_M = 5.0        # 1위-2위 거리 차이 하한 (미만이면 ambiguous)
 FUZZY_SENS_GRID = [0.5, 0.6, 0.7, 0.75, 0.8, 0.9]
 RADIUS_SENS_GRID = [10.0, 20.0, 30.0]
+
+# Tier4 이름 구조 조건: 다른 필지의 후보는 상호가 정확히 같거나 한쪽이 다른 쪽을 포함할
+# 때만 이름 일치로 본다. 0.75는 4자 상호의 1자 치환(나라헤어↔유나헤어)이 정확히 통과하는
+# 하한이라, 인접 필지에서는 서로 다른 이웃 점포를 붙이는 경로가 된다.
+# 검증 표본과 변경 13행 수작업 검토로 확정한 최종 규칙 (docs/DECISIONS.md 2026-09-19)
+TIER4_REQUIRE_EXACT_OR_CONTAINMENT = True
+
+# Tier3 혼잡 PNU: 후보 entity가 이 수를 넘으면 crowded_pnu로 표시한다.
+# TIER3_CROWDED_MIN_SCORE를 숫자로 두면 crowded Tier3 중 그 점수 미만을 ambiguous로
+# 내린다. 기본은 None(비활성) — 근거 표본이 11건뿐이라 확정하지 않았다.
+TIER3_CROWDED_CC = 50
+TIER3_CROWDED_MIN_SCORE: float | None = None
+
+NAME_EXACT = "exact"
+NAME_CONTAINMENT = "containment"
+NAME_OTHER = "substitution_or_other"
 
 SAMPLE_SEED = 20260916
 SAMPLE_PER_GROUP = 8
@@ -55,6 +75,16 @@ SAMPLE_PER_GROUP = 8
 def seq_ratio(a: str, b: str) -> float:
     """difflib SequenceMatcher ratio (주 유사도)."""
     return SequenceMatcher(None, a, b).ratio()
+
+
+def name_structure(a: str, b: str) -> str:
+    """두 정규화 상호의 관계: exact / containment(짧은 쪽이 긴 쪽의 부분문자열) / 그 외."""
+    if a == b:
+        return NAME_EXACT
+    short, long_ = (a, b) if len(a) <= len(b) else (b, a)
+    if short and short in long_:
+        return NAME_CONTAINMENT
+    return NAME_OTHER
 
 
 def bigram_jaccard(a: str, b: str) -> float:
@@ -187,8 +217,14 @@ def match_exact_tiers(lic: pd.DataFrame, cand: pd.DataFrame) -> pd.DataFrame:
 def match_fuzzy_tier(
     lic: pd.DataFrame, cand: pd.DataFrame, threshold: float = FUZZY_THRESHOLD,
     margin: float = FUZZY_MARGIN,
+    crowded_cc: int = TIER3_CROWDED_CC,
+    crowded_min_score: float | None = TIER3_CROWDED_MIN_SCORE,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Tier 3: PNU가 같은 후보 내에서만 상호 fuzzy 매칭.
+
+    후보 entity가 crowded_cc를 넘는 PNU(대형 복합건물·몰)는 crowded_pnu로 표시한다.
+    crowded_min_score가 주어지면 crowded PNU에서 그 점수 미만인 매칭을 ambiguous로
+    내린다 (None이면 표시만 하고 매칭은 바꾸지 않는다).
 
     반환: (store_id별 결과, 전 후보 pair의 score 기록 — sensitivity/분포 QA용)
     """
@@ -245,8 +281,17 @@ def match_fuzzy_tier(
             "best_sj_store_id": best_row["sj_store_id"],
             "best_sj_entity_id": best_ent,
             "best_name_norm_sj": best_row["name_norm_sj"],
+            "crowded_pnu": bool(len(by_ent) > crowded_cc),
         }
-        if best >= threshold and (best - second) >= margin:
+        crowded_low = (
+            base["crowded_pnu"] and crowded_min_score is not None
+            and best < crowded_min_score
+        )
+        if best >= threshold and (best - second) >= margin and crowded_low:
+            results[sid] = {**base, "matched": False, "ambiguous": True,
+                            "sj_store_id": None, "sj_entity_id": None,
+                            "unmatched_reason": "tier3_crowded_pnu_low_score"}
+        elif best >= threshold and (best - second) >= margin:
             results[sid] = {**base, "matched": True, "ambiguous": False,
                             "sj_store_id": best_row["sj_store_id"],
                             "sj_entity_id": best_ent}
@@ -265,8 +310,13 @@ def match_coord_tier(
     lic: pd.DataFrame, entities: pd.DataFrame,
     radius: float = COORD_RADIUS_M, threshold: float = FUZZY_THRESHOLD,
     margin_m: float = COORD_MARGIN_M,
+    require_structure: bool = TIER4_REQUIRE_EXACT_OR_CONTAINMENT,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Tier 4: 좌표 반경 내 후보 + 이름 일치 필수 (거리 단독 매칭 금지).
+
+    require_structure=True면 score가 threshold 이상이어도 상호가 exact 또는
+    containment일 때만 이름 일치로 인정한다. 좌표는 entity의 신뢰 가능한 스냅샷
+    좌표만 쓰므로 202503(좌표 전량 서울 밖) 값은 여기 들어오지 않는다.
 
     반환: (store_id별 결과, 시도된 (license, candidate) 거리·score 기록)
     """
@@ -291,35 +341,49 @@ def match_coord_tier(
         scored = []
         for i, d in neigh:
             e = ents.iloc[i]
-            s = seq_ratio(row.name_norm, e["name_norm_last"])
-            if pd.notna(e["name_branch_norm_last"]) and e["name_branch_norm_last"] != e["name_norm_last"]:
-                s = max(s, seq_ratio(row.name_norm, e["name_branch_norm_last"]))
-            scored.append((i, d, s))
+            # 상호 단독과 상호+지점명 중 score가 높은 쪽을 쓰고, 그 문자열로 구조를 판정한다
+            best_str = e["name_norm_last"]
+            s = seq_ratio(row.name_norm, best_str)
+            nb = e["name_branch_norm_last"]
+            if pd.notna(nb) and nb != e["name_norm_last"]:
+                s_nb = seq_ratio(row.name_norm, nb)
+                if s_nb > s:
+                    s, best_str = s_nb, nb
+            struct = name_structure(row.name_norm, best_str)
+            scored.append((i, d, s, struct))
             attempts.append({
                 "store_id": row.store_id, "sj_entity_id": e["sj_entity_id"],
-                "distance_m": d, "name_score": s,
+                "distance_m": d, "name_score": s, "name_structure": struct,
             })
-        agree = [(i, d, s) for i, d, s in scored if s >= threshold]
+        score_ok = [t for t in scored if t[2] >= threshold]
+        agree = [t for t in score_ok
+                 if not require_structure or t[3] != NAME_OTHER]
         if not agree:
-            best_i, best_d, best_s = max(scored, key=lambda t: t[2])
+            # score는 통과했지만 이름 구조(치환형)로 걸러진 경우를 따로 남긴다
+            pool, reason = (
+                (score_ok, "tier4_name_not_exact_or_contained") if score_ok
+                else (scored, "name_disagreement_in_radius")
+            )
+            best_i, best_d, best_s, best_struct = max(pool, key=lambda t: t[2])
             results[row.store_id] = {
                 "matched": False, "match_tier": 4, "ambiguous": False,
                 "match_method": "coord_radius+name",
                 "candidate_count": len(scored),
                 "distance_m": best_d, "name_score": best_s,
+                "name_structure": best_struct,
                 "best_sj_entity_id": ents.iloc[best_i]["sj_entity_id"],
                 "best_name_norm_sj": ents.iloc[best_i]["name_norm_last"],
-                "unmatched_reason": "name_disagreement_in_radius",
+                "unmatched_reason": reason,
             }
             continue
         # 이름이 일치하는 후보 중 최근접. entity 중복 제거.
-        agree_ents: dict[str, tuple[float, float, int]] = {}
-        for i, d, s in agree:
+        agree_ents: dict[str, tuple[float, float, int, str]] = {}
+        for i, d, s, struct in agree:
             eid = ents.iloc[i]["sj_entity_id"]
             if eid not in agree_ents or d < agree_ents[eid][0]:
-                agree_ents[eid] = (d, s, i)
+                agree_ents[eid] = (d, s, i, struct)
         ranked = sorted(agree_ents.items(), key=lambda kv: kv[1][0])
-        eid, (d, s, i) = ranked[0]
+        eid, (d, s, i, struct) = ranked[0]
         second_d = ranked[1][1][0] if len(ranked) > 1 else float("inf")
         base = {
             "match_tier": 4, "match_method": "coord_radius+name",
@@ -327,6 +391,7 @@ def match_coord_tier(
             "candidate_count": len(ranked),
             "pnu_exact": False, "name_exact": s >= 0.9999,
             "branch_used": False,
+            "name_structure": struct,
             "best_sj_entity_id": eid,
             "best_name_norm_sj": ents.iloc[i]["name_norm_last"],
         }
@@ -343,14 +408,20 @@ def match_coord_tier(
 
 def run_cascade(
     lic: pd.DataFrame, cand: pd.DataFrame, entities: pd.DataFrame,
+    tier3_crowded_min_score: float | None = TIER3_CROWDED_MIN_SCORE,
+    tier4_require_structure: bool = TIER4_REQUIRE_EXACT_OR_CONTAINMENT,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """4-tier cascade 실행. 인허가 전체 행을 보존한 매칭 테이블을 만든다."""
+    """4-tier cascade 실행. 인허가 전체 행을 보존한 매칭 테이블을 만든다.
+
+    규칙 옵션은 sensitivity 비교를 위해 인자로 받는다. 기본값은 모듈 상수다.
+    """
     exact = match_exact_tiers(lic, cand)
     matched_ids = set(exact.index[exact["matched"]]) if len(exact) else set()
     amb_exact_ids = set(exact.index[~exact["matched"]]) if len(exact) else set()
 
     remain = lic[~lic["store_id"].isin(matched_ids | amb_exact_ids)]
-    fuzzy, fuzzy_pairs = match_fuzzy_tier(remain, cand)
+    fuzzy, fuzzy_pairs = match_fuzzy_tier(
+        remain, cand, crowded_min_score=tier3_crowded_min_score)
     matched_ids |= set(fuzzy.index[fuzzy["matched"]]) if len(fuzzy) else set()
     amb_fuzzy_ids = set(fuzzy.index[fuzzy.get("ambiguous", pd.Series(dtype=bool)) == True]) if len(fuzzy) else set()
 
@@ -358,7 +429,8 @@ def run_cascade(
         matched_ids | amb_exact_ids | amb_fuzzy_ids
         | (set(fuzzy.index) if len(fuzzy) else set())
     )]
-    coord, coord_attempts = match_coord_tier(remain2, entities)
+    coord, coord_attempts = match_coord_tier(
+        remain2, entities, require_structure=tier4_require_structure)
 
     parts = [df for df in (exact, fuzzy, coord) if len(df)]
     allres = pd.concat(parts) if parts else pd.DataFrame()
@@ -366,10 +438,17 @@ def run_cascade(
     out = lic.merge(allres.reset_index(), on="store_id", how="left")
     out["matched"] = out["matched"].fillna(False).astype(bool)
     out["ambiguous"] = out["ambiguous"].fillna(False).astype(bool)
+    if "unmatched_reason" not in out.columns:
+        out["unmatched_reason"] = pd.NA
     no_attempt = out["match_tier"].isna()
     out.loc[no_attempt & out["pnu"].isna(), "unmatched_reason"] = "no_pnu_no_coord_or_no_candidate"
     out.loc[no_attempt & out["pnu"].notna(), "unmatched_reason"] = "no_candidate_on_pnu"
-    out.loc[out["ambiguous"], "unmatched_reason"] = "ambiguous_candidates"
+    # 규칙이 이미 구체적 사유(예: tier3_crowded_pnu_low_score)를 남겼으면 덮어쓰지 않는다
+    out.loc[out["ambiguous"] & out["unmatched_reason"].isna(),
+            "unmatched_reason"] = "ambiguous_candidates"
+    for col in ("crowded_pnu",):
+        if col in out.columns:
+            out[col] = out[col].astype("boolean")
 
     conf = pd.Series(pd.NA, index=out.index, dtype="object")
     conf[out["matched"] & out["match_tier"].isin([1, 2])] = "high"
@@ -397,7 +476,7 @@ def write_qa(
 ) -> None:
     MATCH_DIR.mkdir(parents=True, exist_ok=True)
     L = ["# 인허가 ↔ 소진공 Entity Resolution QA", ""]
-    L.append("생성: `python -m src.data.matching` — 아래 임계값은 잠정값이며 "
+    L.append("생성: `python -m src.data.matching` — Tier4 규칙은 확정, Tier3 0.75는 잠정값이며 "
              "sensitivity와 수작업 표본 검증으로 확정 예정.")
     L.append(f"- FUZZY_THRESHOLD={FUZZY_THRESHOLD}, FUZZY_MARGIN={FUZZY_MARGIN}, "
              f"COORD_RADIUS_M={COORD_RADIUS_M}, COORD_MARGIN_M={COORD_MARGIN_M}")
@@ -435,6 +514,18 @@ def write_qa(
              f"(union-find 참여 {n_linked:,}) — ambiguous 링크는 병합하지 않음")
     L.append(f"- entity 수: {entities['sj_entity_id'].nunique():,} "
              f"(원 업소번호 {len(entities):,})")
+    if "id_reissued" in entities.columns:
+        reissued = entities[entities["id_reissued"]]
+        L.append(f"- `id_reissued` entity: {reissued['sj_entity_id'].nunique():,} "
+                 f"(소속 업소번호 {len(reissued):,}) — 재발급 전후를 한 entity로 유지")
+        amb = links[links["ambiguous"]]
+        same = 0
+        if len(amb):
+            eid = entities.set_index("sj_store_id")["sj_entity_id"]
+            same = int((amb["old_id"].map(eid) == amb["new_id"].map(eid)).sum())
+        L.append(f"- ambiguous 링크 {len(amb):,}건 중 같은 entity로 묶인 쌍: {same} (0이어야 정상)")
+        L.append("- 폐업 보조정보(sj_status)는 ID 기준 `last_snapshot`이 아니라 "
+                 "`entity_last_snapshot`을 써야 재발급을 소멸로 오인하지 않는다.")
     L.append("")
     L.append("주의: 소진공 소멸·신규는 폐업·개업 label이 아니다 (DECISIONS 2026-09-13).")
     L.append("")
@@ -503,6 +594,21 @@ def write_qa(
             sub = agree[agree["distance_m"] <= r]
             per = sub.groupby("store_id")["sj_entity_id"].nunique()
             L.append(f"| {r:.0f} | {len(per):,} | {(per > 1).sum():,} |")
+        L.append("")
+        t4 = out[(out["match_tier"] == 4) & out["name_structure"].notna()] \
+            if "name_structure" in out.columns else out.iloc[0:0]
+        if len(t4):
+            L.append("Tier4 이름 구조 (matched / 구조 조건으로 제외):")
+            for struct, g in t4.groupby("name_structure"):
+                L.append(f"- {struct}: matched {int(g['matched'].sum()):,} / "
+                         f"제외 {int((g['unmatched_reason'] == 'tier4_name_not_exact_or_contained').sum()):,}")
+            rej = t4[t4["unmatched_reason"] == "tier4_name_not_exact_or_contained"]
+            if len(rej):
+                L.append("")
+                L.append("구조 조건으로 제외된 Tier4 후보 (전수):")
+                for r in rej.sort_values("distance_m").itertuples(index=False):
+                    L.append(f"- {r.name_norm} ↔ {r.best_name_norm_sj} "
+                             f"(score {r.name_score:.3f}, {r.distance_m:.1f}m)")
     else:
         L.append("- tier 4 시도 없음")
     L.append("")
