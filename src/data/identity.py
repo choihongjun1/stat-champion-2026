@@ -191,4 +191,29 @@ def build_entities(panel: pd.DataFrame, links: pd.DataFrame) -> pd.DataFrame:
     ent["y_5179"] = last_coord["y_5179"]
     ent["coord_snapshot"] = last_coord["snapshot"]
 
-    return ent.reset_index().rename(columns={"index": "sj_store_id"})
+    ent = ent.reset_index().rename(columns={"index": "sj_store_id"})
+    return add_entity_provenance(ent)
+
+
+def add_entity_provenance(ent: pd.DataFrame) -> pd.DataFrame:
+    """entity 단위 재발급 provenance를 각 업소번호 행에 붙인다.
+
+    `first_snapshot`/`last_snapshot`은 **원 업소번호(ID) 기준**이라 재발급된 entity에서는
+    구 ID가 중간에 '소멸'한 것처럼 보인다. 폐업 보조정보(sj_status)는 반드시 아래
+    `entity_*` 값(sj_entity_id 기준)을 써야 재발급을 소멸로 오인하지 않는다.
+    재발급 전후 ID를 다른 entity로 쪼개지 않으며, 재발급 여부는 `id_reissued`로만 남긴다.
+
+    이 값들은 7개 스냅샷 union에서 나온다. 라벨 보조정보·ER 검증용이며
+    과거 origin의 prediction feature로 쓰면 미래 정보 누수다.
+    """
+    grp = ent.groupby("sj_entity_id")
+    ent["entity_n_ids"] = grp["sj_store_id"].transform("size").astype(int)
+    ent["id_reissued"] = ent["entity_n_ids"] > 1
+    ent["entity_first_snapshot"] = grp["first_snapshot"].transform("min")
+    ent["entity_last_snapshot"] = grp["last_snapshot"].transform("max")
+    latest = (
+        ent.sort_values(["sj_entity_id", "last_snapshot", "first_snapshot", "sj_store_id"])
+        .groupby("sj_entity_id")["sj_store_id"].last()
+    )
+    ent["entity_latest_sj_store_id"] = ent["sj_entity_id"].map(latest)
+    return ent
