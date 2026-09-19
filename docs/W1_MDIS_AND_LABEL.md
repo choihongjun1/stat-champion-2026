@@ -56,7 +56,10 @@ encoding: cp949 / 40,000행 × 156열
    | 가중치 | 사업체수가중값 |
 
 4. 파생변수
-   - `age_months` = (2023×12) − (창업연도×12 + 창업월)
+   - `tenure_months` = (TENURE_BASE_YEAR×12 + TENURE_BASE_MONTH) − (창업연도×12 + 창업월), 기준 2023-12
+     > 주의: 이 변수는 MDIS 전처리(A-3)에서 산출되는 tenure_months이며,
+     > 라벨 구축(B-2)의 age_months(인허가일자 기준 업력)와는 별개 변수다.
+     > 두 변수는 서로 다른 데이터셋에서 서로 다른 방식으로 계산된다.
    - `profit_margin` = 경영_영업이익 / 경영_매출금액 (매출 0이면 NaN + `data_flag=1`)
    - `is_seoul` = (행정구역시도코드 == '11')
 
