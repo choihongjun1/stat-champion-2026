@@ -124,3 +124,80 @@ def test_split_stage_ab():
     assert len(stage_a) == 5
     assert len(stage_b) == 2
     assert set(stage_b["treat_binary"]) == {1}
+
+
+# --- Issue #13 Part B 회귀 테스트 ---
+
+
+def test_coerce_numeric_columns_converts_weight_column():
+    # B1: 사업체수가중값이 NUMERIC_COLUMNS 누락으로 문자열로 남던 버그.
+    df = pd.DataFrame({"사업체수가중값": ["1301.96341463415", "59.9082568807339"]})
+    out = mdis.coerce_numeric_columns(df)
+    assert out["사업체수가중값"].dtype == float
+    assert out["사업체수가중값"].tolist() == pytest.approx([1301.96341463415, 59.9082568807339])
+
+
+def test_add_derived_features_sentinel_year_is_nan_and_flagged():
+    # B2: 창업연도 1900(sentinel)이 tenure_months=1475처럼 왜곡되던 버그.
+    df = pd.DataFrame(
+        {
+            "일반_창업인수승계_연도": ["1900", "2020"],
+            "일반_창업인수승계_월": ["1", "1"],
+            "경영_매출금액": [100, 100],
+            "경영_영업이익": [10, 10],
+            "행정구역시도코드": ["11", "11"],
+        }
+    )
+    out = mdis.add_derived_features(df)
+    assert pd.isna(out["tenure_months"].iloc[0])
+    assert out["tenure_invalid_flag"].tolist() == [1, 0]
+    assert out["tenure_months"].iloc[1] == 2023 * 12 - (2020 * 12 + 1)
+
+
+def test_add_derived_features_implausible_non_sentinel_year_raises():
+    # B2: sentinel(1900)도 아니고 그럴듯한 범위도 아닌 값은 조용히 넘기지 않고 즉시 실패해야 한다.
+    df = pd.DataFrame(
+        {
+            "일반_창업인수승계_연도": ["1800"],
+            "일반_창업인수승계_월": ["1"],
+            "경영_매출금액": [100],
+            "경영_영업이익": [10],
+            "행정구역시도코드": ["11"],
+        }
+    )
+    with pytest.raises(AssertionError):
+        mdis.add_derived_features(df)
+
+
+def test_assign_row_id_is_sequential_and_predates_filter():
+    # B3: 원본에 ID 컬럼이 없어 행 추적이 불가능하던 문제.
+    df = pd.DataFrame({"산업중분류코드": ["47", "10", "56"]})
+    out = mdis.assign_row_id(df)
+    assert out["mdis_row_id"].tolist() == [0, 1, 2]
+
+
+def test_extract_role_columns_preserves_row_id_and_startup_type_code():
+    # B3 + B5: mdis_row_id와 일반_창업형태코드가 extract_role_columns에서 누락되던 문제.
+    all_cols = [c for role_cols in schema.ROLE_COLUMNS.values() for c in role_cols]
+    df = pd.DataFrame({col: ["x"] for col in all_cols + ["mdis_row_id"]})
+    out = mdis.extract_role_columns(df)
+    assert "mdis_row_id" in out.columns
+    assert "일반_창업형태코드" in out.columns
+
+
+def test_split_stage_ab_row_id_uniqueness_and_subset():
+    # B3: stage_a 내 mdis_row_id 유일성과 stage_b ⊆ stage_a 관계 검증.
+    df = pd.DataFrame(
+        {"mdis_row_id": [10, 11, 12, 13, 14], "treat_binary": [1, 0, 1, 0, 0]}
+    )
+    stage_a, stage_b = mdis.split_stage_ab(df, expected_stage_b_len=2)
+    assert stage_a["mdis_row_id"].is_unique
+    assert set(stage_b["mdis_row_id"]) <= set(stage_a["mdis_row_id"])
+
+
+def test_split_stage_ab_row_id_duplicate_raises():
+    df = pd.DataFrame(
+        {"mdis_row_id": [10, 10, 12, 13, 14], "treat_binary": [1, 0, 1, 0, 0]}
+    )
+    with pytest.raises(AssertionError):
+        mdis.split_stage_ab(df, expected_stage_b_len=2)

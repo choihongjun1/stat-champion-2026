@@ -15,6 +15,17 @@ def load_mdis_raw(path: Path) -> pd.DataFrame:
     return pd.read_csv(path, encoding="cp949", dtype=str)
 
 
+def assign_row_id(df: pd.DataFrame) -> pd.DataFrame:
+    """원본 CSV의 0-based 행 위치를 `mdis_row_id`로 부여한다.
+
+    필터링 전에 호출해야 원본 파일 행 위치와 그대로 대응한다. 원본에는 ID 컬럼이
+    없어(156열 확인) 이 값이 유일한 추적 key다.
+    """
+    out = df.copy()
+    out["mdis_row_id"] = range(len(out))
+    return out
+
+
 def filter_industry(
     df: pd.DataFrame, expected_rows: int = schema.EXPECTED_INDUSTRY_FILTERED_ROWS
 ) -> pd.DataFrame:
@@ -29,6 +40,8 @@ def filter_industry(
 
 def extract_role_columns(df: pd.DataFrame) -> pd.DataFrame:
     columns = [c for role_cols in schema.ROLE_COLUMNS.values() for c in role_cols]
+    if "mdis_row_id" in df.columns:
+        columns = ["mdis_row_id"] + columns
     return df[columns].copy()
 
 
@@ -81,7 +94,20 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     # 일반_창업인수승계_연도/월은 "점포 개업 시점"이 아니라 "현재 사업자의 운영 시작 시점"일 수 있다.
     birth_year = out["일반_창업인수승계_연도"].astype(float)
     birth_month = out["일반_창업인수승계_월"].astype(float)
-    out["tenure_months"] = 2023 * 12 - (birth_year * 12 + birth_month)
+
+    assert birth_month.between(1, 12).all(), (
+        "일반_창업인수승계_월 값이 1~12 범위를 벗어났습니다 - 원본 값 형식을 재확인하세요."
+    )
+    sentinel_mask = birth_year == schema.TENURE_YEAR_SENTINEL
+    plausible_year = birth_year.between(schema.TENURE_YEAR_MIN_PLAUSIBLE, schema.TENURE_YEAR_MAX)
+    assert (sentinel_mask | plausible_year).all(), (
+        f"일반_창업인수승계_연도 값이 sentinel({schema.TENURE_YEAR_SENTINEL})도 아니고 "
+        f"[{schema.TENURE_YEAR_MIN_PLAUSIBLE}, {schema.TENURE_YEAR_MAX}] 범위도 아닙니다 - "
+        "새로운 이상값일 수 있으니 원본 값을 재확인하세요."
+    )
+
+    out["tenure_invalid_flag"] = sentinel_mask.astype(int)
+    out["tenure_months"] = (2023 * 12 - (birth_year * 12 + birth_month)).where(~sentinel_mask)
 
     revenue = out["경영_매출금액"]
     profit = out["경영_영업이익"]
@@ -137,6 +163,11 @@ def split_stage_ab(
     assert len(stage_b) == expected_stage_b_len, (
         f"stage_b 행수 불일치: {len(stage_b)} != {expected_stage_b_len}"
     )
+    if "mdis_row_id" in stage_a.columns:
+        assert stage_a["mdis_row_id"].is_unique, "mdis_row_id가 stage_a 내에서 유일하지 않습니다."
+        assert set(stage_b["mdis_row_id"]) <= set(stage_a["mdis_row_id"]), (
+            "stage_b의 mdis_row_id가 stage_a에 모두 포함되어 있지 않습니다."
+        )
     return stage_a, stage_b
 
 
@@ -164,6 +195,14 @@ def build_encoding_table() -> pd.DataFrame:
         {"원본 컬럼": "경영_전자상거래_매출실적여부", "원본값": f"{schema.ECOMMERCE_YES_VALUE} (예)", "변환값": "treat_binary = 1"},
         {"원본 컬럼": "경영_전자상거래_매출실적여부", "원본값": f"{schema.YESNO_NO_VALUE} (아니오)", "변환값": "treat_binary = 0"},
         {"원본 컬럼": "행정구역시도코드", "원본값": f"{schema.SEOUL_CODE_VALUE} (서울)", "변환값": "is_seoul = True"},
+        {"원본 컬럼": "일반_창업형태코드", "원본값": "1 (신규창업)", "변환값": "-"},
+        {"원본 컬럼": "일반_창업형태코드", "원본값": "2 (인수창업)", "변환값": "-"},
+        {"원본 컬럼": "일반_창업형태코드", "원본값": "3 (가업승계)", "변환값": "-"},
+        {
+            "원본 컬럼": "일반_창업인수승계_연도",
+            "원본값": f"{schema.TENURE_YEAR_SENTINEL} (sentinel)",
+            "변환값": "tenure_months = NaN, tenure_invalid_flag = 1",
+        },
     ]
     for col in schema.YESNO_COLUMNS:
         rows.append({"원본 컬럼": col, "원본값": f"{schema.YESNO_YES_VALUE} (예/수행)", "변환값": f"{col}_bin = 1"})

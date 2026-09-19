@@ -19,6 +19,7 @@ def main() -> None:
     df = mdis.load_mdis_raw(raw_path)
     print(f"원본 로드: {len(df)}행")
 
+    df = mdis.assign_row_id(df)
     df = mdis.filter_industry(df)
     print(f"산업중분류 필터 후: {len(df)}행 (assert 통과)")
 
