@@ -67,6 +67,11 @@ EXPECTED_TREAT_COUNTS = {1: 857, 0: 4185}
 
 # 행정구역시도코드 실측: 서울='11' (문자열, zero-padding 없음). CSV 실측 n=3780.
 SEOUL_CODE_VALUE = "11"
+EXPECTED_SEOUL_COUNT = 474
+
+# 결측이 있으면 안 되는 컬럼(M6) — 가중치는 모든 분석(가중 평균 등)에 필수라
+# 하나라도 결측이면 그 행 전체를 조용히 계산에서 빠뜨리게 된다.
+REQUIRED_NON_MISSING_COLUMNS = ["사업체수가중값"]
 
 # 창업연도 sentinel: CSV 실측 결과 1900 다음으로 낮은 값은 1962 (62년 공백, 1901~1961 값 0건) —
 # 자연 분포와 단절되어 있어 "모름/미상"을 뜻하는 sentinel로 판단(파일설계서에 별도 코드 명시 없음,
