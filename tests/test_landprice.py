@@ -114,3 +114,37 @@ def test_zero_price_is_preserved_not_na(monkeypatch):
         assert out[f"land_price_{y}"].notna().all()
     # 값이 존재하므로 매칭으로 집계된다 (0 != 결측)
     assert bool(out["land_price_match"].iloc[0])
+    # 0은 유효 지가가 아니므로 valid 파생값에서는 제외되고 flag가 선다 (Issue #9)
+    assert bool(out["land_price_zero_flag"].iloc[0])
+    for y in lp.YEARS:
+        assert pd.isna(out[f"land_price_{y}_valid"].iloc[0])
+
+
+def test_positive_price_is_valid_and_not_flagged(monkeypatch):
+    stores = pd.DataFrame({"store_id": ["L1"], "pnu": [PNU_A]})
+    tables = {
+        y: (pd.DataFrame({"pnu": [PNU_A], f"land_price_{y}": [1234000.0]}), _qa(y))
+        for y in lp.YEARS
+    }
+    make_year_table(monkeypatch, tables)
+    out, _ = lp.join_landprice(stores)
+    assert not bool(out["land_price_zero_flag"].iloc[0])
+    for y in lp.YEARS:
+        assert out[f"land_price_{y}_valid"].iloc[0] == 1234000.0
+
+
+def test_zero_in_one_year_only_keeps_other_years_valid(monkeypatch):
+    # 2026만 0원인 실제 패턴: 2024·2025 valid는 살아 있어야 한다
+    stores = pd.DataFrame({"store_id": ["L1"], "pnu": [PNU_A]})
+    prices = {2024: 3213000.0, 2025: 3408000.0, 2026: 0.0}
+    tables = {
+        y: (pd.DataFrame({"pnu": [PNU_A], f"land_price_{y}": [prices[y]]}), _qa(y))
+        for y in lp.YEARS
+    }
+    make_year_table(monkeypatch, tables)
+    out, _ = lp.join_landprice(stores)
+    assert bool(out["land_price_zero_flag"].iloc[0])
+    assert out["land_price_2024_valid"].iloc[0] == 3213000.0
+    assert out["land_price_2025_valid"].iloc[0] == 3408000.0
+    assert pd.isna(out["land_price_2026_valid"].iloc[0])
+    assert out["land_price_2026"].iloc[0] == 0.0  # raw는 보존

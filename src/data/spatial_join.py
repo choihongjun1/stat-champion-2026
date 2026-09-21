@@ -291,10 +291,16 @@ def write_qa(out, shp_report, overlap, boundary, lp_qas, nearest_check,
                  f"| {gdf['land_price_match'].mean():.4f} |")
     L.append("")
     zero_cols = {y: int((out[f"land_price_{y}"] == 0).sum()) for y in landprice.YEARS}
-    L.append("### 0원 필지 (값 보존)")
+    L.append("### 0원 필지 (raw 보존 + valid 파생, Issue #9)")
     L.append("")
     L.append(f"- 점포에 결합된 0원 값: {zero_cols}")
-    L.append("- 0을 NA로 바꾸거나 임의 대체하지 않고 raw 값을 보존한다. 처리 규칙은 별도 결정 대상.")
+    L.append(f"- `land_price_zero_flag` 점포: {int(out['land_price_zero_flag'].sum()):,}")
+    L.append("- raw `land_price_{year}`는 0을 그대로 보존한다. feature로는 0을 제외한")
+    L.append("  `land_price_{year}_valid`를 쓴다 (0은 유효 지가가 아니라 값이 빈 상태).")
+    for y in landprice.YEARS:
+        v = out[f"land_price_{y}_valid"]
+        L.append(f"  - {y}: valid {int(v.notna().sum()):,}건 "
+                 f"(raw 결합 {int(out[f'land_price_{y}'].notna().sum()):,}건)")
     L.append("")
 
     L.append("### 시간 메타데이터 (feature_asof ≠ available_at)")
