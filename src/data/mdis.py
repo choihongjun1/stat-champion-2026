@@ -185,7 +185,8 @@ def add_derived_features(
         )
 
     out["tenure_invalid_flag"] = sentinel_mask.astype(int)
-    out["tenure_months"] = (2023 * 12 - (birth_year * 12 + birth_month)).where(~sentinel_mask)
+    base = schema.TENURE_BASE_YEAR * 12 + schema.TENURE_BASE_MONTH
+    out["tenure_months"] = (base - (birth_year * 12 + birth_month)).where(~sentinel_mask)
 
     revenue = out["경영_매출금액"]
     profit = out["경영_영업이익"]

@@ -98,6 +98,13 @@ TENURE_YEAR_SENTINEL = 1900
 TENURE_YEAR_MIN_PLAUSIBLE = 1945
 TENURE_YEAR_MAX = 2023
 
+# tenure_months 기준 시점(M7, Issue #13). 조사기준연도가 전 행 '2023'이고 매출·영업이익이
+# 2023년 연간 실적이므로 기준점도 2023-12(연말)이어야 하는데, 기존 공식(연*12 - (...), 월 항 없음)은
+# 수학적으로 2022-12를 기준점으로 삼는 것과 같아 전체 행이 균일하게 12개월 과소 계산되던 버그가 있었다
+# (2022-12 창업 46건이 tenure_months=0으로 나타남). (BASE_YEAR*12 + BASE_MONTH)를 기준점으로 쓴다.
+TENURE_BASE_YEAR = 2023
+TENURE_BASE_MONTH = 12
+
 # tenure_months 한계 — 코드북 "정의"란에도 동일 문구를 사용한다.
 TENURE_MONTHS_CAVEAT = (
     "일반_창업인수승계_연도/월 기반. 인수·승계 사업체의 경우 점포 자체의 개업 시점이 아니라 "
@@ -139,7 +146,7 @@ VARIABLE_DEFINITIONS = {
     "mdis_row_id": "행 식별자. 원본 CSV의 0-based 행 위치(필터 이전 기준). 원본에 ID 컬럼이 없어 도입 — "
     "stage_a 내 유일성, stage_b ⊆ stage_a 관계를 검증하는 기준 key.",
     # 파생변수
-    "tenure_months": f"파생변수 = 2023*12 - (일반_창업인수승계_연도*12 + 일반_창업인수승계_월). 창업연도가 {TENURE_YEAR_SENTINEL}(sentinel)인 행은 NaN(tenure_invalid_flag=1 참조). " + TENURE_MONTHS_CAVEAT,
+    "tenure_months": f"파생변수 = (TENURE_BASE_YEAR*12 + TENURE_BASE_MONTH) - (일반_창업인수승계_연도*12 + 일반_창업인수승계_월), 기준 {TENURE_BASE_YEAR}-{TENURE_BASE_MONTH:02d}. 창업연도가 {TENURE_YEAR_SENTINEL}(sentinel)인 행은 NaN(tenure_invalid_flag=1 참조). " + TENURE_MONTHS_CAVEAT,
     "tenure_invalid_flag": f"파생변수. 일반_창업인수승계_연도 == {TENURE_YEAR_SENTINEL}(sentinel)이라 tenure_months를 계산하지 않은 행 표시. 1=계산 불가.",
     "profit_margin": "파생변수 = 경영_영업이익 / 경영_매출금액. 매출 0이면 NaN, data_flag=1로 표시(필터 후 실제 발생 0건이지만 방어적으로 구현).",
     "data_flag": "profit_margin 계산 불가(매출 0) 행 표시 플래그. 1=계산 불가.",
