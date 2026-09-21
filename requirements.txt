@@ -6,3 +6,6 @@ tabulate==0.9.0
 pytest==8.3.4
 matplotlib==3.11.2
 scikit-learn==1.9.1
+# coordinate transform EPSG:5174 -> 5179, used by src/data/coords.py
+# (ASCII only: pip reads this file with the locale encoding, cp949 on Windows)
+pyproj==3.8.0
