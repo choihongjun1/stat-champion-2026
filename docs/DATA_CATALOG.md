@@ -13,7 +13,7 @@
 | 데이터 | 용도 | 시간 범위 / 단위 | 상태 | 비고 |
 |---|---|---|---|---|
 | 인허가 3종 (일반음식점·휴게음식점·미용업) | **주 폐업 라벨**, 개·폐업 시점, 모집단 | ~2026-09 / 사업체 | VERIFIED | 폐업일자 일 단위, 신고 지연 존재 |
-| 소진공 상가(상권)정보 | 사업체 위치·업종 feature, 라벨 **보조정보** | 2024-12~2026-06, 7개 스냅샷 / 사업체 | VERIFIED | 소멸은 폐업 라벨로 사용 금지 |
+| 소진공 상가(상권)정보 | 사업체 위치·업종 feature, 라벨 **보조정보** | 2024-12~2026-06, 7개 스냅샷 / 사업체 | VERIFIED | 소멸은 폐업 라벨로 사용 금지. **202503 좌표는 배포본 전체가 이상**(§2-2) |
 | 서울 상권분석서비스 (매출·점포·변화지표·인구) | 상권 단위 수요·경쟁 feature | 2021Q1~2026Q2, 22분기 / 상권 | PARTIAL | 상권코드 집합 전 기간 동일 확인, polygon 경계 일관성은 미검증 |
 | 상권 영역 shp | 공간 조인 | 스냅샷 / 상권 폴리곤 | VERIFIED | EPSG:5181 |
 | 개별공시지가 | 비용 환경 feature | 2024·2025·2026 / 필지(PNU) | VERIFIED | 기준일과 공시일 구분 필요 |
@@ -71,6 +71,60 @@
   - 소진공 매칭 성공 55.5% (영업 중 점포는 80.1% — 매칭 실패가 폐업과 상관, complete-case 금지 근거)
   - 매칭 성공분 중: 동일 관측구간 소멸 72.0% / 선행 소멸 13.9%(갭 중앙값 6개월) / 폐업 후 잔존 12.9%(중앙값 9개월, 최대 18개월) / 미확인 1.2%
 - 결론: 소멸은 폐업 라벨 원천으로 부적합(커버리지·ID 오염·시점 해상도). 라벨 보조정보(`sj_status`, `sj_gap_months`)로만 사용 — `DECISIONS.md` 2026-09-13 참조.
+
+### 2-1. ER 산출물과 B-3 handoff (2026-09-19)
+
+`python -m src.data.matching`이 생성한다 (모두 git 미추적). **ER은 `sj_status`를 만들지 않는다.**
+B-3가 아래 산출물로 파생한다. 소진공 소멸은 주 폐업 라벨이 아니며 주 라벨은 인허가 `close_date`다.
+
+| 파일 | 단위 | B-3가 쓸 컬럼 |
+|---|---|---|
+| `outputs/matching/license_semas_matches.parquet` | 인허가 점포 (110,347행 전체) | `store_id`, `matched`, `ambiguous`, `sj_entity_id`, `sj_store_id`(매칭 당시 후보 ID), `match_tier`, `match_confidence`, `crowded_pnu`, `name_structure`, `unmatched_reason`, `license_date`, `close_date`, `status_name` |
+| `outputs/standardized/semas_entities.parquet` | 소진공 업소번호 (105,264행) | `sj_store_id`, `sj_entity_id`, `id_reissued`, `entity_n_ids`, **`entity_first_snapshot`, `entity_last_snapshot`**, `entity_latest_sj_store_id` |
+| `outputs/standardized/semas_panel.parquet` | 업소번호 × 스냅샷 (545,490행) | `snapshot`, `sj_store_id` (+ 표준화 속성). `sj_entity_id`는 없으므로 entities와 `sj_store_id`로 조인 |
+
+- **B-3는 SEMAS 존재구간·last_seen을 반드시 `sj_entity_id` 기준으로 계산한다.**
+  entities의 `entity_first_snapshot`/`entity_last_snapshot`을 그대로 쓰거나, 스냅샷별 이력이 필요하면
+  `panel ⋈ entities (sj_store_id)` 후 `sj_entity_id`로 묶는다.
+  **업소번호 기준 `first_snapshot`/`last_snapshot`은 쓰지 않는다** — 재발급된 4,700개 업소번호가 소멸처럼 보인다.
+- 재발급: unambiguous 1:1 링크만 한 entity로 묶었고(`id_reissued=True`), 재발급 전후를 다시 나누지 않는다.
+  ambiguous 링크 132건은 병합하지 않았으므로 각자 별도 entity다.
+- 매칭 구분: `matched=False & ambiguous=True`는 후보가 여럿이라 확정하지 않은 행, `matched=False & ambiguous=False`는
+  미매칭이다. 사유는 `unmatched_reason`(예: `tier4_name_not_exact_or_contained`, `ambiguous_candidates`).
+- 신뢰도: `match_confidence` high(Tier1·2) / medium(Tier3) / low(Tier4). Tier3 중 `crowded_pnu=True`(후보 51개 이상 PNU)는
+  표본상 오매칭 위험이 높아 후속 단계에서 별도 sensitivity 집합으로 비교할 수 있도록 flag를 보존했다.
+  ER에서는 자동 제외·강등하지 않는다 (`DECISIONS.md` 2026-09-19).
+- 시점 정합: **ER은 인허가 영업기간과 entity 관측구간의 겹침을 검사하지 않으며, 겹침이 짧다는 이유로
+  매칭을 미매칭으로 바꾸지 않는다.** 필요하면 B-3에서 `license_date`/`close_date`와
+  `entity_first/last_snapshot`으로 `overlap_days` 같은 값을 QA/provenance로 계산할 수 있다.
+  현재 매칭 중 겹침 90일 미만은 6,105건이며, SEMAS 관측이 2024-12~2026-06이라 최근 개업 점포는 겹침이
+  짧게 잡히는 경계 효과가 있다. `LABEL_SPEC.md`의 90일 겹침 조건과의 차이는 B-3 담당자와 별도 합의 사항이다.
+- 202503 스냅샷 경위도는 전량 서울 밖이라 entity 좌표·Tier4 매칭에 쓰지 않는다 (entity 좌표 출처 중 202503은 0건). 원인 검증은 §2-2.
+
+### 2-2. 202503 스냅샷 좌표 이상 (2026-09-20 재검증, Issue #14)
+
+재다운로드한 202503 원본으로 다시 검증했다. 좌표는 원본 `경도`·`위도` 값을 그대로 읽었다.
+상세 수치·figure는 `outputs/qa/semas_202503_coord_anomaly_summary.md`(git 미추적)에 있다.
+
+- **로컬 파일 손상 아님**: 재다운로드본(`…_20250331` 배포 묶음의 서울 파일)과 `data/00_raw`의 202503이
+  바이트 단위로 동일하다 (294,546,038 bytes, SHA256 `1c3d8ee0484b0fb668b83ae4f69a83e22e77b0645b943d80d630198418031047`).
+- **파싱·열 밀림 아님**: UTF-8(BOM 없음) strict decode 성공, 39열 헤더가 202506과 동일, header와 필드 수가 다른 행 0,
+  경도·위도 결측·파싱 실패 0, 코드 컬럼(시도·시군구·행정동·법정동·지번코드 등) 형식이 202506과 같은 수준으로 정상.
+- **스냅샷 전체의 좌표 이상**: 서울 540,516행의 좌표가 100% 서울 범위 밖이다(경도 128.05~128.47, 위도 38.32~38.59).
+  서울 25개 구 모두 같다. 같은 배포 묶음의 전국 17개 시도 202503 파일도 모두 같은 방식으로 밀려 있다.
+- **좌표만 이상하고 식별·주소는 정상**: 202506과 공통인 업소번호 517,639건에서 시군구·법정동·지번코드·지번주소·
+  도로명주소·업종 소분류가 100%, 상호명이 99.99% 일치한다. 같은 업소번호의 좌표는 전부 약 150km
+  (149.9~150.2km) 떨어져 있다.
+- 대조군: 202412와 202506의 공통 업소번호 499,680건은 좌표가 100% 완전히 같다. 정상 스냅샷 사이에서는 좌표가 움직이지 않는다.
+- **이동 형태**: 고정 평행이동이 아니다(위도 차이가 경도와 상관계수 −0.9998). 202506 좌표의 affine 변환
+  (약 150km 북동 이동 + 약 1% 늘림·기울어짐)으로 거의 완벽히 설명된다(R² ≈ 0.999999997, 잔차 약 1m 이하).
+- **우리 쪽 CRS 오해 가능성 낮음**: 값이 도(degree) 단위 크기이고, 투영 좌표(EPSG:5174/5179/5181/5186의 미터)로
+  재해석하면 무의미한 위치가 나와 기각했다. 같은 컬럼을 202412·202506은 경위도로 읽어 정상이다.
+- **미확정**: 배포처에서 어떤 처리가 이 변환을 만들었는지는 데이터만으로 특정할 수 없다. 배포 묶음에 동봉된
+  `[필독]파일열람방법.txt`에는 인코딩 안내만 있고 좌표 관련 공지는 없다. 배포처 공지·정정 이력은 확인하지 않았다.
+- 주의: 밀린 좌표도 대부분 한반도 대략 범위 안에 떨어진다(시도별 포함률 강원 62%, 나머지 99~100%).
+  **전국 단위 범위 검사로는 이 이상을 잡을 수 없다.** 서울 외 지역을 다룰 때는 시도별 범위 검사나
+  스냅샷 간 좌표 일관성 검사가 필요하다.
 
 ## 3. 서울 상권분석서비스 (열린데이터광장, CP949)
 
