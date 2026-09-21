@@ -49,7 +49,8 @@ def test_add_derived_features_tenure_months():
         }
     )
     out = mdis.add_derived_features(df, expected_seoul_count=1)
-    assert out["tenure_months"].iloc[0] == 2023 * 12 - (2020 * 12 + 1)
+    base = schema.TENURE_BASE_YEAR * 12 + schema.TENURE_BASE_MONTH
+    assert out["tenure_months"].iloc[0] == base - (2020 * 12 + 1)
 
 
 def test_add_derived_features_profit_margin_zero_revenue_is_nan_and_flagged():
@@ -272,7 +273,25 @@ def test_add_derived_features_sentinel_year_is_nan_and_flagged():
     out = mdis.add_derived_features(df, expected_seoul_count=2)
     assert pd.isna(out["tenure_months"].iloc[0])
     assert out["tenure_invalid_flag"].tolist() == [1, 0]
-    assert out["tenure_months"].iloc[1] == 2023 * 12 - (2020 * 12 + 1)
+    base = schema.TENURE_BASE_YEAR * 12 + schema.TENURE_BASE_MONTH
+    assert out["tenure_months"].iloc[1] == base - (2020 * 12 + 1)
+
+
+def test_add_derived_features_tenure_months_base_date_is_2023_12():
+    # M7: 기존 공식(2023*12, 월 항 없음)은 수학적으로 2022-12를 기준점으로 삼아
+    # 2022-12 창업이 tenure_months=0으로 나오던 버그 - 이제는 12가 나와야 한다
+    # (기준 2023-12, 2022-12 창업이면 정확히 12개월 운영).
+    df = pd.DataFrame(
+        {
+            "일반_창업인수승계_연도": ["2022"],
+            "일반_창업인수승계_월": ["12"],
+            "경영_매출금액": [100],
+            "경영_영업이익": [10],
+            "행정구역시도코드": ["11"],
+        }
+    )
+    out = mdis.add_derived_features(df, expected_seoul_count=1)
+    assert out["tenure_months"].iloc[0] == 12
 
 
 def test_add_derived_features_implausible_non_sentinel_year_raises():
