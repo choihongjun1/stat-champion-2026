@@ -17,8 +17,14 @@
 - origin별 feature selection 로직은 이 모듈(및 이 PR)의 범위가 아니다. 아래 metadata를
   W2가 판단 근거로 사용한다.
 
-0원 필지: 2026년에 공시지가 0원 필지가 존재한다. 이 모듈은 raw 값을 그대로 보존하며
-0을 NA로 바꾸거나 임의 대체하지 않는다. 처리 규칙은 별도 결정 대상이다.
+0원 필지 (Issue #9, 2026-09-22 조사):
+- 2026년에만 0원이 나온다 (2024·2025는 0건). 2026 raw 339행 중 336행이 19자리 PNU다.
+- 그 339행 중 311행은 2025년에 0보다 큰 공시지가가 있었다(중앙값 247.6만원/㎡). 즉 "아직 평가되지
+  않은 신규 필지"로 설명되지 않는다. 2026 신규 PNU 1,782건 중 0원은 28건(1.6%)뿐이다.
+- 따라서 0은 유효한 지가가 아니라 해당 연도 값이 비어 있는 상태로 본다.
+- **raw 값은 그대로 보존**하고(`land_price_{year}`), 대신 `land_price_zero_flag`와
+  연도별 `land_price_{year}_valid`를 함께 제공한다. feature로는 valid 값만 쓴다.
+- 0이 된 행정적 사유(공시 제외·유보 등)는 데이터만으로 확정할 수 없다 — 배포처 확인 대상.
 """
 from __future__ import annotations
 
@@ -140,4 +146,10 @@ def join_landprice(stores: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
         qas.append(qa)
     price_cols = [f"land_price_{y}" for y in YEARS]
     out["land_price_match"] = out[price_cols].notna().any(axis=1)
+
+    # 0원은 유효 지가가 아니다 (Issue #9). raw는 그대로 두고 valid 파생값과 flag를 붙인다.
+    for y in YEARS:
+        out[f"land_price_{y}_valid"] = out[f"land_price_{y}"].where(
+            out[f"land_price_{y}"] > 0)
+    out["land_price_zero_flag"] = (out[price_cols] == 0).any(axis=1)
     return out, qas
