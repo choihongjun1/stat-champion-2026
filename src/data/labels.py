@@ -179,7 +179,9 @@ def generate_candidate_origins(
     origins = [
         origin
         for origin in candidates
-        if origin.start_time + pd.DateOffset(months=schema.LONG_PANEL_WINDOW_MONTHS)
+        # build_long_panel의 12개월 라벨 창이 origin_end 기준이므로(시간 누수 방지),
+        # 관측 창 확보 여부도 origin_end 기준으로 판정해야 짝이 맞는다.
+        if origin.end_time.normalize() + pd.DateOffset(months=schema.LONG_PANEL_WINDOW_MONTHS)
         <= cutoff_date
     ]
     assert len(origins) > 0, (
@@ -203,23 +205,28 @@ def build_long_panel(df: pd.DataFrame, origins: list[pd.Period]) -> pd.DataFrame
     origins_df["_key"] = 1
     panel = left.merge(origins_df, on="_key").drop(columns="_key")
 
-    eligible = (panel["인허가일자_dt"] <= panel["origin_start"]) & (
-        panel["폐업일자_dt"].isna() | (panel["폐업일자_dt"] > panel["origin_start"])
+    # feature_asof/age_months/available_at이 모두 origin_end 기준이므로 적격 조건과
+    # 라벨 창도 origin_end로 통일한다. origin_start를 쓰면 "feature_asof 시점에 이미
+    # 폐업한 점포"가 event_12m=1로 패널에 남는 시간 누수가 생긴다.
+    eligible = (panel["인허가일자_dt"] <= panel["origin_end"]) & (
+        panel["폐업일자_dt"].isna() | (panel["폐업일자_dt"] > panel["origin_end"])
     )
     panel = panel[eligible].copy()
 
-    window_end = panel["origin_start"] + pd.DateOffset(
+    window_end = panel["origin_end"] + pd.DateOffset(
         months=schema.LONG_PANEL_WINDOW_MONTHS
     )
     panel["event_12m"] = (
         panel["폐업일자_dt"].notna()
-        & (panel["폐업일자_dt"] > panel["origin_start"])
+        & (panel["폐업일자_dt"] > panel["origin_end"])
         & (panel["폐업일자_dt"] <= window_end)
     ).astype(int)
 
+    # origin_end 기준 통일(시간 누수 방지) - feature_asof 이전에 이미 폐업한 행이
+    # 남아있지 않은지 최종 확인.
     assert (
-        panel["폐업일자_dt"].isna() | (panel["폐업일자_dt"] > panel["origin_start"])
-    ).all(), "패널에 origin_start 이전 폐업 행이 포함되었습니다 - 필터 로직 오류"
+        panel["폐업일자_dt"].isna() | (panel["폐업일자_dt"] > panel["origin_end"])
+    ).all(), "패널에 origin_end 이전 폐업 행이 포함되었습니다 (시간 누수) - 필터 로직 오류"
 
     return panel
 
@@ -234,12 +241,15 @@ def add_panel_features(df: pd.DataFrame, maturity_cutoff_months: int) -> pd.Data
     )
     assert (out["age_months"] >= 0).all(), (
         "age_months가 음수인 행이 있습니다 - "
-        "패널 진입 조건(인허가일자<=origin_start<=origin_end) 위반 의심"
+        "패널 진입 조건(인허가일자<=origin_end) 위반 의심"
     )
 
     out["biz_type"] = out["source_type"]
 
-    area_numeric = pd.to_numeric(out["소재지면적"], errors="coerce")
+    # 1,000㎡ 이상 값은 원본에 천단위 콤마가 붙어 있어("1,390.75") 콤마 제거 없이는
+    # pd.to_numeric()이 전부 NaN으로 만든다 - 콤마 제거 후 변환한다.
+    area_stripped = out["소재지면적"].astype("string").str.replace(",", "", regex=False)
+    area_numeric = pd.to_numeric(area_stripped, errors="coerce")
     failed = out["소재지면적"].notna() & area_numeric.isna()
     n_failed = int(failed.sum())
     if n_failed > 0:

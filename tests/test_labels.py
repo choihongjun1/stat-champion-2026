@@ -236,6 +236,52 @@ def test_build_long_panel_excludes_store_closed_before_origin():
     assert len(panel) == 0
 
 
+def test_build_long_panel_includes_store_opened_mid_quarter():
+    # 2021Q1 = start 2021-01-01 / end 2021-03-31. 분기 중간(02-15)에 개업한 점포는
+    # origin_end 기준이면 포함되어야 한다 (origin_start 기준이면 잘못 제외됨 - 회귀 방지).
+    df = pd.DataFrame(
+        {
+            "store_id": ["A"],
+            "인허가일자_dt": pd.to_datetime(["2021-02-15"]),
+            "폐업일자_dt": pd.to_datetime([pd.NaT]),
+        }
+    )
+    origins = [pd.Period("2021Q1", freq="Q")]
+    panel = labels.build_long_panel(df, origins)
+    assert panel["store_id"].tolist() == ["A"]
+
+
+def test_build_long_panel_excludes_store_closed_mid_quarter_no_leakage():
+    # 핵심 회귀 테스트(시간 누수). 2020-01-01 개업, origin_start(2021-01-01)와
+    # origin_end(2021-03-31) 사이인 2021-02-15에 폐업한 점포는 feature_asof(=origin_end)
+    # 시점에 이미 폐업한 상태이므로 패널에 행 자체가 남으면 안 된다.
+    df = pd.DataFrame(
+        {
+            "store_id": ["A"],
+            "인허가일자_dt": pd.to_datetime(["2020-01-01"]),
+            "폐업일자_dt": pd.to_datetime(["2021-02-15"]),
+        }
+    )
+    origins = [pd.Period("2021Q1", freq="Q")]
+    panel = labels.build_long_panel(df, origins)
+    assert len(panel) == 0
+
+
+def test_build_long_panel_event_12m_measured_from_origin_end():
+    # origin_end(2021-03-31) + 12개월 = 2022-03-31 경계를 직접 검증한다.
+    df = pd.DataFrame(
+        {
+            "store_id": ["A", "B"],
+            "인허가일자_dt": pd.to_datetime(["2020-01-01", "2020-01-01"]),
+            "폐업일자_dt": pd.to_datetime(["2022-03-31", "2022-04-01"]),
+        }
+    )
+    origins = [pd.Period("2021Q1", freq="Q")]
+    panel = labels.build_long_panel(df, origins)
+    result = dict(zip(panel["store_id"], panel["event_12m"]))
+    assert result == {"A": 1, "B": 0}
+
+
 # ---------------------------------------------------------------------------
 # add_panel_features
 # ---------------------------------------------------------------------------
@@ -296,6 +342,12 @@ def test_add_panel_features_area_reports_parse_failures(capsys):
     assert pd.isna(out["area"].iloc[0])
     captured = capsys.readouterr()
     assert "숫자 변환 실패 1건" in captured.out
+
+
+def test_add_panel_features_area_parses_thousands_comma():
+    df = _panel_features_input(소재지면적=["1,390.75"])
+    out = labels.add_panel_features(df, maturity_cutoff_months=4)
+    assert out["area"].iloc[0] == pytest.approx(1390.75)
 
 
 # ---------------------------------------------------------------------------
