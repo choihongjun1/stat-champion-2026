@@ -9,3 +9,6 @@ scikit-learn==1.9.1
 # coordinate transform EPSG:5174 -> 5179, used by src/data/coords.py
 # (ASCII only: pip reads this file with the locale encoding, cp949 on Windows)
 pyproj==3.8.0
+# spatial join against the commercial-district polygons (src/data/spatial*.py)
+geopandas==1.1.4
+shapely==2.1.2
