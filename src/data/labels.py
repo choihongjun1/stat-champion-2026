@@ -173,9 +173,9 @@ def parse_dates(
 def generate_candidate_origins(
     min_origin: str, last_data_date: pd.Timestamp, maturity_cutoff_months: int
 ) -> list[pd.Period]:
-    """`maturity_cutoff_months`는 기본값을 두지 않는다 - 호출부가 항상 명시적으로 결정하도록
-    강제하기 위함이다 (DECISIONS.md: 최종 컷오프는 W2 진입 전 확정, 그전까지는 잠정값임을
-    매번 드러내야 한다)."""
+    """`maturity_cutoff_months`는 기본값을 두지 않는다 - 호출부가 어떤 컷오프를 쓰는지
+    항상 명시하도록 강제하기 위함이다. 확정값은 `label_schema.MATURITY_CUTOFF_MONTHS`
+    (=1, DECISIONS.md 2026-09-18)이며, 민감도 비교용으로 다른 값을 넣을 수 있다."""
     start = pd.Period(min_origin, freq="Q")
     last_quarter = pd.Period(last_data_date, freq="Q")
     candidates = pd.period_range(start=start, end=last_quarter, freq="Q")
@@ -525,12 +525,8 @@ def build_constants_table() -> pd.DataFrame:
             "값": str(schema.EXPECTED_DISTRICT_FILTERED_ROWS),
         },
         {
-            "상수": "MATURITY_CUTOFF_CANDIDATE_RANGE_MONTHS",
-            "값": str(schema.MATURITY_CUTOFF_CANDIDATE_RANGE_MONTHS),
-        },
-        {
-            "상수": "PROVISIONAL_MATURITY_CUTOFF_MONTHS",
-            "값": str(schema.PROVISIONAL_MATURITY_CUTOFF_MONTHS),
+            "상수": "MATURITY_CUTOFF_MONTHS",
+            "값": str(schema.MATURITY_CUTOFF_MONTHS),
         },
         {"상수": "MIN_ORIGIN_QUARTER", "값": schema.MIN_ORIGIN_QUARTER},
         {"상수": "LONG_PANEL_WINDOW_MONTHS", "값": str(schema.LONG_PANEL_WINDOW_MONTHS)},
@@ -545,7 +541,6 @@ def write_label_spec_md(
     constants_table: pd.DataFrame,
     path: Path,
 ) -> None:
-    lo, hi = schema.MATURITY_CUTOFF_CANDIDATE_RANGE_MONTHS
     lines = [
         "# 라벨 정의 명세 (LABEL_SPEC)",
         "",
@@ -565,11 +560,10 @@ def write_label_spec_md(
         "",
         "## 성숙 컷오프 분석 결과",
         "",
-        f"- 권고 컷오프: {maturity_report['recommended_cutoff_months']}개월 "
-        f"(DECISIONS.md 후보 범위 {lo}~{hi}개월과 별도로 확인 필요 - 실측 데이터 기반 신규 근거)",
+        f"- 실측 권고 컷오프: {maturity_report['recommended_cutoff_months']}개월",
         f"- 불안정 tail 월: {[str(m) for m in maturity_report['flagged_months']]}",
-        f"- 이번 실행에 실제 적용한 잠정 컷오프: {schema.PROVISIONAL_MATURITY_CUTOFF_MONTHS}개월 "
-        "(labels_base.parquet의 maturity_cutoff_used_months 컬럼과 일치)",
+        f"- 이번 실행에 적용한 확정 컷오프: {schema.MATURITY_CUTOFF_MONTHS}개월 "
+        "(DECISIONS.md 2026-09-18 확정, labels_base.parquet의 maturity_cutoff_used_months와 일치)",
         "",
     ]
     path.write_text("\n".join(lines), encoding="utf-8")

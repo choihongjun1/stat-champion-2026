@@ -608,3 +608,42 @@ def test_write_label_spec_md_creates_file(tmp_path):
     assert path.exists()
     content = path.read_text(encoding="utf-8")
     assert "라벨 정의" in content
+
+
+# ---------------------------------------------------------------------------
+# maturity cutoff (DECISIONS.md 2026-09-18 확정값)
+# ---------------------------------------------------------------------------
+
+
+def test_maturity_cutoff_is_final_one_month():
+    # 확정값이 바뀌면 labels_base의 origin 수·행수가 달라지므로 회귀로 고정한다.
+    assert schema.MATURITY_CUTOFF_MONTHS == 1
+
+
+def test_no_provisional_maturity_constant_remains():
+    # "잠정값" 시절 상수를 참조하는 코드가 남아 있으면 경고 문구까지 되살아난다.
+    assert not hasattr(schema, "PROVISIONAL_MATURITY_CUTOFF_MONTHS")
+    assert not hasattr(schema, "MATURITY_CUTOFF_CANDIDATE_RANGE_MONTHS")
+
+
+def test_constants_table_reports_final_cutoff():
+    table = labels.build_constants_table()
+    names = set(table["상수"])
+    assert "MATURITY_CUTOFF_MONTHS" in names
+    assert "PROVISIONAL_MATURITY_CUTOFF_MONTHS" not in names
+    value = table.loc[table["상수"] == "MATURITY_CUTOFF_MONTHS", "값"].iloc[0]
+    assert value == "1"
+
+
+def test_label_spec_does_not_call_cutoff_provisional(tmp_path):
+    codebook_rows = labels.build_label_codebook_rows(pd.DataFrame({"store_id": ["GR_1"]}))
+    exclusion_rows = labels.build_exclusion_summary([{"사유": "테스트", "건수": 1}])
+    maturity_report = {"recommended_cutoff_months": 1, "flagged_months": []}
+    path = tmp_path / "LABEL_SPEC.md"
+    labels.write_label_spec_md(
+        codebook_rows, exclusion_rows, maturity_report, labels.build_constants_table(), path
+    )
+    content = path.read_text(encoding="utf-8")
+    assert "잠정" not in content
+    assert "3~6개월" not in content
+    assert "확정 컷오프: 1개월" in content

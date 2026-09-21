@@ -87,25 +87,21 @@ def main() -> None:
             f"신고 지연 가능성을 배제할 수 없습니다: {[str(m) for m in non_partial_flagged]}"
         )
 
-    lo, hi = schema.MATURITY_CUTOFF_CANDIDATE_RANGE_MONTHS
-    if not (lo <= maturity_report["recommended_cutoff_months"] <= hi):
+    if maturity_report["recommended_cutoff_months"] != schema.MATURITY_CUTOFF_MONTHS:
         print(
-            f"[경고] 권고 컷오프({maturity_report['recommended_cutoff_months']}개월)가 "
-            f"DECISIONS.md 후보 범위({lo}~{hi}개월)를 벗어납니다 - 버그가 아니라 "
-            "인허가 신고 지연 특성이 소진공과 다를 수 있음을 시사 - 팀 논의 필요."
+            f"[경고] 실측 권고 컷오프({maturity_report['recommended_cutoff_months']}개월)가 "
+            f"확정값({schema.MATURITY_CUTOFF_MONTHS}개월, DECISIONS.md 2026-09-18)과 다릅니다 - "
+            "원본 갱신으로 tail 안정성이 달라졌을 수 있으니 재검토하세요."
         )
     config.FIGURES_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     labels.plot_maturity_tail(maturity_report, config.MATURITY_TAIL_FIGURE_PATH)
     print(f"저장 완료: {config.MATURITY_TAIL_FIGURE_PATH}")
 
-    maturity_cutoff_months = schema.PROVISIONAL_MATURITY_CUTOFF_MONTHS
-    print(
-        f"[경고] maturity_cutoff_months는 잠정값({maturity_cutoff_months}) - "
-        "DECISIONS.md 확정 전까지 재검토 필요"
-    )
+    maturity_cutoff_months = schema.MATURITY_CUTOFF_MONTHS
+    print(f"성숙 컷오프: {maturity_cutoff_months}개월 (DECISIONS.md 2026-09-18 확정)")
 
-    # 컷오프 변경 전(4개월)과 현재 잠정값을 비교 출력한다 - 값을 바꿀 때 origin 후보
-    # 범위가 어떻게 달라지는지 매번 눈으로 확인하기 위한 일회성 리포트다.
+    # 확정 전 검토 대상이던 4개월과 확정값을 비교 출력한다 - 컷오프가 origin 후보
+    # 범위에 주는 영향을 매 실행에서 눈으로 확인하기 위한 민감도 리포트다.
     PREVIOUS_CUTOFF_FOR_COMPARISON = 4
     print(f"컷오프 변경 비교 ({PREVIOUS_CUTOFF_FOR_COMPARISON}개월 -> {maturity_cutoff_months}개월):")
     for label, cutoff in (

@@ -19,19 +19,18 @@
 | feature_asof                | datetime64[ns] |     0    | 해당 행 feature 값의 기준 시점 = origin_end.                                                                                                                                                                                                    |
 | source_snapshot             | object         |     0    | 값을 계산한 원천 파일 식별자 = label_schema.SOURCE_SNAPSHOT[source_type].                                                                                                                                                                          |
 | available_at                | datetime64[ns] |     0    | feature가 현실에서 이용 가능해진 시점. age_months/biz_type/area/has_coord는 origin 시점에 즉시 확인 가능하므로 feature_asof와 동일값. 주의: event_12m 자체의 신고 지연 리스크는 이 컬럼이 아니라 cohort 선정 단계의 maturity_cutoff_months로 통제한다 (행 단위 available_at을 event_12m에 별도로 부여하지 않음). |
-| maturity_cutoff_used_months | int64          |     0    | 이번 실행에 실제로 적용된 성숙 컷오프(개월). 잠정값 여부는 label_schema.PROVISIONAL_MATURITY_CUTOFF_MONTHS와 비교해 확인 가능.                                                                                                                                         |
+| maturity_cutoff_used_months | int64          |     0    | 이번 실행에 적용된 성숙 컷오프(개월). 확정값은 label_schema.MATURITY_CUTOFF_MONTHS = 1 (DECISIONS.md 2026-09-18).                                                                                                                                         |
 
 ## 경계 기준 상수
 
-| 상수                                     | 값                                                        |
-|:---------------------------------------|:---------------------------------------------------------|
-| DISTRICT_CODES                         | {'광진구': '3040000', '마포구': '3130000', '영등포구': '3180000'}  |
-| ENCODING_ERRORS_POLICY                 | {'미용업': 'strict', '일반음식점': 'replace', '휴게음식점': 'strict'} |
-| EXPECTED_DISTRICT_FILTERED_ROWS        | {'일반음식점': 76451, '휴게음식점': 20483, '미용업': 13413}           |
-| MATURITY_CUTOFF_CANDIDATE_RANGE_MONTHS | (3, 6)                                                   |
-| PROVISIONAL_MATURITY_CUTOFF_MONTHS     | 1                                                        |
-| MIN_ORIGIN_QUARTER                     | 2021Q1                                                   |
-| LONG_PANEL_WINDOW_MONTHS               | 12                                                       |
+| 상수                              | 값                                                        |
+|:--------------------------------|:---------------------------------------------------------|
+| DISTRICT_CODES                  | {'광진구': '3040000', '마포구': '3130000', '영등포구': '3180000'}  |
+| ENCODING_ERRORS_POLICY          | {'미용업': 'strict', '일반음식점': 'replace', '휴게음식점': 'strict'} |
+| EXPECTED_DISTRICT_FILTERED_ROWS | {'일반음식점': 76451, '휴게음식점': 20483, '미용업': 13413}           |
+| MATURITY_CUTOFF_MONTHS          | 1                                                        |
+| MIN_ORIGIN_QUARTER              | 2021Q1                                                   |
+| LONG_PANEL_WINDOW_MONTHS        | 12                                                       |
 
 ## 제외 사유별 건수
 
@@ -43,6 +42,6 @@
 
 ## 성숙 컷오프 분석 결과
 
-- 권고 컷오프: 1개월 (DECISIONS.md 후보 범위 3~6개월과 별도로 확인 필요 - 실측 데이터 기반 신규 근거)
+- 실측 권고 컷오프: 1개월
 - 불안정 tail 월: ['2026-09']
-- 이번 실행에 실제 적용한 잠정 컷오프: 1개월 (labels_base.parquet의 maturity_cutoff_used_months 컬럼과 일치)
+- 이번 실행에 적용한 확정 컷오프: 1개월 (DECISIONS.md 2026-09-18 확정, labels_base.parquet의 maturity_cutoff_used_months와 일치)

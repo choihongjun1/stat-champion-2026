@@ -91,14 +91,16 @@ LICENSE_YEAR_COHORTS = [
     (2025, 2025, "2025년 개업", "2025"),
 ]
 
-# DECISIONS.md 2026-09-13 "폐업 라벨 설계": 후보 범위 3~6개월, 확정은 W2 진입 전.
-MATURITY_CUTOFF_CANDIDATE_RANGE_MONTHS = (3, 6)
-# 잠정값. recommend_maturity_cutoff() 산출 결과로 재검토 후 DECISIONS.md에 확정값을
-# 기록하고 이 상수를 갱신한다 - 함수 기본값으로는 쓰지 않고 스크립트에서만 명시 전달한다.
-# 2026-09-18 실측: build_maturity_diagnostic_table 결과 이미 끝난 달(months_ago>=1)은
-# 전부 정상 범위였고 flag된 달은 당월(부분월)뿐이었다 - 권고 컷오프 1개월을 반영.
-# DECISIONS.md 후보 범위(3~6개월)와는 여전히 다르므로 W2 진입 전 팀 확정 필요.
-PROVISIONAL_MATURITY_CUTOFF_MONTHS = 1
+# 라벨 성숙 컷오프 — **확정값 1개월** (`DECISIONS.md` 2026-09-18).
+# 근거: build_maturity_diagnostic_table 실측에서 이미 끝난 달(months_ago>=1)은 전부
+# trailing baseline 대비 정상 범위(0.78~1.74)였고, flag된 달은 당월(부분월)뿐이었다.
+# 함수 기본값으로는 쓰지 않고 스크립트에서 명시적으로 전달한다.
+MATURITY_CUTOFF_MONTHS = 1
+
+# historical note: DECISIONS.md 2026-09-13은 확정 전 후보 범위를 3~6개월로 잡았으나,
+# 그 범위는 소진공↔인허가 매칭 갭을 인허가 자체의 신고 지연으로 오인한 값이었다.
+# 2026-09-18 결정으로 폐기됐다. 코드에서 이 범위를 판정 기준으로 쓰지 않는다.
+HISTORICAL_MATURITY_CANDIDATE_RANGE_MONTHS = (3, 6)
 
 # 최종 라벨 패널(parquet/코드북 출력)에 남기는 컬럼. 원본 raw 컬럼은 여기 포함되지 않으며
 # 필요한 값은 모두 파생 컬럼으로 옮겨 담는다 - mdis.extract_role_columns와 동일한 취지.
@@ -145,7 +147,7 @@ VARIABLE_DEFINITIONS = {
         "(행 단위 available_at을 event_12m에 별도로 부여하지 않음)."
     ),
     "maturity_cutoff_used_months": (
-        "이번 실행에 실제로 적용된 성숙 컷오프(개월). 잠정값 여부는 "
-        "label_schema.PROVISIONAL_MATURITY_CUTOFF_MONTHS와 비교해 확인 가능."
+        "이번 실행에 적용된 성숙 컷오프(개월). 확정값은 label_schema.MATURITY_CUTOFF_MONTHS "
+        "= 1 (DECISIONS.md 2026-09-18)."
     ),
 }
