@@ -26,6 +26,8 @@ def main() -> None:
     df = mdis.extract_role_columns(df)
     df = mdis.coerce_numeric_columns(df)
     mdis.validate_no_missing_required_columns(df)
+    mdis.validate_weight_positive(df)
+    mdis.validate_categorical_code_columns(df)
     df = mdis.recode_yesno_columns(df)
     df = mdis.add_derived_features(df)
     print(f"is_seoul 매칭: {int(df['is_seoul'].sum())}건 (검증 통과)")

@@ -122,6 +122,36 @@ def test_validate_no_missing_required_columns_raises_on_missing():
         mdis.validate_no_missing_required_columns(df)
 
 
+def test_validate_weight_positive_passes_when_clean():
+    df = pd.DataFrame({"사업체수가중값": [1.5, 2.0, 3.25]})
+    mdis.validate_weight_positive(df)  # 예외 없이 통과해야 한다
+
+
+def test_validate_weight_positive_raises_on_zero_or_negative():
+    # PR #15 리뷰(choihongjun1): 가중치<=0이 결측 검증만으로는 잡히지 않던 문제.
+    df = pd.DataFrame({"사업체수가중값": [1.5, 0.0, -3.25]})
+    with pytest.raises(ValueError, match="사업체수가중값"):
+        mdis.validate_weight_positive(df)
+
+
+def test_validate_categorical_code_columns_passes_when_clean():
+    df = pd.DataFrame({"일반_창업형태코드": ["1", "2", "3"]})
+    mdis.validate_categorical_code_columns(df)  # 예외 없이 통과해야 한다
+
+
+def test_validate_categorical_code_columns_raises_on_missing():
+    df = pd.DataFrame({"일반_창업형태코드": ["1", None, "3"]})
+    with pytest.raises(ValueError, match="일반_창업형태코드 결측"):
+        mdis.validate_categorical_code_columns(df)
+
+
+def test_validate_categorical_code_columns_raises_on_invalid_code():
+    # PR #15 리뷰(choihongjun1): 창업형태 이상값(정의 밖 코드)이 조용히 통과하던 문제.
+    df = pd.DataFrame({"일반_창업형태코드": ["1", "4", "3"]})
+    with pytest.raises(ValueError, match="일반_창업형태코드"):
+        mdis.validate_categorical_code_columns(df)
+
+
 def test_apply_winsorize_preserves_original_and_flags_outliers():
     df = pd.DataFrame({"경영_영업이익": list(range(100))})
     out = mdis.apply_winsorize(df)
@@ -131,15 +161,44 @@ def test_apply_winsorize_preserves_original_and_flags_outliers():
 
 
 def test_build_treatment_vars_explicit_zero_not_nan():
+    # PR #15 리뷰 이전에는 처치군(여부=1)의 비율이 NaN이어도 그대로 통과시켰다.
+    # 이제는 treat_binary==1인데 비율이 NaN이면 즉시 실패해야 하므로(아래 신규 테스트
+    # 참조), 이 테스트는 "미처치군=명시적 0"만 검증하도록 처치군 비율을 실측값(90)으로 바꿨다.
+    df = pd.DataFrame(
+        {
+            "경영_전자상거래_매출실적여부": ["1", "2"],
+            "경영_전자상거래_매출비율": [90, np.nan],
+        }
+    )
+    out = mdis.build_treatment_vars(df, expected_counts={1: 1, 0: 1})
+    assert out["treat_cont"].iloc[0] == 90  # 처치군 비율은 그대로 유지
+    assert out["treat_cont"].iloc[1] == 0  # NaN이 아니라 명시적 0
+
+
+def test_build_treatment_vars_raises_when_treated_row_has_nan_ratio():
+    # PR #15 리뷰(choihongjun1): 처치군(여부=1)인데 비율이 NaN인 행이 예전에는
+    # "그대로 NaN 노출(은폐하지 않음)"으로 정상 취급됐다 - 이번 리뷰는 정확히 그 케이스가
+    # 원본 모순(처치군인데 비율이 없음)이므로 에러 없이 통과하면 안 된다고 지적한 것이라
+    # 기대값을 반대로 뒤집었다.
     df = pd.DataFrame(
         {
             "경영_전자상거래_매출실적여부": ["1", "2"],
             "경영_전자상거래_매출비율": [np.nan, np.nan],
         }
     )
-    out = mdis.build_treatment_vars(df, expected_counts={1: 1, 0: 1})
-    assert out["treat_cont"].iloc[1] == 0  # NaN이 아니라 명시적 0
-    assert pd.isna(out["treat_cont"].iloc[0])  # 실적 있는데 비율이 NaN이면 그대로 NaN 노출 (은폐하지 않음)
+    with pytest.raises(ValueError, match="NaN이거나"):
+        mdis.build_treatment_vars(df, expected_counts={1: 1, 0: 1})
+
+
+def test_build_treatment_vars_raises_when_treated_row_ratio_exceeds_100():
+    df = pd.DataFrame(
+        {
+            "경영_전자상거래_매출실적여부": ["1", "2"],
+            "경영_전자상거래_매출비율": [150, np.nan],
+        }
+    )
+    with pytest.raises(ValueError, match="100 초과"):
+        mdis.build_treatment_vars(df, expected_counts={1: 1, 0: 1})
 
 
 def test_build_treatment_vars_raises_on_type_mismatch():

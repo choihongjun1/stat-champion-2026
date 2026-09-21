@@ -85,6 +85,48 @@ def validate_no_missing_required_columns(df: pd.DataFrame) -> None:
             )
 
 
+def validate_weight_positive(df: pd.DataFrame) -> None:
+    """사업체수가중값이 `schema.WEIGHT_MIN_VALUE` 이하인 행이 있으면 `ValueError`를 발생시킨다.
+
+    호출 전 `coerce_numeric_columns`로 숫자형이어야 한다."""
+    col = "사업체수가중값"
+    invalid_mask = df[col] <= schema.WEIGHT_MIN_VALUE
+    n_invalid = int(invalid_mask.sum())
+    if n_invalid > 0:
+        samples = df.loc[invalid_mask, col].unique()[:5]
+        raise ValueError(
+            f"{col}: {schema.WEIGHT_MIN_VALUE} 이하인 행 {n_invalid}건 (예시: {list(samples)}) "
+            "- 가중치가 0 이하면 가중 통계에서 해당 행이 사라지거나 부호가 뒤집힙니다."
+        )
+
+
+def validate_categorical_code_columns(
+    df: pd.DataFrame, valid_codes: dict[str, set[str]] | None = None
+) -> None:
+    """다항(2값 초과) 코드 컬럼의 결측/이상값을 검증한다.
+
+    `recode_yesno_columns`가 이진 컬럼(예/아니오)을 다루는 것과 짝을 이루는 다항
+    코드 버전이다. `valid_codes` 기본값은 `schema.CATEGORICAL_CODE_COLUMNS`."""
+    if valid_codes is None:
+        valid_codes = schema.CATEGORICAL_CODE_COLUMNS
+    for col, valid_values in valid_codes.items():
+        missing_mask = df[col].isna()
+        n_missing = int(missing_mask.sum())
+        if n_missing > 0:
+            raise ValueError(
+                f"{col} 결측 {n_missing}건 - 원본 데이터 또는 변환 로직을 재확인하세요."
+            )
+
+        invalid_mask = ~df[col].isin(valid_values)
+        n_invalid = int(invalid_mask.sum())
+        if n_invalid > 0:
+            samples = df.loc[invalid_mask, col].unique()[:5]
+            raise ValueError(
+                f"{col}: {valid_values} 밖의 값 {n_invalid}건 (예시: {list(samples)}) "
+                "- 원본 값 형식을 재확인하세요."
+            )
+
+
 def recode_yesno_columns(df: pd.DataFrame) -> pd.DataFrame:
     """`schema.YESNO_COLUMNS` 중 df에 실제로 존재하는 컬럼만 변환한다
     (부분 컬럼만 담은 데이터에도 안전하게 재사용 가능하도록).
@@ -198,9 +240,26 @@ def build_treatment_vars(
     if counts != expected_counts:
         raise ValueError(f"처치변수 분포 불일치(값 타입/인코딩 재확인 필요): {counts} != {expected_counts}")
 
+    ratio_col = out["경영_전자상거래_매출비율"]
+
+    # PR #15 리뷰(choihongjun1): 처치군(treat_binary==1)인데 비율이 NaN이거나 100을
+    # 초과하는 행이 에러 없이 통과하던 문제. 처치군인데 비율이 없다는 건 원본 모순이고,
+    # 100 초과는 퍼센트 인코딩이 깨졌다는 신호이므로 즉시 실패한다.
+    treated_mask = out["treat_binary"] == 1
+    treated_invalid_mask = treated_mask & (
+        ratio_col.isna() | (ratio_col > schema.TREAT_RATIO_MAX)
+    )
+    n_treated_invalid = int(treated_invalid_mask.sum())
+    if n_treated_invalid > 0:
+        samples = ratio_col.loc[treated_invalid_mask].unique()[:5]
+        raise ValueError(
+            f"경영_전자상거래_매출비율: treat_binary==1인데 NaN이거나 "
+            f"{schema.TREAT_RATIO_MAX} 초과인 행 {n_treated_invalid}건 (예시: {list(samples)}) "
+            "- 원본을 재확인하세요."
+        )
+
     # 여부=2(미처치)인데 매출비율이 실제 값을 가진 행은 아래에서 조용히 0으로 덮어써진다.
     # 그 전에 이런 행이 없는지 확인한다(원본이 바뀌면 이 가정이 깨질 수 있다).
-    ratio_col = out["경영_전자상거래_매출비율"]
     mismatch_mask = (out["treat_binary"] == 0) & ratio_col.notna()
     n_mismatch = int(mismatch_mask.sum())
     if n_mismatch > 0:
