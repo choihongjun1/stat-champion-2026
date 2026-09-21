@@ -14,6 +14,7 @@ ROLE_COLUMNS = {
         "행정구역시도코드",
         "일반_창업인수승계_연도",
         "일반_창업인수승계_월",
+        "일반_창업형태코드",
         "일반_합계종사자수",
         "경영_영업비용_임차료",
         "경영_부채여부",
@@ -43,6 +44,7 @@ NUMERIC_COLUMNS = [
     "일반_합계종사자수",
     "경영_판매처별매출_소비자비율",
     "경영_전자상거래_매출비율",
+    "사업체수가중값",
 ]
 
 # 여부 계열 컬럼 중 0/1 이진 변환이 필요한 컬럼.
@@ -65,6 +67,36 @@ EXPECTED_TREAT_COUNTS = {1: 857, 0: 4185}
 
 # 행정구역시도코드 실측: 서울='11' (문자열, zero-padding 없음). CSV 실측 n=3780.
 SEOUL_CODE_VALUE = "11"
+EXPECTED_SEOUL_COUNT = 474
+
+# 결측이 있으면 안 되는 컬럼(M6) — 가중치는 모든 분석(가중 평균 등)에 필수라
+# 하나라도 결측이면 그 행 전체를 조용히 계산에서 빠뜨리게 된다.
+REQUIRED_NON_MISSING_COLUMNS = ["사업체수가중값"]
+
+# PR #15 리뷰(choihongjun1): 가중치 <= 0이 결측 검증만으로는 잡히지 않던 문제.
+# 가중치는 표본을 모집단으로 확장하는 용도라 0 이하면 그 행이 가중 통계에서
+# 사라지거나(0) 부호가 뒤집히는(음수) 오류가 된다 — 결측 여부와 별개로 값 자체의
+# 유효성을 검증해야 한다. 0 자체도 무효로 배제한다(포함하지 않음).
+WEIGHT_MIN_VALUE = 0
+
+# 다항(2값 초과) 코드 컬럼의 유효값 집합. recode_yesno_columns가 이진 컬럼을
+# 다루는 것과 짝을 이루는 다항 코드 버전 — validate_categorical_code_columns가
+# 이 dict를 순회하며 결측/이상값을 검증한다. 향후 다른 다항 코드 컬럼이 추가되면
+# 이 dict에 항목만 늘리면 된다.
+# 일반_창업형태코드: 1=신규창업, 2=인수창업, 3=가업승계 (파일설계서 코드정보 시트 확인 —
+# VARIABLE_DEFINITIONS의 같은 컬럼 설명과 근거가 같다).
+CATEGORICAL_CODE_COLUMNS: dict[str, set[str]] = {"일반_창업형태코드": {"1", "2", "3"}}
+
+# 처치군 매출비율은 퍼센트이므로 이 값을 초과하면 인코딩이 깨졌다는 신호다.
+TREAT_RATIO_MAX = 100
+
+# 창업연도 sentinel: CSV 실측 결과 1900 다음으로 낮은 값은 1962 (62년 공백, 1901~1961 값 0건) —
+# 자연 분포와 단절되어 있어 "모름/미상"을 뜻하는 sentinel로 판단(파일설계서에 별도 코드 명시 없음,
+# 실측 근거에 따른 판단). MIN_PLAUSIBLE은 실측 최솟값(1962)보다 충분히 낮은 안전 하한으로,
+# 향후 데이터 갱신 시 유사한 이상값을 조기에 탐지하기 위한 값이다.
+TENURE_YEAR_SENTINEL = 1900
+TENURE_YEAR_MIN_PLAUSIBLE = 1945
+TENURE_YEAR_MAX = 2023
 
 # tenure_months 한계 — 코드북 "정의"란에도 동일 문구를 사용한다.
 TENURE_MONTHS_CAVEAT = (
@@ -91,8 +123,10 @@ VARIABLE_DEFINITIONS = {
     "산업대분류코드": "공변량. 산업 대분류(문자 코드, 예: I=숙박·음식점업).",
     "산업중분류코드": f"공변량 겸 필터 기준. {', '.join(INDUSTRY_CODES)} 값만 남긴다(문자열, zero-padding 없음 — '047' 형태로는 0건). 필터 후 N={EXPECTED_INDUSTRY_FILTERED_ROWS}.",
     "행정구역시도코드": f"공변량. 시도 단위 지역코드(문자열). 서울='{SEOUL_CODE_VALUE}'. is_seoul 파생의 기준.",
-    "일반_창업인수승계_연도": "tenure_months 계산 원천. 필터 후 결측 0건(N=5042 실측). " + TENURE_MONTHS_CAVEAT,
+    "일반_창업인수승계_연도": f"tenure_months 계산 원천. 필터 후 결측 0건(N=5042 실측). 값 {TENURE_YEAR_SENTINEL}은 sentinel로 간주해 NaN 처리(tenure_invalid_flag 참조). " + TENURE_MONTHS_CAVEAT,
     "일반_창업인수승계_월": "tenure_months 계산 원천. 필터 후 결측 0건(N=5042 실측). " + TENURE_MONTHS_CAVEAT,
+    "일반_창업형태코드": "공변량. 창업 방식(1=신규창업, 2=인수창업, 3=가업승계 — 파일설계서 코드정보 시트 확인). "
+    "인수·승계 사업체는 tenure_months가 '점포 업력'이 아니라는 한계의 근거가 되는 구분 변수.",
     "일반_합계종사자수": f"공변량. 대표자 포함 총 종사자수. {_NUMERIC_NOTE}",
     "경영_영업비용_임차료": f"공변량. 연간 임차료 비용. {_NUMERIC_NOTE}",
     "경영_부채여부": f"공변량(이진) 원본. {_YESNO_DEF_YN} `경영_부채여부_bin`으로 변환.",
@@ -101,9 +135,12 @@ VARIABLE_DEFINITIONS = {
     "창업_준비활동_시장조사여부": f"보조 레버 후보(이진) 원본. {_YESNO_DEF} `_bin`으로 변환. 결측 패턴은 사업계획서작성여부와 동일.",
     "창업_준비활동_동종업종종사경험여부": f"보조 레버 후보(이진) 원본. {_YESNO_DEF} `_bin`으로 변환. 결측 패턴은 사업계획서작성여부와 동일.",
     "창업_준비활동_창업교육여부": f"보조 레버 후보(이진) 원본. {_YESNO_DEF} `_bin`으로 변환. 결측 패턴은 사업계획서작성여부와 동일.",
-    "사업체수가중값": "가중치. MDIS에서 제공하는 유일한 가중치(DATA_CATALOG.md §5). 가중 결과를 기본으로 하되 무가중 결과를 병기한다(DECISIONS.md 2026-09-13).",
+    "사업체수가중값": f"가중치. MDIS에서 제공하는 유일한 가중치(DATA_CATALOG.md §5). 가중 결과를 기본으로 하되 무가중 결과를 병기한다(DECISIONS.md 2026-09-13). {_NUMERIC_NOTE}",
+    "mdis_row_id": "행 식별자. 원본 CSV의 0-based 행 위치(필터 이전 기준). 원본에 ID 컬럼이 없어 도입 — "
+    "stage_a 내 유일성, stage_b ⊆ stage_a 관계를 검증하는 기준 key.",
     # 파생변수
-    "tenure_months": "파생변수 = 2023*12 - (일반_창업인수승계_연도*12 + 일반_창업인수승계_월). " + TENURE_MONTHS_CAVEAT,
+    "tenure_months": f"파생변수 = 2023*12 - (일반_창업인수승계_연도*12 + 일반_창업인수승계_월). 창업연도가 {TENURE_YEAR_SENTINEL}(sentinel)인 행은 NaN(tenure_invalid_flag=1 참조). " + TENURE_MONTHS_CAVEAT,
+    "tenure_invalid_flag": f"파생변수. 일반_창업인수승계_연도 == {TENURE_YEAR_SENTINEL}(sentinel)이라 tenure_months를 계산하지 않은 행 표시. 1=계산 불가.",
     "profit_margin": "파생변수 = 경영_영업이익 / 경영_매출금액. 매출 0이면 NaN, data_flag=1로 표시(필터 후 실제 발생 0건이지만 방어적으로 구현).",
     "data_flag": "profit_margin 계산 불가(매출 0) 행 표시 플래그. 1=계산 불가.",
     "is_seoul": f"파생변수 = (행정구역시도코드 == '{SEOUL_CODE_VALUE}'). 전국 5,042건 중 서울 474건(DATA_CATALOG.md §5)과 일치해야 함.",
