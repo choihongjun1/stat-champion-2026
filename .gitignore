@@ -5,12 +5,18 @@
 *.key
 
 # Data (repo 루트의 원본 데이터만 — src/data/ 등 소스 패키지는 제외)
-/data/
+/data/*
+!/data/manual/
 *.csv
 *.xlsx
 *.xls
 *.parquet
 *.zip
+
+# 예외: ER 검증용 수작업 판정/고정 표본은 파이프라인 산출물이 아니라 사람이 만든
+# 입력 데이터다. 이게 없으면 matching_validation을 새 클론에서 돌릴 수 없다.
+!/data/manual/
+!/data/manual/**
 
 # Python
 __pycache__/

@@ -1,0 +1,141 @@
+﻿sample_row,band,store_id,sj_store_id,firstpass_label,error_type,reason,suggested_final_label,evidence_needed,labeler
+0,tier3_score_0.9-1.0,SR_3130000-104-2021-00363,MA010120220802870316,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+1,tier3_score_0.9-1.0,GR_3180000-101-2006-00246,MA0101202411A0071780,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+2,tier3_score_0.9-1.0,BT_3180000-211-2017-00044,MA0101202303A0078611,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+3,tier3_score_0.9-1.0,SR_3130000-104-2022-00250,MA010120220810104153,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+4,tier3_score_0.9-1.0,GR_3180000-101-2011-00132,MA010120220800396644,uncertain,other,음식업 인허가(호스텔 내 식당)와 SEMAS 호스텔(숙박) 자체 — 시설↔입점 영업 구분 불가,uncertain,업종·시설 구분 확인,claude_firstpass_2026-09-19
+5,tier3_score_0.9-1.0,GR_3130000-101-2025-00209,MA0101202502A0074237,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+6,tier3_score_0.9-1.0,GR_3130000-101-2008-00005,MA010120220800254571,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+7,tier3_score_0.9-1.0,SR_3130000-104-2016-00329,MA010120220812566812,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+8,tier3_score_0.9-1.0,SR_3180000-104-2019-00237,MA010120220807766450,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+9,tier3_score_0.9-1.0,GR_3130000-101-2014-00935,MA010120220806570652,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+10,tier3_score_0.9-1.0,GR_3040000-101-2022-00165,MA0106202206A1699688,no,franchise_branch_collision,'건대10호' vs '건대1호' — 번호가 다른 지점/호실. 10호·18호 두 인허가가 같은 SEMAS로 몰림,no,지점명·호수 대조 (사업자등록번호 또는 현장 확인),claude_firstpass_2026-09-19
+11,tier3_score_0.9-1.0,SR_3180000-104-2020-00246,MA010120220807163517,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+12,tier3_score_0.9-1.0,SR_3040000-104-2017-00070,MA0106202201A0153540,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+13,tier3_score_0.9-1.0,SR_3130000-104-2018-00031,MA010120220812287053,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+14,tier3_score_0.9-1.0,GR_3130000-101-2017-00028,MA0101202409A0005571,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+15,tier3_score_0.9-1.0,SR_3130000-104-2009-00054,MA010120220800201660,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+16,tier3_score_0.9-1.0,SR_3180000-104-2013-00077,MA010120220800088684,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+17,tier3_score_0.9-1.0,GR_3180000-101-2023-00813,MA0101202411A0076943,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+18,tier3_score_0.9-1.0,GR_3040000-101-2022-00164,MA0106202206A1699688,no,franchise_branch_collision,'건대18호' vs '건대1호' — 번호가 다른 지점/호실,no,지점명·호수 대조 (사업자등록번호 또는 현장 확인),claude_firstpass_2026-09-19
+19,tier3_score_0.9-1.0,GR_3130000-101-2018-00312,MA010120220804339039,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+20,tier3_score_0.8-0.9,BT_3180000-217-2015-00004,MA010120220814131689,uncertain,common_name_collision,"'은별헤어' vs '은헤어' — 대형 단지(cc=36) 내 흔한 미용실명, 절단 여부 불명",uncertain,층·호 상세주소와 SEMAS 업종 소분류 대조,claude_firstpass_2026-09-19
+21,tier3_score_0.8-0.9,SR_3130000-104-1996-06494,MA010120220800184622,no,common_name_collision,"'아카데미'(일반명) vs '아카데미약국' — 음식업 인허가↔약국, cc=66",no,층·호 상세주소와 SEMAS 업종 소분류 대조,claude_firstpass_2026-09-19
+22,tier3_score_0.8-0.9,GR_3130000-101-2017-01069,MA0106202201A0604170,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+23,tier3_score_0.8-0.9,BT_3040000-212-2025-00021,MA0106202511A1907332,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+24,tier3_score_0.8-0.9,BT_3130000-212-2020-00005,MA010120220810314051,uncertain,typo_or_branch_variant,'예쁘다' vs '예쁘다늘' — 상호 변형인지 별개 점포인지 불명,uncertain,상호 변경 이력 확인,claude_firstpass_2026-09-19
+25,tier3_score_0.8-0.9,GR_3180000-101-2026-00059,MA010120220806623583,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+26,tier3_score_0.8-0.9,GR_3040000-101-2021-00452,MA010120220811854088,uncertain,franchise_branch_collision,"'동백식당2호' vs '동백식당' — 2호점/호실 구분 불명, 단지 상가 cc=30",uncertain,지점명·호수 대조 (사업자등록번호 또는 현장 확인),claude_firstpass_2026-09-19
+27,tier3_score_0.8-0.9,BT_3040000-204-1997-01167,MA010120220803808861,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+28,tier3_score_0.8-0.9,SR_3180000-104-2009-00146,MA010120220811730671,no,multi_tenant_pnu_collision,"이마트 회/초밥코너 vs 더샘(화장품) 이마트영등포점 — 몰 공통 접미사, cc=190",no,불필요 — 상호 핵심부가 다름 (몰 공통 접미사가 유사도 상승),claude_firstpass_2026-09-19
+29,tier3_score_0.8-0.9,GR_3180000-101-2017-00478,MA0101202409A0195017,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+30,tier3_score_0.8-0.9,GR_3040000-101-2021-00053,MA0101202406A0224824,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+31,tier3_score_0.8-0.9,GR_3180000-101-2021-00275,MA0106202307A0470199,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+32,tier3_score_0.8-0.9,SR_3130000-104-2013-00207,MA010120220800184551,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+33,tier3_score_0.8-0.9,BT_3180000-211-2006-00024,MA010120220812355860,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+34,tier3_score_0.8-0.9,GR_3130000-101-2018-00741,MA010120220805864907,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+35,tier3_score_0.8-0.9,BT_3130000-220-2021-00001,MA0101202302A0082552,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+36,tier3_score_0.8-0.9,GR_3130000-101-2023-00227,MA0101202303A0047654,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+37,tier3_score_0.8-0.9,SR_3040000-104-2006-00007,MA0101202307A0054508,uncertain,franchise_branch_collision,"레스티오(산학협동관) vs 레스티오 경영대점 — 캠퍼스 PNU 내 복수 지점 가능, cc=68",uncertain,지점명·호수 대조 (사업자등록번호 또는 현장 확인),claude_firstpass_2026-09-19
+38,tier3_score_0.8-0.9,GR_3180000-101-2023-00639,MA0101202308A0073261,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+39,tier3_score_0.8-0.9,SR_3130000-104-2014-00089,MA010120220807020444,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+40,tier3_score_0.75-0.8,BT_3040000-221-2018-00002,MA010120220805003727,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+41,tier3_score_0.75-0.8,GR_3180000-101-2000-13874,MA010120220800366956,uncertain,common_name_collision,'당산 양푼이동태탕' vs '바다양푼이동태탕' — 흔한 메뉴명,uncertain,층·호 상세주소와 SEMAS 업종 소분류 대조,claude_firstpass_2026-09-19
+42,tier3_score_0.75-0.8,SR_3040000-104-2014-00095,MA010120220812527726,no,multi_tenant_pnu_collision,"스위트몬스터 vs 스케쳐스 — '건대스타시티점' 공통 접미사, cc=236",no,불필요 — 상호 핵심부가 다름 (몰 공통 접미사가 유사도 상승),claude_firstpass_2026-09-19
+43,tier3_score_0.75-0.8,SR_3130000-104-2017-00101,MA0106202201A0010568,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+44,tier3_score_0.75-0.8,GR_3180000-101-2014-00580,MA0106202301A0290587,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+45,tier3_score_0.75-0.8,GR_3180000-101-2014-00451,MA0106202210A0786856,no,multi_tenant_pnu_collision,"홍대돈부리 vs SEMAS 상호 '리'(결손) — '타임스퀘어점' 접미사, cc=190",no,불필요 — 상호 핵심부가 다름 (몰 공통 접미사가 유사도 상승),claude_firstpass_2026-09-19
+46,tier3_score_0.75-0.8,GR_3180000-101-2023-00046,MA0101202301A0063709,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+47,tier3_score_0.75-0.8,GR_3130000-101-2016-00557,MA0101202303A0033774,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+48,tier3_score_0.75-0.8,GR_3180000-101-2019-00487,MA010120220804472553,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+49,tier3_score_0.75-0.8,GR_3040000-101-1993-04140,MA010120220803811621,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+50,tier3_score_0.75-0.8,GR_3180000-101-2022-00423,MA010120220812854783,uncertain,common_name_collision,"'치킨뱅이 은성해바라기' vs '은성해바라기' — 브랜드/건물명 구분 불명, cc=35",uncertain,층·호 상세주소와 SEMAS 업종 소분류 대조,claude_firstpass_2026-09-19
+51,tier3_score_0.75-0.8,GR_3130000-101-2019-01031,MA0101202409A0201722,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+52,tier3_score_0.75-0.8,GR_3180000-101-2021-00637,MA0106202201A0604610,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+53,tier3_score_0.75-0.8,GR_3180000-101-1986-04381,MA010120220800362414,uncertain,common_name_collision,'한효분식' vs '한효식품' — 같은 사업자 여부 불명,uncertain,층·호 상세주소와 SEMAS 업종 소분류 대조,claude_firstpass_2026-09-19
+54,tier3_score_0.75-0.8,GR_3180000-101-2012-00324,MA0106202506A0056363,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+55,tier3_score_0.75-0.8,SR_3180000-104-2023-00212,MA0101202411A0143850,no,multi_tenant_pnu_collision,"핏타민(음식업) vs 핏타민약국 — 같은 브랜드 다른 업종, 더현대 cc=349",no,불필요 — 상호 핵심부가 다름 (몰 공통 접미사가 유사도 상승),claude_firstpass_2026-09-19
+56,tier3_score_0.75-0.8,GR_3040000-101-2022-00219,MA010120220813531793,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+57,tier3_score_0.75-0.8,GR_3180000-101-2023-00001,MA0101202406A0440267,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+58,tier3_score_0.75-0.8,GR_3180000-101-1991-07885,MA0101202306A0075383,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+59,tier3_score_0.75-0.8,GR_3130000-101-2018-00776,MA010120220802871129,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+60,tier3_score_0.7-0.75,SR_3180000-104-2015-00121,MA010120220805274518,no,multi_tenant_pnu_collision,"파파밸리피자 vs 땡스피자 — '롯데영등포점' 공통, cc=332",no,불필요 — 상호 핵심부가 다름 (몰 공통 접미사가 유사도 상승),claude_firstpass_2026-09-19
+61,tier3_score_0.7-0.75,SR_3040000-104-2019-00018,MA0106202201A2363596,no,multi_tenant_pnu_collision,"오마뎅 vs '건대스타시티'(몰 자체), cc=106",no,불필요 — 상호 핵심부가 다름 (몰 공통 접미사가 유사도 상승),claude_firstpass_2026-09-19
+62,tier3_score_0.7-0.75,SR_3180000-104-2019-00332,MA010120220811478027,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+63,tier3_score_0.7-0.75,SR_3180000-104-2024-00075,MA0101202406A0236928,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+64,tier3_score_0.7-0.75,GR_3130000-101-2014-00495,MA0106202201A2364790,no,multi_tenant_pnu_collision,"포베이 vs '상암MBC'(랜드마크명), cc=53",no,불필요 — 상호 핵심부가 다름 (몰 공통 접미사가 유사도 상승),claude_firstpass_2026-09-19
+65,tier3_score_0.7-0.75,GR_3130000-101-2025-00283,MA0106202509A2107567,uncertain,common_name_collision,'수상한 연남' vs '수상한사진관연남점' — 업종 상이 가능,uncertain,층·호 상세주소와 SEMAS 업종 소분류 대조,claude_firstpass_2026-09-19
+66,tier3_score_0.7-0.75,GR_3130000-101-2024-00693,MA010120220802062600,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+67,tier3_score_0.7-0.75,SR_3180000-104-2018-00136,MA010120220809933812,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+68,tier3_score_0.7-0.75,SR_3180000-104-2025-00086,MA010120220800507067,no,multi_tenant_pnu_collision,"와플샵 vs 반스(신발) — '롯데영등포점' 공통, cc=332",no,불필요 — 상호 핵심부가 다름 (몰 공통 접미사가 유사도 상승),claude_firstpass_2026-09-19
+69,tier3_score_0.7-0.75,SR_3040000-104-2020-00021,MA010120220809797858,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+70,tier3_score_0.7-0.75,GR_3180000-101-2021-00314,MA010120220812040817,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+71,tier3_score_0.7-0.75,GR_3180000-101-2025-00139,MA0101202503A0013304,no,common_name_collision,"위베이커리 vs 근제베이커리 — 공통어 '베이커리', cc=349",no,층·호 상세주소와 SEMAS 업종 소분류 대조,claude_firstpass_2026-09-19
+72,tier3_score_0.7-0.75,BT_3130000-211-2012-00068,MA010120220812883296,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+73,tier3_score_0.7-0.75,BT_3130000-218-2016-00013,MA010120220812883296,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+74,tier3_score_0.7-0.75,GR_3180000-101-2010-00594,MA010120220800507067,no,multi_tenant_pnu_collision,"사보텐 vs 반스 — '롯데영등포점' 공통, cc=332",no,불필요 — 상호 핵심부가 다름 (몰 공통 접미사가 유사도 상승),claude_firstpass_2026-09-19
+75,tier3_score_0.7-0.75,BT_3130000-219-2023-00014,MA0101202307A0077718,no,common_name_collision,"'메이크업한' vs '디챠메이크업' — 공통어 '메이크업', cc=68",no,층·호 상세주소와 SEMAS 업종 소분류 대조,claude_firstpass_2026-09-19
+76,tier3_score_0.7-0.75,GR_3130000-101-2023-00638,MA0101202411A0073451,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+77,tier3_score_0.7-0.75,GR_3130000-101-2018-00752,MA010120220811876076,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+78,tier3_score_0.7-0.75,GR_3130000-101-2003-00738,MA010120220800193673,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+79,tier3_score_0.7-0.75,SR_3130000-104-2016-00209,MA010120220813405671,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+80,tier4_dist_0-10m,SR_3040000-104-2015-00146,MA0101202409A0059348,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+81,tier4_dist_0-10m,GR_3130000-101-2022-00668,MA010120220808622112,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+82,tier4_dist_0-10m,GR_3130000-101-2023-00819,MA0101202210A0057637,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+83,tier4_dist_0-10m,GR_3130000-101-2008-00583,MA010120220805155162,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+84,tier4_dist_0-10m,GR_3130000-101-2012-00215,MA010120220805418329,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+85,tier4_dist_0-10m,SR_3180000-104-2003-00007,MA0101202406A0275956,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+86,tier4_dist_0-10m,GR_3130000-101-2002-00056,MA010120220800184085,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+87,tier4_dist_0-10m,BT_3130000-204-2000-01471,MA010120220800180253,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+88,tier4_dist_0-10m,GR_3180000-101-2015-00277,MA010120220810223109,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+89,tier4_dist_0-10m,GR_3130000-101-2017-00527,MA010120220808625956,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+90,tier4_dist_0-10m,BT_3130000-211-2013-00043,MA010120220800214933,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+91,tier4_dist_0-10m,BT_3180000-212-2021-00022,MA010120220808518324,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+92,tier4_dist_0-10m,SR_3130000-104-2012-00007,MA0106202201A2363526,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+93,tier4_dist_0-10m,GR_3040000-101-2015-00181,MA010120220803774955,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+94,tier4_dist_0-10m,GR_3130000-101-1993-00700,MA010120220800188998,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+95,tier4_dist_0-10m,GR_3130000-101-2015-00241,MA010120220802376224,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+96,tier4_dist_0-10m,GR_3180000-101-2021-00277,MA010120220813674159,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+97,tier4_dist_0-10m,BT_3180000-211-1996-00009,MA010120220800730497,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+98,tier4_dist_0-10m,GR_3130000-101-2000-08913,MA0101202412A0079251,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+99,tier4_dist_0-10m,GR_3180000-101-1999-11993,MA010120220800434251,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+100,tier4_dist_10-20m,BT_3180000-211-2021-00007,MA010120220805118943,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+101,tier4_dist_10-20m,BT_3180000-211-2008-00034,MA010120220802626873,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+102,tier4_dist_10-20m,SR_3040000-104-2021-00195,MA010120220805219761,uncertain,franchise_branch_collision,"GS25 '뉴광진미소점' vs '광진미소점' — 이전/개명 동일점인지 별개 지점인지 불명, 10.4m",uncertain,지점명·호수 대조 (사업자등록번호 또는 현장 확인),claude_firstpass_2026-09-19
+103,tier4_dist_10-20m,GR_3130000-101-2015-00552,MA010120220807363967,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+104,tier4_dist_10-20m,GR_3040000-101-1993-04988,MA010120220803737242,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+105,tier4_dist_10-20m,GR_3040000-101-1993-00624,MA010120220808315069,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+106,tier4_dist_10-20m,BT_3040000-204-2003-00094,MA010120220813786646,no,coord_near_name_conflict,"나라헤어 vs 유나헤어 — 4자 1자 치환(0.75), 인접 필지 19.9m",no,불필요 — 다른 상호 (1자 치환),claude_firstpass_2026-09-19
+107,tier4_dist_10-20m,GR_3180000-101-2005-00670,MA010120220800439275,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+108,tier4_dist_10-20m,GR_3180000-101-2009-00019,MA010120220800418020,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+109,tier4_dist_10-20m,GR_3130000-101-2017-00911,MA010120220813673065,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+110,tier4_dist_10-20m,GR_3180000-101-2009-00020,MA010120220800418020,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+111,tier4_dist_10-20m,BT_3040000-213-2022-00022,MA010120220812206979,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+112,tier4_dist_10-20m,GR_3180000-101-1995-03990,MA0101202406A0544917,uncertain,common_name_collision,"'곰집' 2자 일반명, 지번 151-5 vs 115-31, 19.7m",uncertain,층·호 상세주소와 SEMAS 업종 소분류 대조,claude_firstpass_2026-09-19
+113,tier4_dist_10-20m,GR_3180000-101-2000-13292,MA010120220800333901,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+114,tier4_dist_10-20m,GR_3130000-101-1992-05270,MA010120220800232260,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+115,tier4_dist_10-20m,GR_3130000-101-1999-06840,MA010120220803864204,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+116,tier4_dist_10-20m,GR_3180000-101-1988-10721,MA0101202412A0064603,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+117,tier4_dist_10-20m,BT_3040000-204-2005-00009,MA010120220813786646,no,coord_near_name_conflict,"나라헤어 vs 유나헤어 (별도 인허가 행, 같은 쌍)",no,불필요 — 다른 상호 (1자 치환),claude_firstpass_2026-09-19
+118,tier4_dist_10-20m,GR_3180000-101-1979-09834,MA010120220813687703,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+119,tier4_dist_10-20m,GR_3040000-101-2002-00125,MA010120220803763644,uncertain,common_name_collision,"'더블유1' vs '더블유' — 짧은 일반명, 11.1m",uncertain,층·호 상세주소와 SEMAS 업종 소분류 대조,claude_firstpass_2026-09-19
+120,tier4_dist_20-30m,BT_3130000-213-2020-00010,MA010120220810160870,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+121,tier4_dist_20-30m,BT_3180000-226-2021-00002,MA010120220812670499,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+122,tier4_dist_20-30m,GR_3180000-101-2001-14108,MA010120220808503413,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+123,tier4_dist_20-30m,GR_3130000-101-2020-00507,MA010120220800201043,no,coord_near_name_conflict,"서강국시 vs 서강낚시 — 1자 치환, 업종 상이, 29.7m",no,불필요 — 다른 상호 (1자 치환),claude_firstpass_2026-09-19
+124,tier4_dist_20-30m,GR_3180000-101-2023-00327,MA0101202305A0081319,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+125,tier4_dist_20-30m,GR_3180000-101-1999-12969,MA010120220814263853,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+126,tier4_dist_20-30m,GR_3180000-101-1996-04942,MA010120220800418959,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+127,tier4_dist_20-30m,GR_3130000-101-2011-00621,MA0101202603A0002913,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+128,tier4_dist_20-30m,GR_3130000-101-2020-00283,MA010120220808225027,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+129,tier4_dist_20-30m,BT_3040000-204-2005-00002,MA010120220805628251,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+130,tier4_dist_20-30m,GR_3130000-101-1986-05141,MA010120220813897204,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+131,tier4_dist_20-30m,GR_3130000-101-2017-00475,MA0106202201A0522443,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+132,tier4_dist_20-30m,GR_3130000-101-2025-00679,MA010120220800196450,uncertain,common_name_collision,"'남원추어탕' 흔한 상호, 지번 458 vs 353, 25.0m",uncertain,층·호 상세주소와 SEMAS 업종 소분류 대조,claude_firstpass_2026-09-19
+133,tier4_dist_20-30m,GR_3180000-101-1993-10230,MA010120220800351964,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+134,tier4_dist_20-30m,GR_3130000-101-1983-01391,MA0101202503A0016147,no,coord_near_name_conflict,"백조식당 vs 백세식당 — 1자 치환, 20.1m",no,불필요 — 다른 상호 (1자 치환),claude_firstpass_2026-09-19
+135,tier4_dist_20-30m,BT_3040000-212-2010-00007,MA010120220803747757,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+136,tier4_dist_20-30m,GR_3180000-101-1997-08491,MA010120220800337435,no,coord_near_name_conflict,"천명식당 vs 순천식당 — 1자 치환, 29.2m",no,불필요 — 다른 상호 (1자 치환),claude_firstpass_2026-09-19
+137,tier4_dist_20-30m,SR_3040000-104-2023-00068,MA0106202309A2372063,uncertain,franchise_branch_collision,"GS25 '뉴광장점' vs '광진 광장점' — 별개 지점 가능, 26.3m",uncertain,지점명·호수 대조 (사업자등록번호 또는 현장 확인),claude_firstpass_2026-09-19
+138,tier4_dist_20-30m,SR_3180000-104-2021-00127,MA010120220813964639,yes,match_ok,,yes,,claude_firstpass_2026-09-19
+139,tier4_dist_20-30m,GR_3040000-101-2005-00142,MA010120220805799691,yes,match_ok,,yes,,claude_firstpass_2026-09-19

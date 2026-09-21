@@ -4,13 +4,15 @@
 실행:
     python -m src.data.matching_validation
 
-입력 (outputs/matching/validation/, git 미추적):
+입력 (data/manual/er_validation/, **git 추적**): 사람이 만든 판정·고정 표본이라
+산출물이 아니라 입력 데이터다. 이게 없으면 이 스크립트를 새 클론에서 돌릴 수 없다.
     - match_precision_sample_v1.csv      판정에 쓴 고정 표본 (140건). 파이프라인을 다시
                                           돌리면 표본이 바뀌므로 판정 당시 파일을 고정해 쓴다.
     - precision_labels_*.csv              행 단위 판정 (store_id, band, firstpass_label ...)
     - match_validation_sample_v1.csv      Tier1/2 sanity 표본 (56건)
-    - license_semas_matches_baseline.parquet  규칙 변경 전 전체 매칭 (coverage 기준선)
 입력 (outputs/): matching/license_semas_matches.parquet (현재 규칙), standardized/semas_entities.parquet
+baseline(규칙 변경 전 매칭)은 파일로 들고 있지 않고 `build_baseline()`이 현재 코드로
+재생성한다 (Tier4 구조 조건만 끈 cascade). 결과는 outputs 캐시에 저장한다.
 
 출력: 규칙 비교표·검토표 CSV, figure PNG, validation_report.md (모두 git 미추적)
 
@@ -29,18 +31,22 @@ import pandas as pd
 from src.data.config import OUTPUT_DIR, REPO_ROOT
 from src.data.matching import (
     COORD_RADIUS_M,
+    build_candidate_table,
     FUZZY_THRESHOLD,
     NAME_CONTAINMENT,
     NAME_EXACT,
     NAME_OTHER,
     TIER3_CROWDED_CC,
     name_structure,
+    run_cascade,
     seq_ratio,
 )
 from src.data.names import normalize_name
 
 MATCH_DIR = REPO_ROOT / "outputs" / "matching"
 VAL_DIR = MATCH_DIR / "validation"
+# 수작업 판정·고정 표본(입력 데이터, git 추적). 산출물 디렉터리와 분리한다.
+MANUAL_DIR = REPO_ROOT / "data" / "manual" / "er_validation"
 LABEL_GLOB = "precision_labels_*.csv"
 
 CC_BINS = [0, 1, 5, 20, 50, np.inf]
@@ -675,19 +681,40 @@ def write_report(res: dict, base: pd.DataFrame, new: pd.DataFrame,
 # entry point
 # ---------------------------------------------------------------------------
 def _find_labels() -> Path | None:
-    files = sorted(VAL_DIR.glob(LABEL_GLOB))
+    files = sorted(MANUAL_DIR.glob(LABEL_GLOB))
     return files[-1] if files else None
+
+
+def build_baseline(new: pd.DataFrame, entities: pd.DataFrame, panel: pd.DataFrame) -> pd.DataFrame:
+    """규칙 변경 전(Tier4 구조 조건 없음) 매칭 테이블을 현재 코드로 재생성한다.
+
+    예전에는 판정 당시 만든 parquet(15MB)을 outputs에 두고 읽었는데, git 미추적이라
+    새 클론에서는 이 스크립트가 아예 돌지 않았다. cascade는 결정적이므로 같은 입력에서
+    같은 결과가 나온다 — 파일 대신 재생성하고, 반복 실행 비용만 캐시로 줄인다.
+    """
+    cache = VAL_DIR / "license_semas_matches_baseline.parquet"
+    if cache.exists():
+        return pd.read_parquet(cache)
+
+    lic = pd.read_parquet(OUTPUT_DIR / "licenses_3gu.parquet")
+    cand = build_candidate_table(panel, entities)
+    base, _, _ = run_cascade(lic, cand, entities, tier4_require_structure=False)
+    VAL_DIR.mkdir(parents=True, exist_ok=True)
+    base.to_parquet(cache, index=False)
+    print(f"baseline 재생성(Tier4 구조 조건 off): {len(base):,}행 -> {cache}")
+    return base
 
 
 def run() -> dict:
     VAL_DIR.mkdir(parents=True, exist_ok=True)
     label_path = _find_labels()
-    s = load_sample_with_labels(VAL_DIR / "match_precision_sample_v1.csv", label_path)
+    s = load_sample_with_labels(MANUAL_DIR / "match_precision_sample_v1.csv", label_path)
     s = add_name_features(s)
 
-    base = pd.read_parquet(VAL_DIR / "license_semas_matches_baseline.parquet")
     new = pd.read_parquet(MATCH_DIR / "license_semas_matches.parquet")
     ents = pd.read_parquet(OUTPUT_DIR / "semas_entities.parquet")
+    panel = pd.read_parquet(OUTPUT_DIR / "semas_panel.parquet")
+    base = build_baseline(new, ents, panel)
 
     pop3 = population_tier3(base, ents)
     pop4 = population_tier4_structure(base, ents)
@@ -695,7 +722,7 @@ def run() -> dict:
     t3 = compare_tier3(s, pop3)
     t4 = compare_tier4(s, pop4)
     rev = no_uncertain_review(s, new)
-    san = sanity_review(pd.read_csv(VAL_DIR / "match_validation_sample_v1.csv", dtype=str))
+    san = sanity_review(pd.read_csv(MANUAL_DIR / "match_validation_sample_v1.csv", dtype=str))
 
     t3.to_csv(VAL_DIR / "tier3_rule_comparison.csv", index=False, encoding="utf-8-sig")
     t4.to_csv(VAL_DIR / "tier4_rule_comparison.csv", index=False, encoding="utf-8-sig")
