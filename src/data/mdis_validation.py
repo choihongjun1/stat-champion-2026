@@ -327,9 +327,8 @@ def append_validation_section_md(section_md: str, path: Path) -> None:
     """`path`(MDIS_CODEBOOK.md)에 A-4 검증 절을 마커 기반으로 덧붙인다.
 
     마커(`<!-- A4-VALIDATION-START/END -->`) 사이를 교체하므로 재실행해도 중복되지 않는다.
-    주의: A-3의 `mdis.write_codebook_md`는 이 파일을 매번 통째로 덮어쓴다.
-    `scripts/run_mdis_stage_a.py`를 다시 실행하면 이 절이 사라지므로,
-    그 뒤에는 `scripts/run_mdis_validation.py`를 다시 실행해 절을 복원해야 한다.
+    A-3의 `mdis.write_codebook_md`는 이 블록과 수기 메모 블록
+    (`<!-- MANUAL-NOTES-START/END -->`)을 보존하므로 실행 순서에 상관없이 살아남는다.
     """
     start_marker = "<!-- A4-VALIDATION-START -->"
     end_marker = "<!-- A4-VALIDATION-END -->"

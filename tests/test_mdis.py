@@ -366,3 +366,49 @@ def test_write_provenance_json_creates_readable_file(tmp_path):
     path = tmp_path / "out" / "provenance.json"
     mdis.write_provenance_json({"raw_sha256": "abc123"}, path)
     assert json.loads(path.read_text(encoding="utf-8")) == {"raw_sha256": "abc123"}
+
+
+# ---------------------------------------------------------------------------
+# 코드북 생성/수기 구간 분리
+# ---------------------------------------------------------------------------
+
+
+def _codebook_inputs():
+    rows = pd.DataFrame({"변수명": ["treat_binary"], "타입": ["int64"], "결측률(%)": [0.0], "정의": ["x"]})
+    enc = pd.DataFrame({"원본 컬럼": ["a"], "원본값": ["1"], "변환값": ["b"]})
+    return rows, enc
+
+
+def test_write_codebook_md_preserves_marker_blocks(tmp_path):
+    path = tmp_path / "MDIS_CODEBOOK.md"
+    rows, enc = _codebook_inputs()
+    mdis.write_codebook_md(rows, enc, path)
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + "\n<!-- A4-VALIDATION-START -->\n## A-4 검증 결과\n생성표\n<!-- A4-VALIDATION-END -->\n"
+        + "\n<!-- MANUAL-NOTES-START -->\n## 수기 메모\n사람이 쓴 해석 문단\n<!-- MANUAL-NOTES-END -->\n",
+        encoding="utf-8",
+    )
+
+    mdis.write_codebook_md(rows, enc, path)  # 재생성해도 두 블록은 살아 있어야 한다
+
+    content = path.read_text(encoding="utf-8")
+    assert "## A-4 검증 결과" in content and "생성표" in content
+    assert "## 수기 메모" in content and "사람이 쓴 해석 문단" in content
+    assert content.count("<!-- MANUAL-NOTES-START -->") == 1
+    assert content.count("<!-- A4-VALIDATION-START -->") == 1
+
+
+def test_write_codebook_md_regenerates_variable_table(tmp_path):
+    path = tmp_path / "MDIS_CODEBOOK.md"
+    rows, enc = _codebook_inputs()
+    mdis.write_codebook_md(rows, enc, path)
+    rows2 = rows.assign(변수명=["treat_cont"])
+    mdis.write_codebook_md(rows2, enc, path)
+    content = path.read_text(encoding="utf-8")
+    assert "treat_cont" in content and "treat_binary" not in content
+
+
+def test_extract_preserved_blocks_ignores_unclosed_marker():
+    text = "본문\n<!-- MANUAL-NOTES-START -->\n닫히지 않음\n"
+    assert mdis.extract_preserved_blocks(text) == []

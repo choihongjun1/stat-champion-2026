@@ -70,8 +70,8 @@ def main() -> None:
     mdis_validation.append_validation_section_md(section_md, config.MDIS_CODEBOOK_PATH)
     print(f"\n저장 완료: {config.MDIS_CODEBOOK_PATH} (## A-4 검증 결과 절 갱신)")
     print(
-        "참고: scripts/run_mdis_stage_a.py를 다시 실행하면 코드북이 통째로 재생성되어 "
-        "이 A-4 절이 사라집니다. 그 경우 이 스크립트를 다시 실행해 절을 복원하세요."
+        "참고: A-4 절과 수기 메모 블록은 run_mdis_stage_a.py 재실행에도 보존된다 "
+        "(mdis.write_codebook_md가 마커 블록을 유지)."
     )
 
 

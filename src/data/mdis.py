@@ -360,10 +360,39 @@ def build_encoding_table() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# 이 파일이 생성하는 구간 밖에서 보존해야 하는 블록들.
+# - A-4 블록: `mdis_validation.append_validation_section_md`가 채운다.
+# - 수기 메모 블록: 사람이 직접 쓴 해석·판단. 어떤 스크립트도 내용을 쓰지 않는다.
+PRESERVED_CODEBOOK_BLOCKS = [
+    ("<!-- A4-VALIDATION-START -->", "<!-- A4-VALIDATION-END -->"),
+    ("<!-- MANUAL-NOTES-START -->", "<!-- MANUAL-NOTES-END -->"),
+]
+
+
+def extract_preserved_blocks(text: str) -> list[str]:
+    """기존 코드북에서 재생성 대상이 아닌 블록을 마커째로 추출한다."""
+    blocks = []
+    for start, end in PRESERVED_CODEBOOK_BLOCKS:
+        if start in text and end in text:
+            body = text.split(start, 1)[1].split(end, 1)[0]
+            blocks.append(f"{start}{body}{end}")
+    return blocks
+
+
 def write_codebook_md(rows: pd.DataFrame, encoding_table: pd.DataFrame, path: Path) -> None:
+    """변수 사전·인코딩표를 재생성한다.
+
+    A-4 검증 절(`mdis_validation`이 생성)과 수기 메모 절은 **보존**한다. 이 함수가 파일을
+    통째로 덮어쓰면 다른 스크립트의 산출물과 사람이 쓴 문단이 조용히 사라지기 때문이다.
+    """
     lines = ["# MDIS 코드북", "", "`docs/W1_MDIS_AND_LABEL.md` A-3 7번 산출물.", "", "## 변수 사전", ""]
     lines.append(rows.to_markdown(index=False))
     lines += ["", "## 값 인코딩 변환표", ""]
     lines.append(encoding_table.to_markdown(index=False))
     lines.append("")
+
+    preserved = extract_preserved_blocks(path.read_text(encoding="utf-8")) if path.exists() else []
+    for block in preserved:
+        lines += [block, ""]
+
     path.write_text("\n".join(lines), encoding="utf-8")
