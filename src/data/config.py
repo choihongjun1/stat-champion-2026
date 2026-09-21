@@ -167,3 +167,24 @@ SEOUL_BBOX_4326 = {
     "lat_min": 37.38,
     "lat_max": 37.75,
 }
+
+
+# ---------------------------------------------------------------------------
+# 라벨 파이프라인(W1 B-2) 산출물 경로.
+# 인허가 원본 파일명·prefix는 위 BUSINESS_TYPES가 단일 출처다 — 여기서 따로 정의하지 않는다.
+# ---------------------------------------------------------------------------
+def get_licensing_raw_path(business_type: str) -> Path:
+    """인허가 원본 CSV 경로. 파일명은 `BUSINESS_TYPES`에서만 가져온다."""
+    if business_type not in BUSINESS_TYPES:
+        raise RuntimeError(f"알 수 없는 인허가 business_type: {business_type}")
+    path = LICENSE_DIR / BUSINESS_TYPES[business_type]["file"]
+    if not path.exists():
+        raise RuntimeError(f"인허가 원본 파일을 찾을 수 없습니다: {path}")
+    return path
+
+
+LABELS_OUTPUT_DIR = REPO_ROOT / "outputs" / "labels"
+LABELS_BASE_PATH = LABELS_OUTPUT_DIR / "labels_base.parquet"
+MATURITY_TAIL_FIGURE_PATH = FIGURES_OUTPUT_DIR / "closure_maturity_tail.png"
+KM_GWANGJIN_FIGURE_PATH = FIGURES_OUTPUT_DIR / "km_gwangjin.png"
+LABEL_SPEC_PATH = REPO_ROOT / "docs" / "LABEL_SPEC.md"
