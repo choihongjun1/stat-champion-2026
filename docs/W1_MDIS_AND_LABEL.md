@@ -107,9 +107,10 @@ encoding: cp949 / 40,000행 × 156열
 **입력**
 
 ```
-$PROJECT_DATA_ROOT/00_raw/인허가/식품_일반음식점.csv      (cp949, 39열)
-$PROJECT_DATA_ROOT/00_raw/인허가/식품_휴게음식점.csv      (cp949, 39열)
-$PROJECT_DATA_ROOT/00_raw/인허가/생활_미용업.csv          (cp949, 37열)
+$PROJECT_DATA_ROOT/00_raw/인허가/서울시 일반음식점 인허가 정보.csv   (cp949, 39열)
+$PROJECT_DATA_ROOT/00_raw/인허가/식품_휴게음식점.csv                 (cp949, 39열)
+$PROJECT_DATA_ROOT/00_raw/인허가/생활_미용업.csv                     (cp949, 37열)
+(파일명·경로의 단일 출처는 `src/data/config.py`의 BUSINESS_TYPES다.)
 ```
 
 **로딩 함정** (`DATA_CATALOG.md` §1)
@@ -117,18 +118,23 @@ $PROJECT_DATA_ROOT/00_raw/인허가/생활_미용업.csv          (cp949, 37열)
 - 일반음식점 파일에 CP949로 디코딩되지 않는 바이트 존재 → `encoding_errors` 정책 필요
 - **컬럼 구성·순서가 3개 파일에서 다름** → 컬럼명 매핑표를 만들어 표준화. 위치 인덱싱 금지
 - **영업 중 행의 폐업일자가 NaN이 아니라 공백 문자열** → `strip()` 후 결측 처리
-- 3구 필터 실측값: 일반음식점 76,453 / 휴게음식점 20,484 / 미용업 13,418
+- 3구 필터 실측값(`개방자치단체코드` 기준, `DECISIONS.md` 2026-09-21): 일반음식점 76,451 /
+  휴게음식점 20,483 / 미용업 13,413 = 110,347. 주소텍스트 기준 110,355는 QA 대조값이다.
 
 **절차**
 
 1. 3개 파일 로드 → 컬럼명 표준화 → 서울 + 광진·마포·영등포 필터
-2. `store_id` = `"LIC_" + 개방자치단체코드 + "_" + 관리번호` (3구 범위 중복 0건 확인됨)
+2. `store_id` = `"{업종 prefix}_" + 관리번호` (config.BUSINESS_TYPES: GR/SR/BT, 3구 범위 중복 0건 확인됨).
+   표준화 산출물 `licenses_3gu.parquet`과 같은 규칙이라 store_id로 직접 join된다.
 3. 날짜 정리: 인허가일자·폐업일자 → datetime. 공백 문자열 처리 후 결측률 보고
 4. **Long Panel 생성**
    - origin(기준분기) 후보: 2021Q1 ~ (라벨 성숙 컷오프를 적용한 최신 분기)
-   - 각 (store_id, origin)에 대해 origin 시작 시점에 영업 중일 때만 행 생성
-     `인허가일자 <= origin_start AND (폐업일자 결측 OR 폐업일자 > origin_start)`
-   - `event_12m = 1` : origin 말 기준 12개월 내 폐업일자 존재
+   - 각 (store_id, origin)에 대해 **origin 말(origin_end) 시점에 영업 중일 때만** 행 생성
+     `인허가일자 <= origin_end AND (폐업일자 결측 OR 폐업일자 > origin_end)`
+     (feature_asof·age_months가 origin_end 기준이므로 적격 조건도 같은 시점이어야 한다.
+     origin_start 기준이던 기존 정의는 feature 시점에 이미 폐업한 점포를 양성으로 남겨
+     시간 누수를 만들었다 — 수정 전 16,213행, 양성의 25.4%)
+   - `event_12m = 1` : `origin_end < 폐업일자 <= origin_end + 12개월`
    - `event_12m = 0` : 12개월 시점에 영업 지속
    - 12개월 관측 창을 확보하지 못하는 origin은 행을 만들지 않는다
 5. 기본 feature (전부 origin 시점 정보)

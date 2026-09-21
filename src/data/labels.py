@@ -62,17 +62,16 @@ def standardize_columns(df: pd.DataFrame, source_type: str) -> pd.DataFrame:
 def diagnose_district_filter(
     df: pd.DataFrame, district_codes: dict[str, str] = schema.DISTRICT_CODES
 ) -> pd.DataFrame:
-    """코드 기반 매칭과 주소텍스트 기반 매칭이 갈리는 행만 반환한다.
+    """코드 기반 매칭과 주소텍스트 기반 매칭이 갈리는 행만 반환한다 (QA 전용, assert 없음).
 
-    근본 원인 규명 결과(실측, 2026-09-18): 개방자치단체코드 필드에 실제 데이터 입력 오류가
-    존재한다 - 주소(지번주소/도로명주소)는 명백히 3구인데 코드가 다른 값이거나, 반대로
-    코드는 3구인데 주소가 명백히 타 지역(서대문구·구로구·성북구·용산구·인천 등)인 행이
-    3개 파일 모두에서 발견되었다. 주소텍스트 매칭 결과는 DATA_CATALOG.md §1 실측치
-    (76,453/20,484/13,418)와 3개 파일 전부 정확히 일치(0건 차이) - 즉 원 audit도
-    주소텍스트 기준이었던 것으로 추정된다. 이 사실에 근거해 filter_target_districts는
-    주소텍스트 매칭을 기준으로 확정했다 (코드 기반 매칭은 소폭 과소 카운트됨).
-    이 함수는 두 방법이 갈리는 행을 감사(audit) 목적으로 계속 보여주기 위해 남긴다 -
-    assert 없음.
+    실측(2026-09-18, 2026-09-21 재확인): 두 기준이 갈리는 행이 3개 파일 합산 20건 있다
+    (주소텍스트에만 14 / 코드에만 6). 주소는 명백히 3구인데 코드가 다르거나, 코드는 3구인데
+    주소가 서대문구·구로구·성북구·용산구·인천 등인 행이 섞여 있어 **어느 필드가 틀렸는지
+    원본만으로 판정할 수 없다.**
+
+    `DECISIONS.md` 2026-09-21 결정에 따라 모집단 정의는 `개방자치단체코드`가 정본이고
+    (filter_target_districts), 주소텍스트는 이 함수의 QA 대조에만 쓴다. 불일치 행은
+    삭제하지 않고 여기서 노출한다.
     """
     code_match = df["개방자치단체코드"].isin(district_codes.values())
     address = df["지번주소"].fillna("") + " " + df["도로명주소"].fillna("")
@@ -89,21 +88,19 @@ def diagnose_district_filter(
 
 def filter_target_districts(
     df: pd.DataFrame,
-    district_names: list[str] = list(schema.DISTRICT_CODES.keys()),
+    district_codes: dict[str, str] = schema.DISTRICT_CODES,
     expected_rows: int | None = None,
 ) -> pd.DataFrame:
-    """주소텍스트(지번주소/도로명주소) 기준 3구 필터.
+    """`개방자치단체코드` 기준 3구 필터.
 
-    개방자치단체코드 필드는 소수의 데이터 입력 오류가 있어(diagnose_district_filter 참조)
-    코드 기반 매칭이 DATA_CATALOG.md 실측치보다 소폭 과소 카운트된다. 주소텍스트 매칭이
-    실측치와 정확히 일치함을 3개 파일 전부에서 확인했으므로 이를 기준으로 채택한다.
+    `DECISIONS.md` 2026-09-21 "3구 모집단 정의 기준": 모집단 포함/제외는 구조화 필드인
+    개방자치단체코드로 결정하고, 주소텍스트는 QA 용도로만 쓴다(diagnose_district_filter).
+    두 기준이 갈리는 20건은 어느 쪽이 틀렸는지 원본만으로 판정할 수 없으므로, 재현성이
+    높은 코드 기준을 모집단 정의에 쓰고 불일치는 삭제하지 않고 진단 함수로 노출한다.
+    표준화 파이프라인(`src/data/io_license.py:filter_target_gu`)과 동일 기준이라
+    licenses_3gu.parquet과 모집단이 일치한다.
     """
-    address = df["지번주소"].fillna("") + " " + df["도로명주소"].fillna("")
-    text_match = pd.Series(False, index=df.index)
-    for name in district_names:
-        text_match = text_match | address.str.contains(name, na=False)
-
-    out = df[text_match].copy()
+    out = df[df["개방자치단체코드"].str.strip().isin(district_codes.values())].copy()
     if expected_rows is not None:
         assert len(out) == expected_rows, (
             f"3구 필터 결과 행수 불일치: {len(out)} != {expected_rows}"
@@ -116,10 +113,18 @@ def combine_sources(dfs: list[pd.DataFrame]) -> pd.DataFrame:
 
 
 def build_store_id(df: pd.DataFrame, expected_duplicate_count: int = 0) -> pd.DataFrame:
+    """store_id = '{업종 prefix}_{관리번호}'.
+
+    prefix는 `config.BUSINESS_TYPES`가 단일 출처이며, 표준화 파이프라인
+    (`src/data/standardize.py`)이 만드는 licenses_3gu.parquet의 store_id와 같은 규칙이다.
+    두 테이블을 store_id로 직접 join하기 위한 조건이다.
+    """
     out = df.copy()
+    unknown = set(out["source_type"]) - set(schema.STORE_ID_PREFIXES)
+    if unknown:
+        raise ValueError(f"store_id prefix를 알 수 없는 source_type: {sorted(unknown)}")
     out["store_id"] = (
-        schema.STORE_ID_PREFIX
-        + out["개방자치단체코드"].str.strip()
+        out["source_type"].map(schema.STORE_ID_PREFIXES)
         + "_"
         + out["관리번호"].str.strip()
     )

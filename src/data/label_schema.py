@@ -4,7 +4,12 @@
 컬럼명 위치 인덱싱은 사용하지 않는다. 3개 원본 파일은 컬럼 구성/순서가 서로 다르지만,
 공통으로 존재하는 컬럼은 모두 동일한 한글 헤더 문자열을 쓰므로(실측 확인) 이름만 다른
 매핑표(영문 rename)는 필요 없다 - 파일별로 존재하는 공통 컬럼만 선택하면 된다.
+
+원본 파일명·업종 prefix·3구 코드는 `src/data/config.py`가 단일 출처다. 이 모듈에서
+같은 값을 다시 정의하지 않고 config에서 파생한다.
 """
+
+from src.data import config
 
 RAW_SOURCE_TYPES = ["미용업", "일반음식점", "휴게음식점"]
 
@@ -42,16 +47,16 @@ CORE_COLUMNS = [
     "위생업태명",
 ]
 
-# 지번주소 내 구 이름 텍스트와 개방자치단체코드를 대조하여 실측 도출한 값이다
-# (공식 코드표 아님 - 3개 파일 전체에서 각 구별 지배적인 단일 코드값임을 확인함).
-DISTRICT_CODES = {"광진구": "3040000", "마포구": "3130000", "영등포구": "3180000"}
+# 3구 코드. config.TARGET_GU_CODES(코드 -> 구명)를 뒤집어 쓴다 - 값 자체는 config가 단일 출처다.
+DISTRICT_CODES = {gu: code for code, gu in config.TARGET_GU_CODES.items()}
 
-# 3구 필터 후 기대 행수 (DATA_CATALOG.md §1 실측치).
-# 근본 원인 규명 완료(실측, 2026-09-18): 개방자치단체코드 필드에 소수 데이터 입력 오류가
-# 있어(labels.diagnose_district_filter() 참조) 코드 기반 매칭은 이 값보다 소폭 과소
-# 카운트된다(-2/-1/-5). 주소텍스트(지번주소/도로명주소) 기준 매칭이 3개 파일 전부에서
-# 이 값과 정확히 일치함을 확인했다 - filter_target_districts는 주소텍스트 기준을 채택한다.
-EXPECTED_DISTRICT_FILTERED_ROWS = {"일반음식점": 76453, "휴게음식점": 20484, "미용업": 13418}
+# 3구 필터 후 기대 행수 — `개방자치단체코드` 기준 실측치.
+# DECISIONS.md 2026-09-21 "3구 모집단 정의 기준": 모집단 포함/제외는 개방자치단체코드로
+# 결정하고 주소텍스트는 QA로만 쓴다. 표준화 파이프라인(licenses_3gu.parquet 110,347행)과
+# 동일한 모집단이어야 join이 성립한다.
+# 참고(QA 대조값): 주소텍스트 기준은 76,453/20,484/13,418 = 110,355로 8건 많다.
+# 두 기준이 갈리는 20건은 labels.diagnose_district_filter()로 확인할 수 있다.
+EXPECTED_DISTRICT_FILTERED_ROWS = {"일반음식점": 76451, "휴게음식점": 20483, "미용업": 13413}
 
 # 일반음식점 파일만 CP949 완전 디코딩 불가 바이트 존재.
 # 실측 검증(2026-09-18): 미용업 143,675,279 bytes / 휴게음식점 207,554,044 bytes 전량을
@@ -59,14 +64,17 @@ EXPECTED_DISTRICT_FILTERED_ROWS = {"일반음식점": 76453, "휴게음식점": 
 # 일반음식점은 byte offset 약 3,855,938에서 실제 UnicodeDecodeError(0x82) 재확인.
 ENCODING_ERRORS_POLICY = {"미용업": "strict", "일반음식점": "replace", "휴게음식점": "strict"}
 
-STORE_ID_PREFIX = "LIC_"
+# store_id 규칙은 표준화 파이프라인(`src/data/standardize.py`)과 동일해야 join이 성립한다.
+# prefix는 config.BUSINESS_TYPES가 단일 출처다 (GR/SR/BT).
+STORE_ID_PREFIXES = {
+    bt: spec["prefix"] for bt, spec in config.BUSINESS_TYPES.items()
+}
 
 # 원천 식별자. mtime/size 등 동적 값은 쓰지 않는다 - 로컬 체크아웃마다 달라져 재현성이
-# 깨지고 합성 데이터 테스트에서 검증 불가능하기 때문. 파일명을 그대로 원천 식별자로 쓴다.
+# 깨지고 합성 데이터 테스트에서 검증 불가능하기 때문. 파일명을 그대로 원천 식별자로 쓰되,
+# 파일명 자체는 config.BUSINESS_TYPES에서 가져온다(중복 정의 금지).
 SOURCE_SNAPSHOT = {
-    "미용업": "생활_미용업.csv",
-    "일반음식점": "서울시 일반음식점 인허가 정보.csv",
-    "휴게음식점": "식품_휴게음식점.csv",
+    bt: spec["file"] for bt, spec in config.BUSINESS_TYPES.items()
 }
 
 MIN_ORIGIN_QUARTER = "2021Q1"
@@ -114,7 +122,11 @@ PANEL_OUTPUT_COLUMNS = [
 # build_label_codebook_rows가 참조하는 "정의" 텍스트. 컬럼을 추가하면 반드시 이 dict에도
 # 정의를 추가한다 (누락 시 즉시 KeyError - TODO로 비워두지 않는다).
 VARIABLE_DEFINITIONS = {
-    "store_id": f"식별자 = '{STORE_ID_PREFIX}' + 개방자치단체코드 + '_' + 관리번호. 3구 combined 기준 중복 0건(실측 확인, 업종 간 교차 충돌 포함).",
+    "store_id": (
+        "식별자 = '{업종 prefix}_{관리번호}' (config.BUSINESS_TYPES: 일반음식점 GR / 휴게음식점 SR / "
+        "미용업 BT). 표준화 파이프라인 licenses_3gu.parquet과 동일 규칙이라 store_id로 직접 join된다. "
+        "3구 combined 기준 중복 0건(실측 확인, 업종 간 교차 충돌 포함)."
+    ),
     "source_type": "원천 파일 구분 (미용업/일반음식점/휴게음식점).",
     "origin": "관측 기준 분기 (예: '2021Q1'). Long Panel의 행 단위 키(store_id, origin) 중 하나.",
     "origin_start": "origin 분기의 첫날. 참고용 - 적격 조건/라벨 창 판정에는 쓰이지 않는다(origin_end 참조).",

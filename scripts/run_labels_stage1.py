@@ -29,7 +29,7 @@ def main() -> None:
         if len(mismatch) > 0:
             print(
                 f"[{source_type}] 개방자치단체코드/주소텍스트 불일치 {len(mismatch)}건 "
-                "(감사 목적 기록 - 필터는 주소텍스트 기준을 사용하므로 결과에는 영향 없음):"
+                "(QA 기록 - 모집단 정본은 개방자치단체코드, DECISIONS.md 2026-09-21):"
             )
             print(
                 mismatch[["개방자치단체코드", "지번주소", "도로명주소", "_code_match", "_text_match"]]

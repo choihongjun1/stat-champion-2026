@@ -65,20 +65,40 @@ def test_diagnose_district_filter_finds_mismatch_rows():
     assert len(mismatch) == 2
 
 
-def test_filter_target_districts_keeps_only_target_district_addresses():
+def test_filter_target_districts_keeps_only_target_gov_codes():
+    # DECISIONS.md 2026-09-21: 모집단 정본은 개방자치단체코드다.
     df = pd.DataFrame(
         {
+            "개방자치단체코드": ["3040000", "1111111", "3130000"],
             "지번주소": ["서울 광진구 자양동", "서울 강남구 역삼동", "서울 마포구 서교동"],
             "도로명주소": ["", "", ""],
         }
     )
     out = labels.filter_target_districts(df, expected_rows=2)
-    assert len(out) == 2
+    assert out["개방자치단체코드"].tolist() == ["3040000", "3130000"]
+
+
+def test_filter_target_districts_ignores_address_text():
+    # 주소는 3구인데 코드가 3구가 아니면 제외되고(=코드가 정본),
+    # 코드가 3구면 주소가 타 지역이어도 남는다(=임의 삭제 금지).
+    df = pd.DataFrame(
+        {
+            "개방자치단체코드": ["9999999", "3180000"],
+            "지번주소": ["서울 광진구 자양동", "인천 부평구 어딘가"],
+            "도로명주소": ["", ""],
+        }
+    )
+    out = labels.filter_target_districts(df)
+    assert out["개방자치단체코드"].tolist() == ["3180000"]
 
 
 def test_filter_target_districts_assert_fails_on_mismatch():
     df = pd.DataFrame(
-        {"지번주소": ["서울 광진구 자양동", "서울 강남구 역삼동"], "도로명주소": ["", ""]}
+        {
+            "개방자치단체코드": ["3040000", "9999999"],
+            "지번주소": ["서울 광진구 자양동", "서울 강남구 역삼동"],
+            "도로명주소": ["", ""],
+        }
     )
     with pytest.raises(AssertionError):
         labels.filter_target_districts(df, expected_rows=5)
@@ -86,16 +106,11 @@ def test_filter_target_districts_assert_fails_on_mismatch():
 
 def test_filter_target_districts_no_assert_when_expected_rows_none():
     df = pd.DataFrame(
-        {"지번주소": ["서울 광진구 자양동", "서울 강남구 역삼동"], "도로명주소": ["", ""]}
-    )
-    out = labels.filter_target_districts(df)
-    assert len(out) == 1
-
-
-def test_filter_target_districts_falls_back_to_road_address():
-    # 지번주소에는 구 이름이 없지만 도로명주소에 있는 경우도 매칭되어야 한다.
-    df = pd.DataFrame(
-        {"지번주소": [""], "도로명주소": ["서울 영등포구 여의도동 어딘가"]}
+        {
+            "개방자치단체코드": ["3040000", "9999999"],
+            "지번주소": ["서울 광진구 자양동", "서울 강남구 역삼동"],
+            "도로명주소": ["", ""],
+        }
     )
     out = labels.filter_target_districts(df)
     assert len(out) == 1
@@ -106,14 +121,26 @@ def test_filter_target_districts_falls_back_to_road_address():
 # ---------------------------------------------------------------------------
 
 
-def test_build_store_id_format_and_uniqueness():
-    df = pd.DataFrame({"개방자치단체코드": ["3040000", "3040000"], "관리번호": ["1", "2"]})
+def test_build_store_id_uses_business_type_prefix_from_config():
+    # 표준화 파이프라인(licenses_3gu.parquet)과 같은 규칙이어야 store_id join이 성립한다.
+    df = pd.DataFrame(
+        {
+            "source_type": ["일반음식점", "휴게음식점", "미용업"],
+            "관리번호": ["1", "2", "3"],
+        }
+    )
     out = labels.build_store_id(df)
-    assert out["store_id"].tolist() == ["LIC_3040000_1", "LIC_3040000_2"]
+    assert out["store_id"].tolist() == ["GR_1", "SR_2", "BT_3"]
+
+
+def test_build_store_id_raises_on_unknown_source_type():
+    df = pd.DataFrame({"source_type": ["없는업종"], "관리번호": ["1"]})
+    with pytest.raises(ValueError):
+        labels.build_store_id(df)
 
 
 def test_build_store_id_assert_fails_on_duplicate():
-    df = pd.DataFrame({"개방자치단체코드": ["3040000", "3040000"], "관리번호": ["1", "1"]})
+    df = pd.DataFrame({"source_type": ["일반음식점", "일반음식점"], "관리번호": ["1", "1"]})
     with pytest.raises(AssertionError):
         labels.build_store_id(df)
 
@@ -560,7 +587,7 @@ def test_build_label_codebook_rows_raises_keyerror_on_undocumented_column():
 
 
 def test_build_label_codebook_rows_uses_variable_definitions():
-    df = pd.DataFrame({"store_id": ["LIC_1_1", "LIC_1_2"]})
+    df = pd.DataFrame({"store_id": ["GR_1", "GR_2"]})
     rows = labels.build_label_codebook_rows(df)
     assert (
         rows.loc[rows["변수명"] == "store_id", "정의"].iloc[0]
@@ -569,7 +596,7 @@ def test_build_label_codebook_rows_uses_variable_definitions():
 
 
 def test_write_label_spec_md_creates_file(tmp_path):
-    codebook_rows = labels.build_label_codebook_rows(pd.DataFrame({"store_id": ["LIC_1_1"]}))
+    codebook_rows = labels.build_label_codebook_rows(pd.DataFrame({"store_id": ["GR_1"]}))
     exclusion_rows = labels.build_exclusion_summary([{"사유": "테스트 제외", "건수": 3}])
     maturity_report = {
         "recommended_cutoff_months": 1,
