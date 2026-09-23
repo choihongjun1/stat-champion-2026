@@ -7,9 +7,14 @@
   - 카카오 로컬 (등록 여부)
 를 조회하고 결과를 CSV로 누적 저장한다.
 
-등록 여부 판정은 상호명 일치 + 후보 주소의 법정동 일치를 모두 요구한다
-(1차 시범에서 상호명만으로 판정 시 짧은 상호(예: "이화")가 다른 동네 가게와
-오탐 매칭되는 사례가 검수로 확인됨 — audit_online_presence_matches.py 참조).
+등록 여부 판정은 상호명 일치 + 후보 주소의 시군구·법정동 일치를 모두 요구한다
+(1차 시범에서 상호명+동만으로 판정 시 짧은 상호(예: "이화")가 다른 동네 가게와
+오탐 매칭되는 사례가 검수로 확인됨 — audit_online_presence_matches.py 참조.
+PR #21 리뷰 지적: 3구 법정동 49개 중 19개가 타 시군구에도 존재해(전체의 45.2%),
+동 일치만으로는 동명이동 오매칭을 막지 못한다 — 구 일치를 추가로 요구한다).
+후보가 여러 건 일치하면 첫 번째(검색 API가 이미 관련도/근접도순으로 정렬)를 쓰되
+`ambiguous=True`로 표시해 2순위 이하 후보가 있었음을 남긴다. 후보 수(`n_candidates`)는
+"검색 결과 0건"과 "결과는 있었지만 조건 불일치로 미매칭"을 구분하기 위해 항상 남긴다.
 블로그/카페는 검색 결과 중 상호명이 제목·본문에 실제로 들어있는 글만 언급으로 센다.
 
 DATA_CATALOG.md 등록 규칙에 따라 모든 레코드에 collected_at, query_used를 남긴다.
@@ -37,6 +42,7 @@ API 키 (.env):
 
 import argparse
 import csv
+import json
 import os
 import re
 import sys
@@ -93,6 +99,7 @@ SESSION_RECYCLE_EVERY = 1000
 FIELDNAMES = [
     "store_id",
     "name",
+    "gu",
     "dong",
     "query_used",
     "collected_at",
@@ -100,6 +107,8 @@ FIELDNAMES = [
     "naver_local_rank",
     "naver_local_matched_title",
     "naver_local_matched_address",
+    "naver_local_n_candidates",
+    "naver_local_ambiguous",
     "naver_blog_total",
     "naver_blog_api_total",
     "naver_blog_sponsor_filtered",
@@ -112,6 +121,9 @@ FIELDNAMES = [
     "kakao_rank",
     "kakao_matched_place_name",
     "kakao_matched_address",
+    "kakao_n_candidates",
+    "kakao_ambiguous",
+    "error_type",
     "error",
 ]
 
@@ -240,6 +252,16 @@ def dong_consistent(dong: str, candidate_address: str) -> bool:
     return dong in candidate_address
 
 
+def gu_consistent(gu: str, candidate_address: str) -> bool:
+    # gu가 비어있으면(예: 광진구 단일구 시범 입력처럼 구 컬럼이 없는 경우) 제약을 걸지 않는다.
+    # 3구 정식 입력(all_targets.csv)은 구가 항상 채워져 있어 이 분기를 타지 않는다.
+    if not gu:
+        return True
+    if not candidate_address:
+        return False
+    return gu in candidate_address
+
+
 ROAD_DONG_PATTERN = re.compile(r"\(([가-힣]+동\d*가?)")
 
 
@@ -256,6 +278,23 @@ def extract_dong(addr_jibun, addr_road=None) -> str:
     return ""
 
 
+def is_quota_response(resp: requests.Response) -> bool:
+    """429 응답이 "이 키의 일 한도 소진"인지 판정한다.
+
+    기존에는 응답 본문에 한글 문구("한도")가 있는지로 판정했는데, NAVER API HUB가
+    영문 메시지를 반환하면(로케일/응답 포맷 변경 등) 감지가 안 돼 키가 소진된 뒤에도
+    계속 요청을 낭비하는 문제가 있었다(PR #21 리뷰 지적). 메시지 문구가 아니라
+    `error.errorCode == 429` 구조로 판정하면 언어와 무관하게 동작한다
+    (실측: 실제 한도 소진 응답은 `{"error":{"errorCode":429,...}}` 형태).
+    구조가 다르면(예: 일시적 429) 한도 소진이 아닌 것으로 보고 재시도 대상에 남긴다.
+    """
+    try:
+        body = json.loads(resp.content)
+    except (ValueError, TypeError):
+        return False
+    return isinstance(body, dict) and body.get("error", {}).get("errorCode") == 429
+
+
 def request_with_retry(
     ctx: Context, url: str, headers: dict, params: dict, retries: int = 3
 ) -> requests.Response:
@@ -265,7 +304,7 @@ def request_with_retry(
             resp = ctx.sessions.get().get(url, headers=headers, params=params, timeout=(5, 10))
             if resp.status_code == 200:
                 return resp
-            if resp.status_code == 429 and "한도" in resp.content.decode("utf-8", errors="ignore"):
+            if resp.status_code == 429 and is_quota_response(resp):
                 raise KeyQuotaExceeded("quota")
             if resp.status_code in (401, 403):
                 raise KeyQuotaExceeded(f"auth {resp.status_code}")
@@ -293,17 +332,31 @@ def pooled_get(ctx: Context, pool: KeyPool, url: str, params: dict) -> requests.
             pool.mark_dead(idx, str(exc))
 
 
-def naver_local(ctx: Context, query: str, store_name: str, dong: str) -> dict:
+def naver_local(ctx: Context, query: str, store_name: str, dong: str, gu: str) -> dict:
     resp = pooled_get(ctx, ctx.naver, NAVER_LOCAL_URL, {"query": query, "display": 5})
     items = resp.json().get("items", [])
+    matches = []
     for rank, item in enumerate(items, start=1):
         title = strip_tags(item.get("title", ""))
         address = item.get("address", "") or item.get("roadAddress", "")
-        # 이름만 겹치는 경우 흔한 짧은 상호(예: "이화")가 다른 동네 가게와
-        # 오탐 매칭되는 사례가 검수에서 확인됨 -> 동(법정동) 일치까지 요구한다.
-        if name_matches(store_name, title) and dong_consistent(dong, address):
-            return {"registered": True, "rank": rank, "matched_title": title, "matched_address": address}
-    return {"registered": False, "rank": None, "matched_title": "", "matched_address": ""}
+        # 이름만 겹치는 경우 흔한 짧은 상호(예: "이화")가 다른 동네 가게와, 동만 같은 경우
+        # 타 시군구의 동명이동 가게와 오탐 매칭되는 사례가 확인됨 -> 구+동 모두 일치 요구.
+        if name_matches(store_name, title) and dong_consistent(dong, address) and gu_consistent(gu, address):
+            matches.append({"rank": rank, "matched_title": title, "matched_address": address})
+    n_candidates = len(items)
+    if not matches:
+        return {
+            "registered": False, "rank": None, "matched_title": "", "matched_address": "",
+            "n_candidates": n_candidates, "ambiguous": False,
+        }
+    # 검색 API가 이미 관련도/근접도순으로 정렬해 주므로 첫 매칭을 채택하되,
+    # 2순위 이하 후보가 더 있었다는 사실은 ambiguous로 남긴다(임의로 확정하지 않음).
+    best = matches[0]
+    return {
+        "registered": True, "rank": best["rank"], "matched_title": best["matched_title"],
+        "matched_address": best["matched_address"], "n_candidates": n_candidates,
+        "ambiguous": len(matches) > 1,
+    }
 
 
 def naver_text_search(ctx: Context, url: str, query: str) -> tuple[list, int]:
@@ -328,36 +381,67 @@ def filter_mentions(items: list, store_name: str) -> list:
     return mentions
 
 
-def kakao_local(ctx: Context, query: str, store_name: str, dong: str) -> dict:
+def kakao_local(ctx: Context, query: str, store_name: str, dong: str, gu: str) -> dict:
     resp = pooled_get(ctx, ctx.kakao, KAKAO_LOCAL_URL, {"query": query, "size": 15})
     docs = resp.json().get("documents", [])
+    matches = []
     for rank, doc in enumerate(docs, start=1):
         place_name = doc.get("place_name", "")
         # address_name(지번주소)은 법정동명을 포함하지만 road_address_name(도로명주소)은
         # 보통 포함하지 않는다 (예: "자양로13길 98"에는 "자양동"이 없음) -> 지번주소를 우선.
         address = doc.get("address_name", "") or doc.get("road_address_name", "")
-        if name_matches(store_name, place_name) and dong_consistent(dong, address):
-            return {"registered": True, "rank": rank, "matched_place_name": place_name, "matched_address": address}
-    return {"registered": False, "rank": None, "matched_place_name": "", "matched_address": ""}
+        if name_matches(store_name, place_name) and dong_consistent(dong, address) and gu_consistent(gu, address):
+            matches.append({"rank": rank, "matched_place_name": place_name, "matched_address": address})
+    n_candidates = len(docs)
+    if not matches:
+        return {
+            "registered": False, "rank": None, "matched_place_name": "", "matched_address": "",
+            "n_candidates": n_candidates, "ambiguous": False,
+        }
+    best = matches[0]
+    return {
+        "registered": True, "rank": best["rank"], "matched_place_name": best["matched_place_name"],
+        "matched_address": best["matched_address"], "n_candidates": n_candidates,
+        "ambiguous": len(matches) > 1,
+    }
+
+
+def classify_error(exc: Exception) -> str:
+    """error 문자열은 자유형식이라 집계로 실패 유형을 못 나눈다(PR #21 리뷰 지적) ->
+    실패율(API 문제)과 실제 미등록률을 분리 집계할 수 있게 유형을 따로 남긴다."""
+    if isinstance(exc, requests.exceptions.Timeout):
+        return "timeout"
+    if isinstance(exc, requests.exceptions.ConnectionError):
+        return "connection_error"
+    if isinstance(exc, requests.exceptions.HTTPError):
+        return "http_error"
+    if isinstance(exc, (ValueError, KeyError)):
+        return "parse_error"
+    return "other"
 
 
 def collect_one(ctx: Context, row: pd.Series) -> dict:
     dong = extract_dong(row.get("addr_jibun"), row.get("addr_road"))
+    gu = (row.get("구") or "").strip() if isinstance(row.get("구"), str) else ""
     query = f"{row['name']} {dong}".strip()
     result = {
         "store_id": row["store_id"],
         "name": row["name"],
+        "gu": gu,
         "dong": dong,
         "query_used": query,
         "collected_at": datetime.now(timezone.utc).isoformat(),
+        "error_type": "",
         "error": "",
     }
     try:
-        local = naver_local(ctx, query, row["name"], dong)
+        local = naver_local(ctx, query, row["name"], dong, gu)
         result["naver_local_registered"] = local["registered"]
         result["naver_local_rank"] = local["rank"]
         result["naver_local_matched_title"] = local["matched_title"]
         result["naver_local_matched_address"] = local["matched_address"]
+        result["naver_local_n_candidates"] = local["n_candidates"]
+        result["naver_local_ambiguous"] = local["ambiguous"]
 
         blog_raw, blog_api_total = naver_text_search(ctx, NAVER_BLOG_URL, query)
         blog_items = filter_mentions(blog_raw, row["name"])
@@ -376,15 +460,18 @@ def collect_one(ctx: Context, row: pd.Series) -> dict:
         result["naver_cafe_api_total"] = cafe_api_total
         result["naver_cafe_sponsor_filtered"] = len(cafe_sponsored)
 
-        kakao = kakao_local(ctx, query, row["name"], dong)
+        kakao = kakao_local(ctx, query, row["name"], dong, gu)
         result["kakao_registered"] = kakao["registered"]
         result["kakao_rank"] = kakao["rank"]
         result["kakao_matched_place_name"] = kakao["matched_place_name"]
         result["kakao_matched_address"] = kakao["matched_address"]
+        result["kakao_n_candidates"] = kakao["n_candidates"]
+        result["kakao_ambiguous"] = kakao["ambiguous"]
     except QuotaExhausted:
         raise
     except Exception as exc:  # noqa: BLE001 - 수집 실패는 기록하고 다음 건으로 진행
         result["error"] = str(exc)
+        result["error_type"] = classify_error(exc)
     return result
 
 
