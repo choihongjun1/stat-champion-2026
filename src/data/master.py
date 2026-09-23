@@ -364,6 +364,41 @@ def write_qa_report(df: pd.DataFrame, log: list[dict], trdar_qas: list[dict] | N
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def write_master_spec_md(df: pd.DataFrame, path=config.MASTER_SPEC_PATH) -> None:
+    """docs/MASTER_SPEC.md 생성 (LABEL_SPEC.md와 같은 생성 문서). 손으로 고치지 않는다."""
+    rows = [
+        {
+            "변수명": c,
+            "role": role,
+            "group": group,
+            "타입": str(df[c].dtype),
+            "결측률(%)": round(float(df[c].isna().mean()) * 100, 2),
+            "정의": schema.VARIABLE_DEFINITIONS[c],
+        }
+        for c, (role, group) in schema.COLUMN_ROLES.items()
+    ]
+    lines = [
+        "# master_base 명세 (MASTER_SPEC)",
+        "",
+        "`python -m src.data.master`가 생성한다. 손으로 고치지 말고 "
+        "`src/data/master_schema.py`를 고친 뒤 다시 생성한다.",
+        "",
+        f"- 관측 단위: `(store_id, origin)` / {len(df):,}행 / store_id {df['store_id'].nunique():,} / "
+        f"origin {df['origin'].nunique()}개 ({df['origin'].min()}~{df['origin'].max()})",
+        f"- predictor {len(schema.predictor_columns(df.columns))}개 / 전체 컬럼 {df.shape[1]}개",
+        "",
+        "## 메모",
+        "",
+        *[f"- {n}" for n in schema.SPEC_NOTES],
+        "",
+        "## 변수",
+        "",
+        pd.DataFrame(rows).to_markdown(index=False),
+        "",
+    ]
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def load_inputs() -> dict:
     trdar, trdar_qas = trdar_features.build_area_quarter_table()
     return {
@@ -387,6 +422,7 @@ def run() -> pd.DataFrame:
     config.MASTER_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     master.to_parquet(config.MASTER_BASE_PATH, index=False)
     write_qa_report(master, log, trdar_qas=inputs["trdar_qas"])
+    write_master_spec_md(master)
     print(f"\n저장: {config.MASTER_BASE_PATH} {master.shape}")
     return master
 

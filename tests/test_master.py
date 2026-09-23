@@ -207,3 +207,13 @@ def test_leakage_counts_flag_same_quarter_use():
     bad = out.copy()
     bad["trdar_quarter_used"] = bad["origin"]  # T 자체 사용
     assert master.temporal_leakage_counts(bad)["trdar_quarter_used >= origin"] == len(bad)
+
+
+def test_every_column_has_definition_and_gu_note(tmp_path):
+    assert set(schema.VARIABLE_DEFINITIONS) == set(schema.COLUMN_ROLES)
+    out, _ = _build(_labels())
+    path = tmp_path / "MASTER_SPEC.md"
+    master.write_master_spec_md(out, path=path)
+    text = path.read_text(encoding="utf-8")
+    assert "미래정보를 사용하지 않는다" in text and "ablation" in text
+    assert schema.COLUMN_ROLES["gu"][0] == "predictor"
