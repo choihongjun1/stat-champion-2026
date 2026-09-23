@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.data import config, landprice
+from src.data import config, landprice, trdar_features
 from src.data import master_schema as schema
 
 SPATIAL_PATH = config.REPO_ROOT / "outputs" / "spatial" / "spatial_joined.parquet"
@@ -30,6 +30,10 @@ ER_PATH = config.REPO_ROOT / "outputs" / "matching" / "license_semas_matches.par
 
 SPATIAL_COLS = ["store_id", "gu", "pnu", "coord_missing", "coord_suspect", "trdar_cd",
                 "trdar_type", "in_polygon", "spatial_ambiguous", "spatial_match_method"]
+TRDAR_FEATURE_COLS = [c for spec in trdar_features.AREA_SERIES.values()
+                      for c in spec["columns"].values()]
+TRDAR_ASOF_COLS = ["trdar_value_asof"] + [
+    spec["asof_column"] for spec in trdar_features.AREA_SERIES.values() if spec["frozen"]]
 LAND_PRICE_VALID_COLS = [f"land_price_{y}_valid" for y in landprice.YEARS]
 ER_COLS = {
     "store_id": "store_id",
@@ -78,6 +82,15 @@ def temporal_leakage_counts(df: pd.DataFrame) -> dict[str, int]:
             (df["land_price_available_at"] > end).sum())
         out["land_price value without available_at"] = int(
             (df["land_price"].notna() & df["land_price_available_at"].isna()).sum())
+    if "trdar_quarter_used" in df.columns:
+        used = pd.PeriodIndex(df["trdar_quarter_used"], freq="Q")
+        origin = pd.PeriodIndex(df["origin"], freq="Q")
+        out["trdar_quarter_used >= origin"] = int((used >= origin).sum())
+        out["trdar available_at > origin_end"] = int((df["trdar_available_at"] > end).sum())
+        for col in TRDAR_ASOF_COLS:
+            asof = df[col].dropna()
+            out[f"{col} > trdar_quarter_used"] = int(
+                (asof > df.loc[asof.index, "trdar_quarter_used"]).sum())
     return out
 
 
@@ -176,6 +189,37 @@ def attach_land_price(panel: pd.DataFrame, spatial: pd.DataFrame) -> pd.DataFram
     return df.drop(columns=LAND_PRICE_VALID_COLS)
 
 
+def attach_trdar_features(panel: pd.DataFrame, table: pd.DataFrame, source_snapshot: str,
+                          lag_quarters: int = schema.TRDAR_LAG_QUARTERS) -> pd.DataFrame:
+    """상권 단위 feature를 origin 분기 T의 T-lag 값으로 붙인다 (기본 T-1).
+
+    origin 분기 T 자체의 값은 origin_end에 아직 공표되지 않았으므로 쓰지 않는다. T-lag 분기가
+    원천에 없으면(origin 2021Q1 → 2020Q4) 값은 NA다. trdar_cd가 없는 점포(within 미매칭·좌표
+    결측)도 NA. `trdar_available_at`은 확인된 published_at만 담고, 나머지는 NA + basis다.
+    """
+    if lag_quarters < 1:
+        raise ValueError("origin 분기 T 자체의 상권 값은 사용 금지 (lag >= 1)")
+    df = panel.copy()
+    used = pd.PeriodIndex(df["origin"], freq="Q") - lag_quarters
+    df["trdar_quarter_used"] = used.astype(str)
+    right = table.rename(columns={"quarter": "trdar_quarter_used"})
+    df = _merge_m1(df, right, ["trdar_cd", "trdar_quarter_used"], "trdar")
+    no_area = df["trdar_cd"].isna()
+    if df.loc[no_area, TRDAR_FEATURE_COLS].notna().any().any():
+        raise MasterValidationError("trdar_cd 없는 행에 상권 feature가 채워졌다")
+
+    has_quarterly = df[["trdar_flow_pop", "trdar_change_index"]].notna().any(axis=1)
+    df["trdar_value_asof"] = df["trdar_quarter_used"].where(has_quarterly)
+    avail = trdar_features.availability(df["trdar_quarter_used"])
+    df["trdar_available_at"] = avail["trdar_available_at"]
+    df["trdar_available_at_basis"] = avail["trdar_available_at_basis"]
+    df["trdar_source_snapshot"] = source_snapshot
+    snapshot = pd.Timestamp(schema.TRDAR_GEOMETRY_SNAPSHOT)
+    df["trdar_geometry_snapshot"] = snapshot
+    df["trdar_geometry_backcast_flag"] = df["origin_end"] < snapshot
+    return df
+
+
 def attach_enriched_table(master: pd.DataFrame, table: pd.DataFrame,
                           name: str) -> pd.DataFrame:
     """Enriched 확장 인터페이스 (Base에서는 호출하지 않는다).
@@ -198,8 +242,9 @@ def validate_schema(df: pd.DataFrame) -> None:
         raise MasterValidationError(f"schema 불일치: missing={missing} extra={extra}")
 
 
-def build_master_base(labels: pd.DataFrame, spatial: pd.DataFrame,
-                      er: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
+def build_master_base(labels: pd.DataFrame, spatial: pd.DataFrame, er: pd.DataFrame,
+                      trdar: pd.DataFrame, trdar_source_snapshot: str,
+                      ) -> tuple[pd.DataFrame, list[dict]]:
     """labels_base 축 LEFT JOIN 조립. (master, step log) 반환."""
     log: list[dict] = []
     baseline = label_baseline(labels)
@@ -214,6 +259,9 @@ def build_master_base(labels: pd.DataFrame, spatial: pd.DataFrame,
 
     df = attach_land_price(df, spatial)
     verify_step("3 +land price (strict as-of)", df, baseline, log)
+
+    df = attach_trdar_features(df, trdar, trdar_source_snapshot)
+    verify_step("4 +trdar area features (T-1)", df, baseline, log)
 
     df = df[list(schema.COLUMN_ROLES)]
     validate_schema(df)
@@ -232,7 +280,24 @@ def _md(df: pd.DataFrame, index: bool = True, floatfmt: str = ".4f") -> str:
     return df.to_markdown(index=index, floatfmt=floatfmt)
 
 
-def write_qa_report(df: pd.DataFrame, log: list[dict], path=config.MASTER_QA_REPORT_PATH) -> None:
+def trdar_origin_table(df: pd.DataFrame) -> pd.DataFrame:
+    """origin별 상권 T-1 분기 / 공표 근거 / 결합 현황."""
+    g = df.groupby("origin")
+    out = g.agg(
+        quarter_used=("trdar_quarter_used", "first"),
+        basis=("trdar_available_at_basis", "first"),
+        available_at=("trdar_available_at", "first"),
+        backcast=("trdar_geometry_backcast_flag", "first"),
+        rows=("store_id", "size"),
+        rows_with_trdar_cd=("trdar_cd", "count"),
+        rows_with_flow_pop=("trdar_flow_pop", "count"),
+    )
+    out["available_at"] = out["available_at"].dt.strftime("%Y-%m-%d")
+    return out
+
+
+def write_qa_report(df: pd.DataFrame, log: list[dict], trdar_qas: list[dict] | None = None,
+                    path=config.MASTER_QA_REPORT_PATH) -> None:
     overall, by_origin = missing_rate_tables(df)
     leak = pd.Series(temporal_leakage_counts(df), name="violations").to_frame()
     roles = pd.DataFrame(
@@ -272,6 +337,17 @@ def write_qa_report(df: pd.DataFrame, log: list[dict], path=config.MASTER_QA_REP
         "",
         _md(lp_by_origin),
         "",
+        "## 상권 T-1 (origin별)",
+        "",
+        "`available_at`은 확인된 published_at만 기록한다. 비어 있는 origin은 T-1 규칙(관측 최대",
+        "lag 83일 < T-1 종료~origin_end 90~92일)으로 방어한다. origin 2021Q1의 T-1(2020Q4)은 원천에 없다.",
+        "",
+        _md(trdar_origin_table(df)),
+        "",
+        "## 상권 원천 파일",
+        "",
+        _md(pd.DataFrame(trdar_qas or []), index=False),
+        "",
         "## ER 누수 경고 지표 (provenance 전용 근거)",
         "",
         "`er_matched`는 2024-12~2026-06 스냅샷 union으로 계산된다. 아래 event 비율 격차가",
@@ -288,22 +364,29 @@ def write_qa_report(df: pd.DataFrame, log: list[dict], path=config.MASTER_QA_REP
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def load_inputs() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    return (pd.read_parquet(config.LABELS_BASE_PATH),
-            pd.read_parquet(SPATIAL_PATH, columns=SPATIAL_COLS + LAND_PRICE_VALID_COLS),
-            pd.read_parquet(ER_PATH, columns=list(ER_COLS)))
+def load_inputs() -> dict:
+    trdar, trdar_qas = trdar_features.build_area_quarter_table()
+    return {
+        "labels": pd.read_parquet(config.LABELS_BASE_PATH),
+        "spatial": pd.read_parquet(SPATIAL_PATH, columns=SPATIAL_COLS + LAND_PRICE_VALID_COLS),
+        "er": pd.read_parquet(ER_PATH, columns=list(ER_COLS)),
+        "trdar": trdar,
+        "trdar_source_snapshot": trdar.attrs["source_snapshot"],
+        "trdar_qas": trdar_qas,
+    }
 
 
 def run() -> pd.DataFrame:
     from src.data import w1_invariants
 
     w1_invariants.run()  # W2 진입 게이트: freeze 상태와 다르면 여기서 멈춘다
-    labels, spatial, er = load_inputs()
-    master, log = build_master_base(labels, spatial, er)
+    inputs = load_inputs()
+    master, log = build_master_base(inputs["labels"], inputs["spatial"], inputs["er"],
+                                    inputs["trdar"], inputs["trdar_source_snapshot"])
     print(pd.DataFrame(log).to_string(index=False))
     config.MASTER_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     master.to_parquet(config.MASTER_BASE_PATH, index=False)
-    write_qa_report(master, log)
+    write_qa_report(master, log, trdar_qas=inputs["trdar_qas"])
     print(f"\n저장: {config.MASTER_BASE_PATH} {master.shape}")
     return master
 

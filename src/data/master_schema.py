@@ -62,6 +62,24 @@ COLUMN_ROLES: dict[str, tuple[str, str]] = {
     "in_polygon": ("provenance", "trdar_assignment"),
     "spatial_ambiguous": ("provenance", "trdar_assignment"),
     "spatial_match_method": ("provenance", "trdar_assignment"),
+    # --- 상권분석 상권 단위 계열, origin 분기 T의 T-1 값 (DECISIONS.md 2026-09-23).
+    "trdar_flow_pop": ("predictor", "trdar"),
+    "trdar_change_index": ("predictor", "trdar"),
+    "trdar_oper_months_avg": ("predictor", "trdar"),
+    "trdar_close_months_avg": ("predictor", "trdar"),
+    "trdar_resident_pop": ("predictor", "trdar"),
+    "trdar_worker_pop": ("predictor", "trdar"),
+    "trdar_facility_cnt": ("predictor", "trdar"),
+    "trdar_quarter_used": ("meta", "trdar"),
+    "trdar_source_snapshot": ("meta", "trdar"),
+    "trdar_available_at": ("meta", "trdar"),
+    "trdar_available_at_basis": ("meta", "trdar"),
+    "trdar_value_asof": ("meta", "trdar"),
+    "trdar_resident_value_asof": ("meta", "trdar"),
+    "trdar_worker_value_asof": ("meta", "trdar"),
+    "trdar_facility_value_asof": ("meta", "trdar"),
+    "trdar_geometry_snapshot": ("provenance", "trdar_assignment"),
+    "trdar_geometry_backcast_flag": ("provenance", "trdar_assignment"),
     # --- ER. 7개 스냅샷(2024-12~2026-06) union으로 계산한 값이라 모든 Base origin에 대해
     # origin 이후 정보를 담는다 → provenance/metadata 전용 (DECISIONS.md 2026-09-23 W2-0 I-2).
     "er_matched": ("provenance", "er"),
@@ -92,6 +110,11 @@ FORBIDDEN_PREDICTORS = {
     # 라벨
     "event_12m",
 }
+# 상권 T-1 기본 lag (분기). T-2는 sensitivity로만 쓴다.
+TRDAR_LAG_QUARTERS = 1
+# 보유 상권 polygon 스냅샷 (DATA_CATALOG.md §3-1). 이보다 이른 origin은 polygon backcast.
+TRDAR_GEOMETRY_SNAPSHOT = "2023-10-23"
+
 FORBIDDEN_PREDICTOR_PREFIXES = ("nearest_", "second_nearest_", "sj_status", "sj_gap")
 
 

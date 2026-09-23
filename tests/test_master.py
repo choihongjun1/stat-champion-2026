@@ -63,9 +63,33 @@ def _er():
     })
 
 
+def _trdar():
+    """상권 3110001 하나. origin 분기 T(2025Q2) 값도 넣어 T-1만 쓰는지 확인한다."""
+    q = ["2023Q4", "2024Q1", "2025Q1", "2025Q2"]
+    return pd.DataFrame({
+        "trdar_cd": ["3110001"] * 4,
+        "quarter": q,
+        "trdar_flow_pop": pd.array([100, 110, 120, 999], dtype="Float64"),
+        "trdar_change_index": ["LL", "LH", "HH", "XX"],
+        "trdar_oper_months_avg": pd.array([50, 51, 52, 999], dtype="Float64"),
+        "trdar_close_months_avg": pd.array([30, 31, 32, 999], dtype="Float64"),
+        "trdar_resident_pop": pd.array([7, 7, 7, 7], dtype="Float64"),
+        "trdar_resident_value_asof": ["2023Q4"] * 4,
+        "trdar_worker_pop": pd.array([9, 9, 9, 9], dtype="Float64"),
+        "trdar_worker_value_asof": ["2023Q4"] * 4,
+        "trdar_facility_cnt": pd.array([None, None, 3, 3], dtype="Float64"),
+        "trdar_facility_value_asof": [None, None, "2025Q1", "2025Q1"],
+    })
+
+
+def _build(labels, er=None):
+    return master.build_master_base(labels, _spatial(), _er() if er is None else er,
+                                    _trdar(), "synthetic.csv@0000")
+
+
 def test_build_preserves_panel_and_unmatched():
     labels = _labels()
-    out, log = master.build_master_base(labels, _spatial(), _er())
+    out, log = _build(labels)
     assert len(out) == len(labels)
     assert not out.duplicated(schema.KEY).any()
     assert list(out.columns) == list(schema.COLUMN_ROLES)
@@ -80,7 +104,7 @@ def test_build_preserves_panel_and_unmatched():
 def test_duplicate_right_key_stops():
     er = pd.concat([_er(), _er().iloc[[0]]], ignore_index=True)
     with pytest.raises(pd.errors.MergeError):
-        master.build_master_base(_labels(), _spatial(), er)
+        _build(_labels(), er=er)
 
 
 def test_verify_step_detects_label_change():
@@ -109,7 +133,7 @@ def test_er_columns_are_not_predictors():
 
 def test_enriched_interface_requires_unique_key():
     labels = _labels()
-    out, _ = master.build_master_base(labels, _spatial(), _er())
+    out, _ = _build(labels)
     extra = pd.DataFrame({"store_id": ["GR_1", "GR_1"], "origin": ["2024Q1", "2024Q1"],
                           "blog_posts_3m": [1, 2]})
     with pytest.raises(pd.errors.MergeError):
@@ -124,7 +148,7 @@ def test_land_price_strict_asof():
     extra["origin_start"] = pd.Timestamp("2024-04-01")
     extra["origin_end"] = extra["feature_asof"] = extra["available_at"] = pd.Timestamp("2024-06-30")
     labels = pd.concat([labels, extra], ignore_index=True)
-    out, log = master.build_master_base(labels, _spatial(), _er())
+    out, log = _build(labels)
     o = out.set_index(schema.KEY)
 
     # origin 2024Q1(2024-03-31) < 2024-04-30 → 어느 연도도 못 씀: 소급 없이 NA
@@ -146,3 +170,40 @@ def test_land_price_strict_asof():
     assert (out["land_price_available_at"].dropna() <= out.loc[
         out["land_price_available_at"].notna(), "origin_end"]).all()
     assert log[-1]["leakage_violations"] == 0
+
+
+def test_trdar_uses_t_minus_1_only():
+    out, log = _build(_labels())
+    o = out.set_index(schema.KEY)
+    r = o.loc[("GR_1", "2025Q2")]
+    assert r["trdar_quarter_used"] == "2025Q1"
+    assert r["trdar_flow_pop"] == 120  # origin 분기 2025Q2 값(999)은 쓰지 않는다
+    assert r["trdar_change_index"] == "HH"
+    assert r["trdar_value_asof"] == "2025Q1"
+    assert r["trdar_facility_value_asof"] == "2025Q1"
+    assert r["trdar_available_at_basis"] == "archive_inferred"
+    assert pd.isna(r["trdar_available_at"])  # 추정 공표일은 날짜로 기록하지 않는다
+    assert not r["trdar_geometry_backcast_flag"]
+    r = o.loc[("GR_1", "2024Q1")]
+    assert r["trdar_quarter_used"] == "2023Q4"
+    assert pd.isna(r["trdar_facility_cnt"])  # 원천 행 없음 → 0이 아니라 NA
+    assert not r["trdar_geometry_backcast_flag"]  # 2024-03-31 >= geometry 2023-10-23
+    early = _labels().iloc[[0]].assign(origin="2023Q3", origin_end=pd.Timestamp("2023-09-30"))
+    df = early.merge(_spatial()[["store_id", "trdar_cd"]], on="store_id")
+    assert master.attach_trdar_features(df, _trdar(), "x")["trdar_geometry_backcast_flag"].all()
+    # trdar_cd 없는 점포는 상권 feature 전부 NA
+    assert o.loc[("GR_2", "2024Q1"), master.TRDAR_FEATURE_COLS].isna().all()
+    assert log[-1]["leakage_violations"] == 0
+
+
+def test_trdar_lag_zero_is_rejected():
+    df = _labels().merge(_spatial()[["store_id", "trdar_cd"]], on="store_id")
+    with pytest.raises(ValueError):
+        master.attach_trdar_features(df, _trdar(), "x", lag_quarters=0)
+
+
+def test_leakage_counts_flag_same_quarter_use():
+    out, _ = _build(_labels())
+    bad = out.copy()
+    bad["trdar_quarter_used"] = bad["origin"]  # T 자체 사용
+    assert master.temporal_leakage_counts(bad)["trdar_quarter_used >= origin"] == len(bad)
