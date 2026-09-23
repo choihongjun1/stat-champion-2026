@@ -451,7 +451,7 @@ def biz_qa_lines(df: pd.DataFrame, biz_qa: dict | None) -> list[str]:
             _md(biz_qa["evidence"]["by_year"].T),
             "",
             f"매출 row가 있는데 점포 row가 없는 코드: {biz_qa['n_sales_code_without_store']}건 "
-            "(있으면 해당 그룹의 점포당 매출은 NA).",
+            "(있으면 해당 그룹의 점포당 매출과 sales_store_coverage는 NA).",
             "",
             "원천 파일:",
             "",

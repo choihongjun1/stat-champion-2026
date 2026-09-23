@@ -105,4 +105,31 @@ def test_biz_per_store_na_when_sales_code_lacks_store_row():
     r = _biz_table().loc[("A", "2025Q2", "일반음식점")]
     assert r["trdar_biz_sales_amt_observed"] == 70.0   # 관측된 매출 코드 합
     assert pd.isna(r["trdar_biz_sales_per_store_observed"])  # code set 불일치 → NA
-    assert r["trdar_biz_sales_store_coverage"] == 1.0  # CS100001 점포 5 / 전체 5
+    # CS100002의 점포 수를 모르므로 분자가 불완전 → 1.0이 아니라 NA
+    assert pd.isna(r["trdar_biz_sales_store_coverage"])
+
+
+def test_biz_code_set_mismatch_groups_have_no_coverage_or_per_store():
+    store = _store([
+        ("A", "2025Q1", "CS100001", 5, 0, 0, 0),
+        ("A", "2025Q1", "CS100002", 3, 0, 0, 0),
+        ("B", "2025Q1", "CS100001", 5, 0, 0, 0),
+    ])
+    sales = _sales([
+        ("A", "2025Q1", "CS100001", 50.0),               # 정상: 매출 코드 모두 점포 row 있음
+        ("B", "2025Q1", "CS100001", 50.0),
+        ("B", "2025Q1", "CS100003", 10.0),               # 불일치: 점포 row 없는 매출 코드
+    ])
+    g = tf.code_level_grid(store, sales, {"A", "B"}, {"2025Q1"})
+    t = tf.aggregate_biz(g)
+    assert t.attrs["n_sales_code_without_store"] == 1
+    assert t.attrs["n_groups_sales_code_without_store"] == 1
+    t = t.set_index(["trdar_cd", "quarter", "biz_type"])
+    ok = t.loc[("A", "2025Q1", "일반음식점")]
+    assert ok["trdar_biz_sales_store_coverage"] == 5 / 8
+    assert 0 <= ok["trdar_biz_sales_store_coverage"] <= 1
+    assert ok["trdar_biz_sales_per_store_observed"] == 10.0
+    bad = t.loc[("B", "2025Q1", "일반음식점")]
+    assert pd.isna(bad["trdar_biz_sales_store_coverage"])
+    assert pd.isna(bad["trdar_biz_sales_per_store_observed"])
+    assert bad["trdar_biz_sales_amt_observed"] == 60.0  # 관측 매출 합계는 유지

@@ -191,6 +191,7 @@ VARIABLE_DEFINITIONS: dict[str, str] = {
     "trdar_biz_sales_is_partial": "매출 observed < expected.",
     "trdar_biz_sales_store_coverage": (
         "매출 row가 있는 mapped code의 점포 수 합 / 해당 biz_type mapped code 전체 점포 수 합 (같은 T-1 점포 원천). "
+        "매출 공개 코드에 대응하는 점포 row가 모두 관측된 경우에만 계산하며, 대응 점포 row가 하나라도 없으면 NA. "
         "분모 0이면 NA. 매출 합계가 biz_type 점포의 몇 %를 대표하는지 나타낸다."),
     "trdar_biz_source_snapshot": "점포·추정매출 원천 파일명@sha256 앞 16자리 + 수령일.",
     "er_matched": "인허가↔소진공 ER 매칭 여부. 7개 스냅샷 union 결과라 predictor 금지 (W2-0 I-2).",

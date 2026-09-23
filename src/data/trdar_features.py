@@ -358,19 +358,27 @@ def aggregate_biz(g: pd.DataFrame) -> pd.DataFrame:
     out["trdar_biz_close_rate_observed"] = (out["store_close"].astype("Float64") / total * 100).where(positive)
     out["trdar_biz_sales_amt_observed"] = out["sales_amt"].astype("Float64")
 
+    # 매출 row가 있는 코드 중 점포 row가 없는 것이 있으면 그 코드의 점포 수를 알 수 없다
+    # → sales_store_coverage 분자와 점포당 매출 분모가 모두 불완전하므로 둘 다 NA.
+    code_set_complete = out["n_sales_code_without_store"] == 0
     # sales_store_coverage = 매출 row가 있는 mapped code의 점포 수 합 / 관측된 mapped code 전체 점포 수 합.
-    # 분자·분모 모두 같은 T-1 점포 원천. 분모가 0 또는 NA이면 NA.
+    # 분자·분모 모두 같은 T-1 점포 원천. code set 불일치이거나 분모가 0 또는 NA이면 NA.
     num = out["store_total_sales_codes"].astype("Float64").fillna(0)
-    out["trdar_biz_sales_store_coverage"] = (num / total).where(positive)
+    out["trdar_biz_sales_store_coverage"] = (num / total).where(positive & code_set_complete)
     # 점포당 매출: 분자·분모 모두 "매출 row가 있는 mapped code" 집합. 그 코드 중 점포 row가 없는 것이
     # 있거나 분모가 0이면 NA (code set 불일치·0 나눗셈 방지, inf 금지).
     den = out["store_total_sales_codes"].astype("Float64")
-    valid = (den > 0) & (out["n_sales_code_without_store"] == 0) & out["sales_amt"].notna()
+    valid = (den > 0) & code_set_complete & out["sales_amt"].notna()
     out["trdar_biz_sales_per_store_observed"] = (out["sales_amt"].astype("Float64") / den).where(valid)
     for c in BIZ_FEATURES + ["trdar_biz_sales_store_coverage"]:
         out[c] = out[c].astype("Float64")
+    mismatch = ~code_set_complete
+    for c in ("trdar_biz_sales_store_coverage", "trdar_biz_sales_per_store_observed"):
+        if out.loc[mismatch, c].notna().any():
+            raise ValueError(f"{c}: 매출 코드에 대응하는 점포 row가 없는 그룹에 값이 채워졌다")
     result = out[keys + BIZ_FEATURES + BIZ_META].copy()
     result.attrs["n_sales_code_without_store"] = int(out["n_sales_code_without_store"].sum())
+    result.attrs["n_groups_sales_code_without_store"] = int(mismatch.sum())
     return result
 
 
