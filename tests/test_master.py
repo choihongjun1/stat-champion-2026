@@ -42,6 +42,9 @@ def _spatial():
         "in_polygon": [True, False, False, True],
         "spatial_ambiguous": [False, False, False, False],
         "spatial_match_method": ["within", "excluded_coord_missing", "unmatched_within", "within"],
+        "land_price_2024_valid": [100.0, None, 300.0, 1.0],
+        "land_price_2025_valid": [110.0, None, None, 1.0],
+        "land_price_2026_valid": [120.0, None, 330.0, 1.0],
     })
 
 
@@ -111,3 +114,35 @@ def test_enriched_interface_requires_unique_key():
                           "blog_posts_3m": [1, 2]})
     with pytest.raises(pd.errors.MergeError):
         master.attach_enriched_table(out, extra, "online")
+
+
+def test_land_price_strict_asof():
+    labels = _labels()
+    # 2024Q2 origin(2024-06-30) 추가: 2024년(공시 2024-04-30)만 사용 가능
+    extra = labels.iloc[[0]].copy()
+    extra["origin"] = "2024Q2"
+    extra["origin_start"] = pd.Timestamp("2024-04-01")
+    extra["origin_end"] = extra["feature_asof"] = extra["available_at"] = pd.Timestamp("2024-06-30")
+    labels = pd.concat([labels, extra], ignore_index=True)
+    out, log = master.build_master_base(labels, _spatial(), _er())
+    o = out.set_index(schema.KEY)
+
+    # origin 2024Q1(2024-03-31) < 2024-04-30 → 어느 연도도 못 씀: 소급 없이 NA
+    assert pd.isna(o.loc[("GR_1", "2024Q1"), "land_price"])
+    assert pd.isna(o.loc[("GR_1", "2024Q1"), "land_price_year_used"])
+    assert pd.isna(o.loc[("GR_1", "2024Q1"), "land_price_available_at"])
+    # 2024Q2 → 2024년
+    assert o.loc[("GR_1", "2024Q2"), "land_price"] == 100.0
+    assert o.loc[("GR_1", "2024Q2"), "land_price_year_used"] == 2024
+    assert o.loc[("GR_1", "2024Q2"), "land_price_source_snapshot"] == "공시지가_2024년.csv"
+    # 2025Q2 → 2025년 (2026년 값은 절대 안 씀)
+    assert o.loc[("GR_1", "2025Q2"), "land_price"] == 110.0
+    assert o.loc[("GR_1", "2025Q2"), "land_price_feature_asof"] == pd.Timestamp("2025-01-01")
+    # 선택 연도 값이 NA면 이전 연도로 carry-forward하지 않는다
+    assert pd.isna(o.loc[("GR_3", "2025Q2"), "land_price"])
+    assert o.loc[("GR_3", "2025Q2"), "land_price_year_used"] == 2025
+    # wide 연도 컬럼은 master에 남지 않는다
+    assert not any(c.startswith("land_price_20") for c in out.columns)
+    assert (out["land_price_available_at"].dropna() <= out.loc[
+        out["land_price_available_at"].notna(), "origin_end"]).all()
+    assert log[-1]["leakage_violations"] == 0

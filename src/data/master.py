@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.data import config
+from src.data import config, landprice
 from src.data import master_schema as schema
 
 SPATIAL_PATH = config.REPO_ROOT / "outputs" / "spatial" / "spatial_joined.parquet"
@@ -30,6 +30,7 @@ ER_PATH = config.REPO_ROOT / "outputs" / "matching" / "license_semas_matches.par
 
 SPATIAL_COLS = ["store_id", "gu", "pnu", "coord_missing", "coord_suspect", "trdar_cd",
                 "trdar_type", "in_polygon", "spatial_ambiguous", "spatial_match_method"]
+LAND_PRICE_VALID_COLS = [f"land_price_{y}_valid" for y in landprice.YEARS]
 ER_COLS = {
     "store_id": "store_id",
     "gu_mismatch": "gu_mismatch",
@@ -72,6 +73,11 @@ def temporal_leakage_counts(df: pd.DataFrame) -> dict[str, int]:
         "license available_at > origin_end": int((df["available_at"] > end).sum()),
         "forbidden predictor registered": len(schema.forbidden_predictors_in_registry()),
     }
+    if "land_price_available_at" in df.columns:
+        out["land_price available_at > origin_end"] = int(
+            (df["land_price_available_at"] > end).sum())
+        out["land_price value without available_at"] = int(
+            (df["land_price"].notna() & df["land_price_available_at"].isna()).sum())
     return out
 
 
@@ -137,6 +143,39 @@ def attach_er_provenance(panel: pd.DataFrame, er: pd.DataFrame) -> pd.DataFrame:
     return _merge_m1(panel, right, "store_id", "er")
 
 
+def attach_land_price(panel: pd.DataFrame, spatial: pd.DataFrame) -> pd.DataFrame:
+    """개별공시지가 strict as-of (DECISIONS.md 2026-09-23 W2-0 I-3).
+
+    행마다 `available_at(y) <= origin_end`인 최대 연도 y를 고르고 그 연도의 `_valid` 값(0원 → NA)
+    하나만 `land_price`로 둔다. 해당 연도가 없으면(origin < 첫 공시일) 전부 NA — 이후 연도 값을
+    과거로 소급하지 않는다. 선택 연도 값이 NA여도 다른 연도로 대체(carry-forward)하지 않는다.
+    연도별 wide 컬럼은 master에 남기지 않는다 (사용 불가 연도 값이 섞여 있어 누수 위험).
+    """
+    df = _merge_m1(panel, spatial[["store_id"] + LAND_PRICE_VALID_COLS], "store_id", "land_price")
+    end = df["origin_end"]
+    year_used = pd.Series(pd.NA, index=df.index, dtype="Int64")
+    for y in sorted(landprice.YEARS):
+        year_used = year_used.mask(end >= pd.Timestamp(landprice.LANDPRICE_META[y]["available_at"]), y)
+
+    value = pd.Series(pd.NA, index=df.index, dtype="Float64")
+    for y in landprice.YEARS:
+        m = year_used == y
+        value = value.mask(m.fillna(False), df[f"land_price_{y}_valid"].astype("Float64"))
+    df["land_price"] = value
+    df["land_price_year_used"] = year_used
+
+    def _meta(key: str) -> pd.Series:
+        mapping = {y: m[key] for y, m in landprice.LANDPRICE_META.items()}
+        return pd.to_datetime(year_used.map(mapping, na_action="ignore"))
+
+    df["land_price_feature_asof"] = _meta("feature_asof")
+    df["land_price_available_at"] = _meta("available_at")
+    # Int64 → lambda map은 값을 float로 넘기므로('2024.0') dict로 매핑한다.
+    files = {y: landprice.LANDPRICE_FILE.format(year=y) for y in landprice.YEARS}
+    df["land_price_source_snapshot"] = year_used.map(files, na_action="ignore").astype("object")
+    return df.drop(columns=LAND_PRICE_VALID_COLS)
+
+
 def attach_enriched_table(master: pd.DataFrame, table: pd.DataFrame,
                           name: str) -> pd.DataFrame:
     """Enriched 확장 인터페이스 (Base에서는 호출하지 않는다).
@@ -173,6 +212,9 @@ def build_master_base(labels: pd.DataFrame, spatial: pd.DataFrame,
     df = attach_er_provenance(df, er)
     verify_step("2 +ER provenance", df, baseline, log)
 
+    df = attach_land_price(df, spatial)
+    verify_step("3 +land price (strict as-of)", df, baseline, log)
+
     df = df[list(schema.COLUMN_ROLES)]
     validate_schema(df)
     return df, log
@@ -198,6 +240,11 @@ def write_qa_report(df: pd.DataFrame, log: list[dict], path=config.MASTER_QA_REP
         columns=["column", "role", "group"],
     )
     er_rate = df.groupby("er_matched")["event_12m"].agg(["size", "mean"])
+    lp_by_origin = df.groupby("origin").agg(
+        year_used=("land_price_year_used", "max"),
+        rows=("land_price", "size"),
+        non_null=("land_price", "count"),
+    )
     lines = [
         "# master_base QA report",
         "",
@@ -219,6 +266,12 @@ def write_qa_report(df: pd.DataFrame, log: list[dict], path=config.MASTER_QA_REP
         "",
         _md(by_origin),
         "",
+        "## 공시지가 strict as-of (origin별 선택 연도)",
+        "",
+        "선택 연도가 없는 origin은 구조적 NA다 (소급·carry-forward 없음).",
+        "",
+        _md(lp_by_origin),
+        "",
         "## ER 누수 경고 지표 (provenance 전용 근거)",
         "",
         "`er_matched`는 2024-12~2026-06 스냅샷 union으로 계산된다. 아래 event 비율 격차가",
@@ -237,7 +290,7 @@ def write_qa_report(df: pd.DataFrame, log: list[dict], path=config.MASTER_QA_REP
 
 def load_inputs() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     return (pd.read_parquet(config.LABELS_BASE_PATH),
-            pd.read_parquet(SPATIAL_PATH, columns=SPATIAL_COLS),
+            pd.read_parquet(SPATIAL_PATH, columns=SPATIAL_COLS + LAND_PRICE_VALID_COLS),
             pd.read_parquet(ER_PATH, columns=list(ER_COLS)))
 
 

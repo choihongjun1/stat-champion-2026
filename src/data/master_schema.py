@@ -48,6 +48,13 @@ COLUMN_ROLES: dict[str, tuple[str, str]] = {
     "coord_suspect": ("provenance", "license"),
     "gu_mismatch": ("provenance", "license"),
     "parse_status": ("provenance", "license"),
+    # --- 개별공시지가 strict as-of (DECISIONS.md 2026-09-19 / 2026-09-23 W2-0 I-3).
+    # available_at(y) <= origin_end인 최대 연도 y의 `_valid` 값 하나. 소급·carry-forward 없음.
+    "land_price": ("predictor", "land_price"),
+    "land_price_year_used": ("meta", "land_price"),
+    "land_price_feature_asof": ("meta", "land_price"),
+    "land_price_available_at": ("meta", "land_price"),
+    "land_price_source_snapshot": ("meta", "land_price"),
     # --- 상권 배정 (within-only). polygon membership 계열은 현재 경계(2023-06 상가 DB 기준)에
     # 약한 미래정보 경로가 있어 predictor로 쓰지 않는다 (DECISIONS.md 2026-09-23).
     "trdar_cd": ("provenance", "trdar_assignment"),
