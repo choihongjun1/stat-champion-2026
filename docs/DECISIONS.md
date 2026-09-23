@@ -358,3 +358,27 @@ rebase될 때 이 결정을 참조하는 문구를 함께 추가한다 (M5 SMD �
 
 불변식: `trdar_quarter_used < origin`, `trdar_available_at`이 존재하면 `trdar_available_at <= origin_end`.
 provenance 컬럼은 predictor로 쓰지 않는다.
+
+## 2026-09-23 — W2-0 master_base 구성 결정
+근거: W2-0 계획 검토(labels_base·spatial_joined·ER 산출물 실측). 구현은 `src/data/master.py`,
+컬럼 역할의 단일 출처는 `src/data/master_schema.py: COLUMN_ROLES`.
+
+- **(I-2) ER 결과는 predictor가 아니라 provenance/metadata 전용이다.** `er_matched`(원 `matched`),
+  `er_ambiguous`, `match_tier`, `match_confidence`, `crowded_pnu`, `sj_entity_id`, `unmatched_reason`.
+  - 근거: ER은 소진공 7개 스냅샷(2024-12~2026-06) union으로 계산된다. 모든 Base origin
+    (2021Q1~2025Q2)에서 origin 이후 정보다. 실측 event_12m 비율 — 2021Q1 매칭 1.2% vs 미매칭 21.9%,
+    2025Q2 9.9% vs 15.6%. 점포의 생존이 매칭 여부를 만든 결과이므로 predictor로 쓰면 누수다.
+  - 2026-09-13 "master dataset 모집단"의 "매칭 여부와 match confidence를 별도 feature/metadata
+    컬럼으로 기록"은 **metadata로 기록**한다는 뜻으로 확정한다. 매칭 실패 점포를 삭제하지 않는 원칙은 그대로다.
+  - `W1_FREEZE.md` §8 predictor 금지 목록에 ER 컬럼을 추가했다.
+- **(I-3) 공시지가는 strict as-of로 붙인다.** 행마다 `available_at(y) <= origin_end`인 최대 연도 y의
+  `land_price_{y}_valid` 하나만 `land_price`로 쓴다. 소급(backcast)·carry-forward는 하지 않는다.
+  - 결과: origin 2024Q2~2025Q1 → 2024년, 2025Q2 → 2025년, **2021Q1~2024Q1(13개 origin, 381,406행,
+    72.2%)은 구조적 NA**로 둔다. 2026년 값은 어느 Base origin에서도 쓸 수 없다(0원 이슈 영향 없음).
+  - 구조적 결측이 origin 시기와 겹친다는 점(temporal validation 분포 차이)은 모델 단계에서
+    포함/제외 비교로 다룬다.
+- **(I-1) 업종 단위 상권 feature(점포·추정매출)는 보류한다.** 원천 키가
+  `(분기, 상권, 서비스_업종)`이라 biz_type ↔ 서비스업종 매핑이 필요하며, 매핑 확정 후 별도 커밋으로 추가한다.
+  W2-0 Base는 상권 단위 계열(길단위인구·상권변화지표·상주·직장·집객)만 T-1로 붙인다.
+- 온라인 존재감은 master_base에 넣지 않는다. Enriched는 `(store_id, origin)` 유일 테이블을 m:1로
+  LEFT JOIN하는 인터페이스(`master.attach_enriched_table`)로 확장한다.

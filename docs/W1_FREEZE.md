@@ -221,6 +221,8 @@
 - `last_modified_raw`, `data_updated_raw` (origin 이후 갱신 시점)
 - `entity_first_snapshot`, `entity_last_snapshot`, `first_snapshot`, `last_snapshot`,
   `n_snapshots`, `has_gap`, `id_reissued` (소진공 관측 전체 구간 = origin 이후 정보 포함)
+- ER 결과 `matched`/`ambiguous`/`match_*`/`crowded_pnu`/`sj_entity_id`/`sj_store_id`/`unmatched_reason`
+  (7개 스냅샷 union 결과 — master에서는 provenance 전용, `DECISIONS.md` 2026-09-23 W2-0 I-2)
 - `land_price_{year}` 중 origin < available_at(year)인 연도
 - 상권분석의 origin 분기 및 이후 분기 값
 - `event_12m` 파생값 일체
