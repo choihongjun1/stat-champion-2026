@@ -20,6 +20,7 @@ LEFT JOIN해 모델 입력용 한 장의 테이블을 만든다. 산출물(outpu
 """
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from src.data import config, landprice, trdar_features
@@ -94,6 +95,46 @@ def temporal_leakage_counts(df: pd.DataFrame) -> dict[str, int]:
     return out
 
 
+def biz_integrity_counts(df: pd.DataFrame) -> dict[str, int]:
+    """업종 단위 상권 feature 불변식 위반 건수 (W2-0 I-1). 전부 0이어야 한다."""
+    if "trdar_biz_store_n_codes_observed" not in df.columns:
+        return {}
+    feats = trdar_features.BIZ_FEATURES
+    has_feat = df[feats].notna().any(axis=1)
+    out = {
+        "biz feature where trdar_cd NA": int((has_feat & df["trdar_cd"].isna()).sum()),
+        "biz feature in origin 2021Q1 (T-1 원천 부재)": int((has_feat & (df["origin"] == "2021Q1")).sum()),
+        "biz meta where trdar_cd NA": int(
+            (df["trdar_biz_store_n_codes_observed"].notna() & df["trdar_cd"].isna()).sum()),
+    }
+    for src in ("store", "sales"):
+        obs = df[f"trdar_biz_{src}_n_codes_observed"]
+        exp = df[f"trdar_biz_{src}_n_codes_expected"]
+        cov = df[f"trdar_biz_{src}_code_coverage"]
+        part = df[f"trdar_biz_{src}_is_partial"]
+        known = obs.notna()
+        out[f"{src} observed > expected"] = int((obs > exp).fillna(False).sum())
+        out[f"{src} coverage outside [0, 1]"] = int(((cov < 0) | (cov > 1)).fillna(False).sum())
+        out[f"{src} is_partial != (observed < expected)"] = int(
+            (part[known] != (obs[known] < exp[known])).sum())
+        out[f"{src} expected != mapping size"] = int(
+            (exp[known] != df.loc[known, "biz_type"].map(trdar_features.BIZ_N_CODES_EXPECTED)).sum())
+    feats_by_src = {"store": trdar_features.BIZ_STORE_FEATURES,
+                    "sales": trdar_features.BIZ_SALES_FEATURES}
+    for src, cols in feats_by_src.items():
+        none_observed = df[f"trdar_biz_{src}_n_codes_observed"] == 0
+        out[f"{src} feature with 0 observed codes"] = int(
+            (df[cols].notna().any(axis=1) & none_observed.fillna(False)).sum())
+    ssc = df["trdar_biz_sales_store_coverage"]
+    out["sales_store_coverage outside [0, 1]"] = int(((ssc < 0) | (ssc > 1)).fillna(False).sum())
+    per_store = df["trdar_biz_sales_per_store_observed"].astype("float64")
+    out["sales_per_store inf"] = int(np.isinf(per_store).sum())
+    out["sales_per_store without sales_amt"] = int(
+        (df["trdar_biz_sales_per_store_observed"].notna()
+         & df["trdar_biz_sales_amt_observed"].isna()).sum())
+    return out
+
+
 def verify_step(step: str, df: pd.DataFrame, baseline: dict, log: list[dict]) -> None:
     """조인 단계 불변식 검사 → log에 한 줄 추가. 하나라도 깨지면 MasterValidationError."""
     dup = int(df.duplicated(schema.KEY).sum())
@@ -104,6 +145,8 @@ def verify_step(step: str, df: pd.DataFrame, baseline: dict, log: list[dict]) ->
     labels_ok = labels_now.equals(baseline["labels"])
     leakage = temporal_leakage_counts(df)
     n_leak = sum(leakage.values())
+    integrity = biz_integrity_counts(df)
+    n_integrity = sum(integrity.values())
 
     row = {
         "step": step,
@@ -114,6 +157,7 @@ def verify_step(step: str, df: pd.DataFrame, baseline: dict, log: list[dict]) ->
         "event_by_origin_equal": ev_ok,
         "labels_unchanged": labels_ok,
         "leakage_violations": n_leak,
+        "integrity_violations": n_integrity,
         "n_columns": df.shape[1],
     }
     log.append(row)
@@ -130,6 +174,8 @@ def verify_step(step: str, df: pd.DataFrame, baseline: dict, log: list[dict]) ->
         problems.append("label/panel 컬럼 값 변화")
     if n_leak:
         problems.append(f"temporal leakage {leakage}")
+    if n_integrity:
+        problems.append(f"biz feature integrity { {k: v for k, v in integrity.items() if v} }")
     if problems:
         raise MasterValidationError(f"[{step}] " + "; ".join(problems))
 
@@ -220,6 +266,26 @@ def attach_trdar_features(panel: pd.DataFrame, table: pd.DataFrame, source_snaps
     return df
 
 
+def attach_trdar_biz_features(panel: pd.DataFrame, table: pd.DataFrame,
+                              source_snapshot: str) -> pd.DataFrame:
+    """업종 단위 상권 feature (점포·추정매출, W2-0 I-1)를 T-1 분기로 붙인다.
+
+    key는 `(trdar_cd, trdar_quarter_used, biz_type)` — 분기는 `attach_trdar_features`가 만든
+    T-1 분기를 그대로 쓰므로 source quarter는 항상 T-1이다. biz_type은 인허가 종류라 origin 이후
+    정보가 없다. observed partial 집계이며 row 없는 코드를 0으로 채우지 않는다
+    (`trdar_features.aggregate_biz`).
+    """
+    if "trdar_quarter_used" not in panel.columns:
+        raise MasterValidationError("attach_trdar_features(T-1)를 먼저 실행해야 한다")
+    keys = ["trdar_cd", "quarter", "biz_type"]
+    if table.duplicated(keys).any():
+        raise MasterValidationError("biz table (trdar_cd, quarter, biz_type) 중복")
+    right = table.rename(columns={"quarter": "trdar_quarter_used"})
+    df = _merge_m1(panel, right, ["trdar_cd", "trdar_quarter_used", "biz_type"], "trdar_biz")
+    df["trdar_biz_source_snapshot"] = source_snapshot
+    return df
+
+
 def attach_enriched_table(master: pd.DataFrame, table: pd.DataFrame,
                           name: str) -> pd.DataFrame:
     """Enriched 확장 인터페이스 (Base에서는 호출하지 않는다).
@@ -244,6 +310,7 @@ def validate_schema(df: pd.DataFrame) -> None:
 
 def build_master_base(labels: pd.DataFrame, spatial: pd.DataFrame, er: pd.DataFrame,
                       trdar: pd.DataFrame, trdar_source_snapshot: str,
+                      trdar_biz: pd.DataFrame, trdar_biz_source_snapshot: str,
                       ) -> tuple[pd.DataFrame, list[dict]]:
     """labels_base 축 LEFT JOIN 조립. (master, step log) 반환."""
     log: list[dict] = []
@@ -262,6 +329,9 @@ def build_master_base(labels: pd.DataFrame, spatial: pd.DataFrame, er: pd.DataFr
 
     df = attach_trdar_features(df, trdar, trdar_source_snapshot)
     verify_step("4 +trdar area features (T-1)", df, baseline, log)
+
+    df = attach_trdar_biz_features(df, trdar_biz, trdar_biz_source_snapshot)
+    verify_step("5 +trdar biz features (T-1, observed)", df, baseline, log)
 
     df = df[list(schema.COLUMN_ROLES)]
     validate_schema(df)
@@ -296,8 +366,131 @@ def trdar_origin_table(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+BIZ_WARNINGS = [
+    "**[점포 row 부재 — structural zero 근거, 공식 명세 아님]** 점포 원천에서 mapped code의 row 부재는 "
+    "시계열 전이, 명시적 0 row, 매출 원천과의 교차검증 및 연도별 패턴상 점포 0을 의미하는 것으로 해석할 "
+    "강한 실증 근거가 있다. 다만 원천 공식 명세로 확인된 규칙은 아니므로 raw row를 임의 생성하거나 0으로 "
+    "imputation하지 않고 observed-row 집계와 coverage metadata를 유지한다. "
+    "(분석적 해석: structural zero 근거 있음 / 물리적 처리: missing row를 0 row로 만들지 않음)",
+    "**[매출 row 부재 ≠ 0]** 매출 0원 row는 원천에 없고, 점포 1~2개 코드는 매출 row가 100% 없다. "
+    "소수 점포 코드의 매출 비공개/억제로 판단한다. `trdar_biz_sales_amt_observed`는 매출이 공개된 mapped "
+    "code의 합계이며 biz_type 전체 매출의 **하한/부분관측치**일 수 있다. 과소 정도는 "
+    "`trdar_biz_sales_store_coverage`로 행마다 확인한다.",
+    "**[broad biz_type 매핑 한계]** 매핑 key는 인허가 종류(biz_type)다. 휴게음식점 중 편의점(업태 기준 "
+    "1,158개 점포), 일반음식점 '까페'·'기타', 미용업 '메이크업업' 등은 실제 세부 업종과 다른 그룹 값을 받는다. "
+    "현재 시점 `업태구분명`으로 예외를 판정하면 시간 기준 불확실성이 생기므로 예외를 만들지 않았다.",
+    "**[2021~22 재발행본]** 2021~2022 점포·추정매출 CSV는 2023-10-30 재발행본이며 과거 origin 시점에 공개된 "
+    "값과 같다고 보지 않는다 (DATA_CATALOG.md §3-B).",
+    "**[계열별 공표일 미확인]** `trdar_available_at`은 golmok 서비스 전체 업데이트일이다. 점포·추정매출 "
+    "계열의 공표일을 별도로 확인하지 않았으며 같은 일정으로 본다.",
+    "**[율 > 100%]** 개업·폐업률은 원천 정의(건수 / 분기 말 전체 점포 수 × 100)를 합계 건수로 재계산한 값이다. "
+    "분기 중 폐업이 분기 말 점포 수보다 많으면 100%를 넘으며 원천 `폐업_률`에도 100% 초과가 있다. 자르지 않는다.",
+]
+
+
+def biz_qa_lines(df: pd.DataFrame, biz_qa: dict | None) -> list[str]:
+    """업종 단위 상권 feature QA 섹션."""
+    mapping = pd.DataFrame(
+        [(b, c) for b, codes in trdar_features.BIZ_CODE_MAP.items() for c in codes],
+        columns=["biz_type", "서비스_업종_코드"])
+    dup_codes = int(mapping["서비스_업종_코드"].duplicated().sum())
+    known = df["trdar_biz_store_n_codes_observed"].notna()
+    k = df[known]
+
+    def cov_table(col):
+        return pd.crosstab(k["biz_type"], k[col].astype(float).round(3), normalize="index")
+
+    ssc = k.groupby("biz_type")["trdar_biz_sales_store_coverage"].describe(
+        percentiles=[.1, .25, .5, .75, .9])
+    feats = trdar_features.BIZ_FEATURES
+    miss_origin = df.groupby("origin")[feats].apply(lambda g: g.isna().mean())
+    miss_biz = df.groupby("biz_type")[feats].apply(lambda g: g.isna().mean())
+    partial = k.groupby("biz_type")[["trdar_biz_store_is_partial", "trdar_biz_sales_is_partial"]].mean()
+    integ = pd.Series(biz_integrity_counts(df), name="violations").to_frame()
+    lines = [
+        "## 업종 단위 상권 feature (W2-0 I-1)",
+        "",
+        "### 매핑표",
+        "",
+        f"CS 코드 중복 배정: **{dup_codes}건**. key는 인허가 종류(`biz_type`)이며 `업태구분명`·`위생업태명`·"
+        "소진공 cat3는 쓰지 않는다.",
+        "",
+        _md(mapping, index=False),
+        "",
+        "### WARNING",
+        "",
+        *[f"- {w}" for w in BIZ_WARNINGS],
+        "",
+        "### 불변식 (전부 0이어야 한다)",
+        "",
+        _md(integ),
+        "",
+    ]
+    if biz_qa:
+        counts = biz_qa["evidence"]["counts"]
+        ev = pd.Series(counts, name="count").to_frame()
+        direct = counts["전이: 점포>0 → row 없음 (근거라면 0)"]
+        via_zero = counts["전이: 점포>0 → 명시적 0"]
+        lines += [
+            "### row 부재 실증 (서울 전체 상권 × 22분기 × mapped code)",
+            "",
+            "점포: '점포>0 → row 없음' 전이와 '점포 row 없음 & 매출 row 있음'이 0에 가까울수록 "
+            "structural zero 해석 근거가 강하다. 3구 상권 한정 실측(2026-09-23)에서는 두 값 모두 0이었다. "
+            f"서울 전체에서는 점포>0 이후 사라진 전이 {direct + via_zero:,}건 중 {via_zero:,}건"
+            f"({via_zero / max(direct + via_zero, 1):.1%})이 명시적 0 row를 거쳤고 {direct}건은 예외다 "
+            "→ 근거는 강하지만 예외 없는 규칙은 아니다.",
+            "",
+            _md(ev, floatfmt=".0f"),
+            "",
+            "매출 row 부재율 vs 해당 코드 점포 수 (suppression 근거):",
+            "",
+            _md(biz_qa["evidence"]["sales_suppression"]),
+            "",
+            "연도별 row 부재율 (특정 연도 집중 여부):",
+            "",
+            _md(biz_qa["evidence"]["by_year"].T),
+            "",
+            f"매출 row가 있는데 점포 row가 없는 코드: {biz_qa['n_sales_code_without_store']}건 "
+            "(있으면 해당 그룹의 점포당 매출은 NA).",
+            "",
+            "원천 파일:",
+            "",
+            _md(pd.DataFrame(biz_qa["files"]), index=False),
+            "",
+        ]
+    lines += [
+        "### code coverage 분포 (master 행, 메타가 있는 행 기준)",
+        "",
+        "점포:",
+        "",
+        _md(cov_table("trdar_biz_store_code_coverage")),
+        "",
+        "매출:",
+        "",
+        _md(cov_table("trdar_biz_sales_code_coverage")),
+        "",
+        "partial 비율:",
+        "",
+        _md(partial),
+        "",
+        "### sales_store_coverage 분포",
+        "",
+        _md(ssc),
+        "",
+        "### 결측률 (biz_type별)",
+        "",
+        _md(miss_biz),
+        "",
+        "### 결측률 (origin별)",
+        "",
+        _md(miss_origin),
+        "",
+    ]
+    return lines
+
+
 def write_qa_report(df: pd.DataFrame, log: list[dict], trdar_qas: list[dict] | None = None,
-                    path=config.MASTER_QA_REPORT_PATH) -> None:
+                    biz_qa: dict | None = None, path=config.MASTER_QA_REPORT_PATH) -> None:
     overall, by_origin = missing_rate_tables(df)
     leak = pd.Series(temporal_leakage_counts(df), name="violations").to_frame()
     roles = pd.DataFrame(
@@ -348,6 +541,7 @@ def write_qa_report(df: pd.DataFrame, log: list[dict], trdar_qas: list[dict] | N
         "",
         _md(pd.DataFrame(trdar_qas or []), index=False),
         "",
+        *biz_qa_lines(df, biz_qa),
         "## ER 누수 경고 지표 (provenance 전용 근거)",
         "",
         "`er_matched`는 2024-12~2026-06 스냅샷 union으로 계산된다. 아래 event 비율 격차가",
@@ -401,6 +595,7 @@ def write_master_spec_md(df: pd.DataFrame, path=config.MASTER_SPEC_PATH) -> None
 
 def load_inputs() -> dict:
     trdar, trdar_qas = trdar_features.build_area_quarter_table()
+    trdar_biz, biz_qa = trdar_features.build_biz_quarter_table()
     return {
         "labels": pd.read_parquet(config.LABELS_BASE_PATH),
         "spatial": pd.read_parquet(SPATIAL_PATH, columns=SPATIAL_COLS + LAND_PRICE_VALID_COLS),
@@ -408,6 +603,9 @@ def load_inputs() -> dict:
         "trdar": trdar,
         "trdar_source_snapshot": trdar.attrs["source_snapshot"],
         "trdar_qas": trdar_qas,
+        "trdar_biz": trdar_biz,
+        "trdar_biz_source_snapshot": trdar_biz.attrs["source_snapshot"],
+        "biz_qa": biz_qa,
     }
 
 
@@ -417,11 +615,12 @@ def run() -> pd.DataFrame:
     w1_invariants.run()  # W2 진입 게이트: freeze 상태와 다르면 여기서 멈춘다
     inputs = load_inputs()
     master, log = build_master_base(inputs["labels"], inputs["spatial"], inputs["er"],
-                                    inputs["trdar"], inputs["trdar_source_snapshot"])
+                                    inputs["trdar"], inputs["trdar_source_snapshot"],
+                                    inputs["trdar_biz"], inputs["trdar_biz_source_snapshot"])
     print(pd.DataFrame(log).to_string(index=False))
     config.MASTER_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     master.to_parquet(config.MASTER_BASE_PATH, index=False)
-    write_qa_report(master, log, trdar_qas=inputs["trdar_qas"])
+    write_qa_report(master, log, trdar_qas=inputs["trdar_qas"], biz_qa=inputs["biz_qa"])
     write_master_spec_md(master)
     print(f"\n저장: {config.MASTER_BASE_PATH} {master.shape}")
     return master

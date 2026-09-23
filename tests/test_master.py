@@ -82,9 +82,23 @@ def _trdar():
     })
 
 
+def _trdar_biz():
+    """일반음식점 CS100001: T-1(2025Q1) 점포 10 / 매출 100, T(2025Q2) 999 — T 값은 쓰지 않아야 한다."""
+    from src.data import trdar_features as tf
+    store = pd.DataFrame(
+        [("3110001", "2025Q1", "CS100001", 10, 1, 1, 1), ("3110001", "2025Q2", "CS100001", 999, 0, 0, 0),
+         ("3110001", "2023Q4", "CS100001", 8, 0, 0, 0)],
+        columns=["trdar_cd", "quarter", "code", "store_total", "store_franchise", "store_open", "store_close"])
+    sales = pd.DataFrame([("3110001", "2025Q1", "CS100001", 100.0), ("3110001", "2025Q2", "CS100001", 9e9)],
+                         columns=["trdar_cd", "quarter", "code", "sales_amt"])
+    g = tf.code_level_grid(store, sales, {"3110001", "3110002"}, {"2023Q4", "2024Q1", "2025Q1", "2025Q2"})
+    return tf.aggregate_biz(g)
+
+
 def _build(labels, er=None):
     return master.build_master_base(labels, _spatial(), _er() if er is None else er,
-                                    _trdar(), "synthetic.csv@0000")
+                                    _trdar(), "synthetic.csv@0000",
+                                    _trdar_biz(), "synthetic-biz.csv@0000")
 
 
 def test_build_preserves_panel_and_unmatched():
@@ -217,3 +231,28 @@ def test_every_column_has_definition_and_gu_note(tmp_path):
     text = path.read_text(encoding="utf-8")
     assert "미래정보를 사용하지 않는다" in text and "ablation" in text
     assert schema.COLUMN_ROLES["gu"][0] == "predictor"
+
+
+def test_biz_features_use_t_minus_1_and_respect_na():
+    out, log = _build(_labels())
+    o = out.set_index(schema.KEY)
+    r = o.loc[("GR_1", "2025Q2")]
+    assert r["trdar_biz_store_cnt_observed"] == 10  # T(2025Q2)의 999가 아니라 T-1
+    assert r["trdar_biz_sales_amt_observed"] == 100.0
+    assert r["trdar_biz_sales_per_store_observed"] == 10.0
+    assert r["trdar_biz_store_n_codes_expected"] == 7 and r["trdar_biz_store_is_partial"]
+    # trdar_cd 없는 점포: 값·메타 모두 NA (0으로 채우지 않음)
+    for c in ["trdar_biz_store_cnt_observed", "trdar_biz_store_n_codes_observed"]:
+        assert pd.isna(o.loc[("GR_2", "2024Q1"), c])
+    assert all(r["integrity_violations"] == 0 and r["leakage_violations"] == 0 for r in log)
+    assert master.biz_integrity_counts(out) and sum(master.biz_integrity_counts(out).values()) == 0
+
+
+def test_biz_integrity_detects_violations():
+    out, _ = _build(_labels())
+    bad = out.copy()
+    bad.loc[bad["trdar_cd"].isna(), "trdar_biz_store_cnt_observed"] = 0  # 0 일괄 대체
+    assert master.biz_integrity_counts(bad)["biz feature where trdar_cd NA"] > 0
+    bad = out.copy()
+    bad["trdar_biz_store_is_partial"] = ~bad["trdar_biz_store_is_partial"]
+    assert master.biz_integrity_counts(bad)["store is_partial != (observed < expected)"] > 0

@@ -382,3 +382,32 @@ provenance 컬럼은 predictor로 쓰지 않는다.
   W2-0 Base는 상권 단위 계열(길단위인구·상권변화지표·상주·직장·집객)만 T-1로 붙인다.
 - 온라인 존재감은 master_base에 넣지 않는다. Enriched는 `(store_id, origin)` 유일 테이블을 m:1로
   LEFT JOIN하는 인터페이스(`master.attach_enriched_table`)로 확장한다.
+
+## 2026-09-23 — W2-0 I-1 최종: 업종 단위 상권 feature 매핑·집계 규칙
+근거: 업종 코드 체계 실측(인허가 업태 47종 / 상권분석 서비스업종 100종 / 소진공 cat3 247종 — 공통 코드 없음)과
+row 부재 패턴 실측. 상세 수치는 `outputs/master/qa_report.md` "업종 단위 상권 feature" 절. 구현은
+`src/data/trdar_features.py: BIZ_CODE_MAP / aggregate_biz`, `master.attach_trdar_biz_features`.
+위 "W2-0 master_base 구성 결정"의 (I-1) 보류를 이 항목으로 대체한다.
+
+- **매핑 key는 `biz_type`(인허가 종류)이다.** `업태구분명`·`위생업태명`·소진공 cat3는 origin 시점 값임을
+  검증할 수 없으므로 predictor 결합 key로 쓰지 않는다.
+  - 일반음식점 = CS100001·002·003·004·007·008·009 / 휴게음식점 = CS100005·006·010 / 미용업 = CS200028·029·030
+  - CS100006(패스트푸드점)·CS100010(커피-음료)은 휴게음식점에만 둔다. **중복 배정하지 않는다.**
+  - 휴게음식점 편의점 1,158개 점포 등에 예외를 두지 않는다. broad biz_type 매핑의 한계로 문서화한다.
+- **점포 원천: observed partial.** row가 있는 mapped code만 합한다. 점포 원천에서 mapped code의 row 부재는
+  시계열 전이, 명시적 0 row, 매출 원천과의 교차검증 및 연도별 패턴상 점포 0을 의미하는 것으로 해석할 강한 실증
+  근거가 있다. 다만 원천 공식 명세로 확인된 규칙은 아니므로 raw row를 임의 생성하거나 0으로 imputation하지 않고
+  observed-row 집계와 coverage metadata(`trdar_biz_store_n_codes_observed/_expected/_code_coverage/_is_partial`)를
+  유지한다. (분석적 해석 = structural zero 근거 있음 / 물리적 처리 = missing row를 0 row로 만들지 않음)
+  - 실측(서울 전체): 점포>0 이후 사라진 전이 2,041건 중 2,026건이 명시적 0 row를 거쳤다(예외 15건).
+    점포 row가 없는데 매출 row가 있는 셀 0건. 3구 상권 한정으로는 예외 0건.
+- **매출 원천: observed partial + 점포 기준 coverage.** 매출 row 부재는 0이 아니다 — 매출 0원 row가 원천에 없고,
+  점포 1~2개 코드는 매출 row가 100% 없다(소수 점포 매출 비공개/억제로 판단). 매출 합계는 항상 "매출이 공개된
+  mapped code의 합계"(biz_type 전체의 하한/부분관측치)이며, `trdar_biz_sales_store_coverage`
+  (매출 row가 있는 코드의 점포 수 / mapped code 전체 점포 수, 같은 T-1 점포 원천, 분모 0이면 NA)로 대표성을 남긴다.
+- **strict / coverage threshold로 행을 지우거나 NA 처리하지 않는다.** coverage는 provenance/quality 정보로 보존한다.
+- **점포당 매출** `trdar_biz_sales_per_store_observed`: 분자·분모 모두 매출 row가 있는 mapped code 집합.
+  분모 0 또는 code set 불일치면 NA (inf·0 대체 금지).
+- 매출건수 합계는 매출금액과 Spearman 0.894로 중복이 커 추가하지 않았다.
+- 개업·폐업률은 원천 정의(건수 / 분기 말 전체 점포 수 × 100)로 합계 재계산한다. 원천 `폐업_률`도 100% 초과가
+  있으므로(806행, 최대 500) 자르지 않는다.

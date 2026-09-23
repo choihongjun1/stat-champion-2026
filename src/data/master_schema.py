@@ -80,6 +80,24 @@ COLUMN_ROLES: dict[str, tuple[str, str]] = {
     "trdar_facility_value_asof": ("meta", "trdar"),
     "trdar_geometry_snapshot": ("provenance", "trdar_assignment"),
     "trdar_geometry_backcast_flag": ("provenance", "trdar_assignment"),
+    # --- 상권분석 업종 단위 계열 (점포·추정매출), T-1, observed partial (W2-0 I-1 최종).
+    # coverage·partial 메타는 feature 품질 정보라 provenance로 보존한다 (predictor 아님).
+    "trdar_biz_store_cnt_observed": ("predictor", "trdar_biz"),
+    "trdar_biz_franchise_cnt_observed": ("predictor", "trdar_biz"),
+    "trdar_biz_open_rate_observed": ("predictor", "trdar_biz"),
+    "trdar_biz_close_rate_observed": ("predictor", "trdar_biz"),
+    "trdar_biz_sales_amt_observed": ("predictor", "trdar_biz"),
+    "trdar_biz_sales_per_store_observed": ("predictor", "trdar_biz"),
+    "trdar_biz_store_n_codes_observed": ("provenance", "trdar_biz"),
+    "trdar_biz_store_n_codes_expected": ("provenance", "trdar_biz"),
+    "trdar_biz_store_code_coverage": ("provenance", "trdar_biz"),
+    "trdar_biz_store_is_partial": ("provenance", "trdar_biz"),
+    "trdar_biz_sales_n_codes_observed": ("provenance", "trdar_biz"),
+    "trdar_biz_sales_n_codes_expected": ("provenance", "trdar_biz"),
+    "trdar_biz_sales_code_coverage": ("provenance", "trdar_biz"),
+    "trdar_biz_sales_is_partial": ("provenance", "trdar_biz"),
+    "trdar_biz_sales_store_coverage": ("provenance", "trdar_biz"),
+    "trdar_biz_source_snapshot": ("meta", "trdar_biz"),
     # --- ER. 7개 스냅샷(2024-12~2026-06) union으로 계산한 값이라 모든 Base origin에 대해
     # origin 이후 정보를 담는다 → provenance/metadata 전용 (DECISIONS.md 2026-09-23 W2-0 I-2).
     "er_matched": ("provenance", "er"),
@@ -144,6 +162,37 @@ VARIABLE_DEFINITIONS: dict[str, str] = {
     "trdar_facility_value_asof": "집객시설 값이 마지막으로 바뀐 분기 (golmok 기준시점 표기 2020-12).",
     "trdar_geometry_snapshot": "상권 polygon 스냅샷 날짜 (2023-10-23).",
     "trdar_geometry_backcast_flag": "origin_end < geometry snapshot (현재 경계를 과거 origin에 적용).",
+    "trdar_biz_store_cnt_observed": (
+        "T-1 분기, 해당 biz_type mapped code 중 **점포 row가 있는 코드만**의 전체 점포 수(일반+프랜차이즈) 합. "
+        "row 없는 코드를 0으로 채우지 않는다 (row 부재는 점포 0이라는 강한 실증 근거가 있으나 공식 명세 아님). "
+        "관측 코드가 없으면 NA."),
+    "trdar_biz_franchise_cnt_observed": "T-1 분기, 점포 row가 있는 mapped code의 프랜차이즈 점포 수 합.",
+    "trdar_biz_open_rate_observed": (
+        "T-1 분기 개업률(%) = 점포 row가 있는 mapped code의 개업 점포 수 합 / 같은 코드의 전체 점포 수 합 × 100. "
+        "분모 0이면 NA. 원천 정의상 100%를 넘을 수 있다."),
+    "trdar_biz_close_rate_observed": (
+        "T-1 분기 폐업률(%) = 점포 row가 있는 mapped code의 폐업 점포 수 합 / 같은 코드의 전체 점포 수 합 × 100. "
+        "분모 0이면 NA. 분기 중 폐업이 분기 말 점포 수보다 많으면 100%를 넘는다(원천 `폐업_률`도 동일)."),
+    "trdar_biz_sales_amt_observed": (
+        "T-1 분기, **매출이 공개된(row가 있는) mapped code만**의 `당월_매출_금액` 합. 매출 row 부재는 0이 아니라 "
+        "소수 점포 코드 비공개로 판단하므로 biz_type 전체 매출이 아니라 **하한/부분관측치**다. "
+        "과소 정도는 trdar_biz_sales_store_coverage 참조."),
+    "trdar_biz_sales_per_store_observed": (
+        "T-1 분기 점포당 매출 = 매출 row가 있는 mapped code의 매출 합 / **같은 코드**의 전체 점포 수 합. "
+        "전체 biz_type 기준 점포당 매출이 아니라 매출이 공개된 mapped code 집합 기준이다. "
+        "분모 0·code set 불일치면 NA (inf·0 대체 없음)."),
+    "trdar_biz_store_n_codes_observed": "점포 원천에서 row가 있는 mapped code 수.",
+    "trdar_biz_store_n_codes_expected": "해당 biz_type의 mapped code 수 (일반음식점 7 / 휴게음식점 3 / 미용업 3).",
+    "trdar_biz_store_code_coverage": "점포 code coverage = observed / expected (0~1).",
+    "trdar_biz_store_is_partial": "점포 observed < expected.",
+    "trdar_biz_sales_n_codes_observed": "매출 원천에서 row가 있는 mapped code 수.",
+    "trdar_biz_sales_n_codes_expected": "해당 biz_type의 mapped code 수.",
+    "trdar_biz_sales_code_coverage": "매출 code coverage = observed / expected (0~1).",
+    "trdar_biz_sales_is_partial": "매출 observed < expected.",
+    "trdar_biz_sales_store_coverage": (
+        "매출 row가 있는 mapped code의 점포 수 합 / 해당 biz_type mapped code 전체 점포 수 합 (같은 T-1 점포 원천). "
+        "분모 0이면 NA. 매출 합계가 biz_type 점포의 몇 %를 대표하는지 나타낸다."),
+    "trdar_biz_source_snapshot": "점포·추정매출 원천 파일명@sha256 앞 16자리 + 수령일.",
     "er_matched": "인허가↔소진공 ER 매칭 여부. 7개 스냅샷 union 결과라 predictor 금지 (W2-0 I-2).",
     "er_ambiguous": "ER 후보 복수로 미확정.",
     "match_tier": "ER tier (1~4). 미매칭 행에도 마지막 시도 tier가 남을 수 있다.",
@@ -164,7 +213,23 @@ SPEC_NOTES = [
     "origin 2021Q1은 T-1(2020Q4)이 원천에 없어 전부 NA다.",
     "polygon membership 계열(trdar_cd, trdar_type, in_polygon, spatial_match_method)은 현재 경계의 약한 "
     "미래정보 경로 때문에 predictor로 쓰지 않는다 (DECISIONS.md 2026-09-23).",
-    "업종 단위 상권 feature(점포·추정매출)는 W2-0 I-1 매핑 확정 전까지 포함하지 않는다.",
+    "업종 단위 상권 feature(`trdar_biz_*`, W2-0 I-1): biz_type 그룹 매핑 — 일반음식점 = CS100001·002·003·004·"
+    "007·008·009 / 휴게음식점 = CS100005·006·010 / 미용업 = CS200028·029·030. CS 코드 중복 배정 없음 "
+    "(CS100006 패스트푸드점·CS100010 커피-음료는 휴게음식점에만). `업태구분명`·`위생업태명`·소진공 cat3는 "
+    "origin 시점 값임을 검증할 수 없어 결합 key로 쓰지 않는다. T-1 분기, observed partial 집계.",
+    "**점포 row 부재 (WARNING)**: 점포 원천에서 mapped code의 row 부재는 시계열 전이, 명시적 0 row, 매출 원천과의 "
+    "교차검증 및 연도별 패턴상 점포 0을 의미하는 것으로 해석할 강한 실증 근거가 있다. 다만 원천 공식 명세로 "
+    "확인된 규칙은 아니므로 raw row를 임의 생성하거나 0으로 imputation하지 않고 observed-row 집계와 coverage "
+    "metadata를 유지한다. 분석적 해석(structural zero 근거 있음)과 물리적 처리(missing row를 0 row로 만들지 "
+    "않음)를 구분한다. 실측 근거와 예외(서울 전체에서 점포>0 → row 없음 직행 15건)는 `outputs/master/qa_report.md` "
+    "'row 부재 실증' 절.",
+    "**매출 row 부재 ≠ 0**: 매출 0원 row는 원천에 없고 점포 1~2개 코드는 매출 row가 100% 없다(소수 점포 비공개로 "
+    "판단). `*_observed` 매출 합계는 biz_type 전체 매출의 하한/부분관측치일 수 있다. coverage 기준으로 행을 "
+    "지우거나 NA 처리하지 않고 coverage를 품질 정보로 보존한다.",
+    "broad biz_type 매핑 한계: 휴게음식점 편의점(1,158개 점포)·일반음식점 '까페'·미용업 '메이크업업' 등은 실제 세부 "
+    "업종과 다른 그룹 값을 받는다. 현재 시점 업태로 예외를 판정하면 시간 기준 불확실성이 생기므로 예외를 두지 않는다.",
+    "상권분석 2021~22 CSV는 2023-10-30 재발행본이다(WARNING). 점포·추정매출 계열의 공표일은 계열별로 따로 "
+    "확인하지 않았고 golmok 서비스 전체 업데이트 일정과 같다고 본다(WARNING).",
     "온라인 존재감은 Base에 없다. Enriched는 `(store_id, origin)` 유일 테이블을 "
     "`master.attach_enriched_table`로 m:1 결합한다.",
 ]
