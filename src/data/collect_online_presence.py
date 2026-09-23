@@ -101,10 +101,12 @@ FIELDNAMES = [
     "naver_local_matched_title",
     "naver_local_matched_address",
     "naver_blog_total",
+    "naver_blog_api_total",
     "naver_blog_sponsor_filtered",
     "naver_blog_last_date",
     "naver_blog_first_date",
     "naver_cafe_total",
+    "naver_cafe_api_total",
     "naver_cafe_sponsor_filtered",
     "kakao_registered",
     "kakao_rank",
@@ -304,13 +306,17 @@ def naver_local(ctx: Context, query: str, store_name: str, dong: str) -> dict:
     return {"registered": False, "rank": None, "matched_title": "", "matched_address": ""}
 
 
-def naver_text_search(ctx: Context, url: str, query: str) -> list:
+def naver_text_search(ctx: Context, url: str, query: str) -> tuple[list, int]:
     # sort 생략 -> 기본값 sim(관련도). "선화분식 군자동"처럼 상호+동을 붙여 검색해도
     # 네이버 블로그/카페 검색은 단어 단위로 느슨하게 매칭돼서, 상호와 무관한 글이
     # (심지어 스팸 블로그까지) 대량으로 잡히는 것이 확인됨 -> 아래에서 상호명 포함 여부로
     # 다시 걸러야 한다 (raw item 개수를 그대로 "언급 건수"로 쓰면 안 됨).
+    # PR #21 리뷰 지적: 응답의 total은 매칭 필터 이전 API 원본 총건수라 len(items)와 다르다.
+    # len(items)는 1페이지(최대 100건) 한도에 걸려 절단되므로, "언급 건수"가 실제로 100을
+    # 초과하는지 사후 진단하려면 이 total을 같이 남겨야 한다.
     resp = pooled_get(ctx, ctx.naver, url, {"query": query, "display": 100})
-    return resp.json().get("items", [])
+    data = resp.json()
+    return data.get("items", []), data.get("total", 0)
 
 
 def filter_mentions(items: list, store_name: str) -> list:
@@ -353,17 +359,21 @@ def collect_one(ctx: Context, row: pd.Series) -> dict:
         result["naver_local_matched_title"] = local["matched_title"]
         result["naver_local_matched_address"] = local["matched_address"]
 
-        blog_items = filter_mentions(naver_text_search(ctx, NAVER_BLOG_URL, query), row["name"])
+        blog_raw, blog_api_total = naver_text_search(ctx, NAVER_BLOG_URL, query)
+        blog_items = filter_mentions(blog_raw, row["name"])
         blog_sponsored = [it for it in blog_items if is_sponsored(it)]
         blog_dates = sorted(it.get("postdate", "") for it in blog_items if it.get("postdate"))
         result["naver_blog_total"] = len(blog_items)
+        result["naver_blog_api_total"] = blog_api_total
         result["naver_blog_sponsor_filtered"] = len(blog_sponsored)
         result["naver_blog_last_date"] = blog_dates[-1] if blog_dates else ""
         result["naver_blog_first_date"] = blog_dates[0] if blog_dates else ""
 
-        cafe_items = filter_mentions(naver_text_search(ctx, NAVER_CAFE_URL, query), row["name"])
+        cafe_raw, cafe_api_total = naver_text_search(ctx, NAVER_CAFE_URL, query)
+        cafe_items = filter_mentions(cafe_raw, row["name"])
         cafe_sponsored = [it for it in cafe_items if is_sponsored(it)]
         result["naver_cafe_total"] = len(cafe_items)
+        result["naver_cafe_api_total"] = cafe_api_total
         result["naver_cafe_sponsor_filtered"] = len(cafe_sponsored)
 
         kakao = kakao_local(ctx, query, row["name"], dong)
