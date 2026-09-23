@@ -183,6 +183,8 @@ audit 수치는 일회성 검증 결과이며, 여기 기록된 내용만이 공
 - **상권 polygon의 historical geometry consistency는 여전히 미검증**이다(단일 스냅샷만 보유).
   현재 결과는 현재 geometry 기준 assignment이며, 과거 origin feature로 쓸 때의 시간 정합성은
   별도 과제로 남긴다.
+  → **2026-09-23 갱신**: 과거 판본은 존재했으나 확보할 수 없어 "검증 불가"로 확정했다.
+  처리 규칙은 2026-09-23 "상권분석 available_at 및 polygon backcast 규칙" 항목.
 - 상권 영역 SHP의 invalid geometry 6건은 raw를 수정하지 않고 코드에서 `make_valid`로 처리한다.
 
 ## 2026-09-19 — 개별공시지가 시점 메타데이터 확정
@@ -297,3 +299,62 @@ rebase될 때 이 결정을 참조하는 문구를 함께 추가한다 (M5 SMD �
 - **0을 이전 연도 값으로 대체(carry-forward)하지 않는다.** 대체가 필요하면 origin별 available_at
   규칙과 함께 W2 feature 설계에서 별도로 결정하고, 대체 여부를 flag로 남긴다.
 - **미확정**: 0이 된 행정적 사유는 데이터만으로 특정할 수 없다. 배포처 확인 대상으로 남긴다.
+
+## 2026-09-23 — 상권분석 available_at 및 polygon backcast 규칙
+근거: 공식 출처(golmok 서비스 소개·데이터 출처 페이지, 열린데이터광장 데이터셋 페이지)와 그 Wayback 보존본,
+로컬 raw 전수 실측. 실측·출처 상세는 `DATA_CATALOG.md` §3, §3-0, §3-A, §3-B, §3-1.
+
+**공표 시점 (판정: WARNING, BLOCKER 아님)**
+- 공식 일정은 "매 분기 2개월 후 업데이트 예정"(Q1→5월 말, Q2→8월 말, Q3→11월 말, Q4→다음 해 2월 말)이다.
+- 기준시점과 함께 확인된 lag는 2021Q4 62일 / 2022Q4 59일 / 2024Q2 54일 / 2024Q4 51일 / 2025Q2 57일 /
+  2026Q2 49일이다. 분기 대응을 공식 일정으로 추정한 사례까지 포함하면 최대 83일(2025Q4)이다.
+- WARNING 사유: 일정이 "예정"이고, 추정 사례 기준 Q4→다음 해 Q1 origin의 여유가 7일 수준이며,
+  2021~2023 대부분 분기의 실제 공표일은 미확정이다.
+
+**규칙**
+- **origin 분기 T 자체의 상권분석 값은 사용 금지.** T 종료 후 약 2개월 뒤 공표되므로 `origin_end` 시점에 없다.
+- **상권 feature의 기본 분기는 T-1**이다. 관측된 최대 lag(83일)가 T-1 종료~origin_end 간격(90~92일)보다 짧다.
+- **T-2 sensitivity를 수행한다.**
+- **`trdar_available_at`에는 실제로 확인된 published_at만 기록한다.** 확인되지 않은 분기에 임의 날짜를
+  만들지 않는다(NA + basis 표시). 추정 매핑 사례도 published_at으로 쓰지 않는다.
+- 행이 없는 상권×분기는 0이 아니라 NA로 둔다. 점포 컬럼은 `점포_수`→`일반_점포_수`,
+  `유사_업종_점포_수`→`전체_점포_수`로 맞춘다(`DATA_CATALOG.md` §3-0).
+- 상주·직장·집객처럼 분기마다 갱신되지 않는 계열은 분기 코드가 아니라 값이 실제로 바뀐 분기를
+  `trdar_value_asof`로 남긴다.
+
+**polygon historical consistency (판정: WARNING, BLOCKER 아님)**
+- 과거 polygon 판본(2019-11, 2022-04 구/신, 2023-08)은 존재했으나 현재 공식 경로로 확보할 수 없고,
+  API에도 geometry 이력이 없다. **historical geometry consistency는 검증 불가**로 확정한다.
+  IoU·centroid shift·area difference 비교는 수행하지 않으며, 과거 경계를 임의 복원·추정하지 않는다.
+- 현재 geometry snapshot = **2023-10-23**(DBF 헤더 2023-10-20). 이 경계를 과거 origin에 적용하는 것을
+  **polygon backcast**로 부르고 `trdar_geometry_backcast_flag`로 표시한다.
+- 2021~2022 분기 CSV는 2023-10-30 재발행본이며 현재 경계 기준 재계산값일 가능성이 높다.
+  과거 origin 시점에 실제 공개된 값과 같다고 보지 않으며, 보고서 한계·재현성 위험으로 기록한다.
+
+**leakage와 measurement error의 구분**
+- T-1 규칙을 지키면 feature 값이 가리키는 기간 자체는 origin 이전이다. 따라서 점포의 결과(폐업)를
+  직접 쓰는 일반적인 label leakage와는 다르다.
+- 현재 경계를 과거 origin에 소급하는 문제는 **주로 spatial misclassification / measurement error**다
+  (당시와 다른 면적으로 집계, 당시와 다른 상권 배정, 사후 재계산된 판본).
+- 단, 현재 경계는 **2023-06 상가 DB**를 바탕으로 정해졌다(골목·발달·전통시장·관광특구 기준시점 2023년 06월,
+  2022년 표준단위구역 기반). 따라서 2021~2023 origin에서 `trdar_cd` 비결측 여부나 polygon membership에는
+  "2023년까지 점포 밀도가 유지된 지역"이라는 **약한 미래정보 경로가 존재할 가능성**이 있다.
+- 그러므로 **polygon membership 관련 변수(within 여부·`trdar_cd` 결측 지시자·상권 구분·polygon 면적)는
+  Base의 핵심 predictor로 의존하지 않고 sensitivity/provenance 관점에서 다룬다.** 상권 수치 feature(T-1)는
+  Base에 쓰되 backcast flag를 provenance로 남긴다. 구체 sensitivity 설계(예: geometry snapshot 이후 origin만
+  평가)는 W2에서 정한다.
+
+**W2-0 provenance 컬럼 (이름만 확정, 구현은 W2-0)**
+
+| 컬럼 | 의미 |
+|---|---|
+| `trdar_quarter_used` | 사용한 상권분석 분기 코드 (기본 T-1) |
+| `trdar_source_snapshot` | 원천 파일명 + sha256 (+ 수령일) |
+| `trdar_available_at` | 확인된 published_at. 미확인이면 NA |
+| `trdar_available_at_basis` | `archive_confirmed`(날짜 기록) / `archive_inferred`(날짜 NA — 추정 날짜는 기록하지 않음) / `unverified` |
+| `trdar_value_asof` | 값의 실제 기준 분기 (갱신 정체 계열은 마지막 변화 분기) |
+| `trdar_geometry_snapshot` | `2023-10-23` |
+| `trdar_geometry_backcast_flag` | `origin_end < trdar_geometry_snapshot` |
+
+불변식: `trdar_quarter_used < origin`, `trdar_available_at`이 존재하면 `trdar_available_at <= origin_end`.
+provenance 컬럼은 predictor로 쓰지 않는다.

@@ -66,17 +66,28 @@
 - 좌표계: raw EPSG:5174 → EPSG:5179. polygon 원본은 EPSG:5181.
 - **한계**: 상권 polygon은 단일 스냅샷이며 historical geometry 일관성은 미검증이다.
   과거 origin에 현재 경계를 소급 적용하는 것의 영향은 보고서에 한계로 명시한다.
+  - **2026-09-23 갱신 (W2 진입 조건)**: 과거 판본(2019-11 / 2022-04 구·신 / 2023-08)은 존재했으나
+    확보 불가 → historical consistency는 **검증 불가(unavailable)** 로 확정. geometry snapshot = **2023-10-23**.
+    과거 origin 적용(polygon backcast)은 **WARNING**이며 BLOCKER가 아니다 (`DECISIONS.md` 2026-09-23).
 
 ## 5. Temporal availability
 
 | 데이터 | feature_asof | available_at | 규칙 |
 |---|---|---|---|
 | 개별공시지가 | 1월 1일 | **4월 30일** | origin < available_at(Y)이면 해당 연도 값 사용 금지 |
-| 상권분석 분기지표 | 분기 | 분기 종료 후 공표 | origin 분기 자체가 아니라 **직전 분기** 값을 쓴다 |
+| 상권분석 분기지표 | 분기 (갱신 정체 계열은 마지막 변화 분기) | 공식 일정: 분기 종료 + 약 2개월(**예정**). 확인 lag 49~62일, 추정 포함 최대 83일 | origin 분기 T 사용 금지, 기본 **T-1**, **T-2 sensitivity** |
 | 소진공 스냅샷 | 스냅샷 시점 | 동일 | union은 **ER 전용**, feature는 origin 이후 스냅샷 사용 금지 |
 
 - 공시지가 0원은 raw에 보존하고 feature로는 `land_price_{year}_valid`(0 → NA)를 쓴다.
   `land_price_zero_flag`로 표시하며 **carry-forward는 적용하지 않는다**(W2에서 별도 결정).
+- **상권분석 (2026-09-23 추가, `DECISIONS.md` 같은 날짜 항목)**: available_at 판정은 **WARNING**(BLOCKER 아님).
+  `trdar_available_at`에는 실제로 확인된 published_at만 기록하고 임의 날짜를 만들지 않는다.
+  W2-0 provenance 컬럼: `trdar_quarter_used`, `trdar_source_snapshot`, `trdar_available_at`,
+  `trdar_available_at_basis`, `trdar_value_asof`, `trdar_geometry_snapshot`, `trdar_geometry_backcast_flag`.
+  불변식: `trdar_quarter_used < origin`, `trdar_available_at`이 있으면 `trdar_available_at <= origin_end`.
+- 상권 polygon membership 관련 변수(within 여부·`trdar_cd` 결측·상권 구분·면적)는 현재 경계가 2023-06 상가 DB
+  기준이라 과거 origin에서 약한 미래정보 경로가 있을 수 있다 → Base 핵심 predictor로 의존하지 않고
+  sensitivity/provenance로 다룬다.
 
 ## 6. Golden QA counts (main `5279604` 재계산값)
 
@@ -164,7 +175,10 @@
 
 | 항목 | 현재 처리 | 보고서 한계 명시 |
 |---|---|---|
-| 상권 polygon 단일 스냅샷 | 현재 geometry를 과거 origin에 적용 | 필요 |
+| 상권 polygon 단일 스냅샷 (2023-10-23), 과거 판본 확보 불가 → 과거 경계 일관성 검증 불가 | 현재 geometry를 과거 origin에 적용 (backcast WARNING, `trdar_geometry_backcast_flag`) | 필요 |
+| 상권분석 2021~22 CSV는 2023-10-30 재발행본 | 당시 공개값과 동일하다고 보지 않음 | 필요 |
+| 상권분석 5개 계열(변화지표·길단위·상주·직장·집객)을 현재 포털에서 받을 수 없음 | raw 보존 + sha256 기록(`DATA_CATALOG.md` §3-B) | 재현성 위험 |
+| 상권분석 공표일 일부만 확인 (2021~2023 대부분 미확정) | T-1 기본 + T-2 sensitivity | 필요 |
 | 202503 소진공 좌표 이상 | `coord_suspect` 77,828행 전량 표시, 좌표 매칭 배제 | 필요 |
 | 2026 공시지가 0원 10건 | raw 보존 + `_valid` NA + flag | 필요 |
 | MDIS 영업이익 0원 588건 | 백만원 단위 반올림 추정, 미처리 | 필요 |
