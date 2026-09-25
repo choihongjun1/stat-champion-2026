@@ -517,3 +517,18 @@ row 부재 패턴 실측. 상세 수치는 `outputs/master/qa_report.md` "업종
   101~131건이 주된 근거였고 그중 "고시고시"(API total 2,900)는 오탐 가능성이 높다. 기여값은 바꾸지 않는다.
 - **팀 확인 필요**: (1) 온라인 언급을 입지·수요에 둘지 별도 유형으로 둘지 (2) 현재 owner 요인은 온라인 언급뿐이고
   policy 요인(공시지가)은 기여가 0이라, W2-7 정책 매칭이 연결할 요인이 사실상 온라인 하나다.
+
+## 2026-09-25 — W2-2/W2-3 서빙(현재 시점 점포) 규칙
+구현: `src/models/serve.py`. 실행: `python -m src.models.serve --score <예측용 master> --primary enriched ...`
+
+- **서빙 모형의 학습 구간은 검증과 같은 embargo 규칙을 따른다**: score origin s → 라벨 origin ≤ s−5분기.
+  검증 구간 마지막 origin을 라벨 없이 넣으면 `train_detect` risk_scores의 확률·등급·백분위가 정확히 같다(테스트).
+- **보정기·등급 컷오프는 `train_detect` 실행 결과를 그대로 쓴다** (`run_meta.json`, `calibrator.pkl`,
+  `band_cutoffs.csv`). 서빙에서 다시 정하지 않는다. feature set이 다르면 멈춘다.
+- **검증 구간의 학습에 한 번도 값이 없던 feature는 서빙에서도 뺀다** (검증 마지막 origin의 학습 구간 기준).
+  score origin이 뒤로 가면 학습 구간에 land_price 값이 생기지만, 검증되지 않았으므로 넣지 않는다
+  (2026-09-25 W2-2 항목의 "서빙 모형은 검증과 같은 feature set" 규칙의 구현).
+- **진단은 `diagnose.explain`을 공유한다** — 요인 매핑·Shapley·peer 비교·온라인 표시 보류 규칙이 W2-3과 같다.
+  요인 기여도는 보정 전 확률 척도에서 합산된다. 보정이 적용된 실행이면 화면 확률과 합이 달라지며
+  `serve_meta.json`의 `diagnosis_scale`에 기록한다 (현재 실데이터 실행은 보정 미적용이라 같다).
+- 출력 `reports.jsonl`은 W2-5 결과 스키마의 risk·factors 블록(점포당 1줄)이다. 처방(W2-4)·정책(W2-7) 블록은 붙이지 않는다.

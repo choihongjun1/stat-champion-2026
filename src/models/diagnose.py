@@ -274,35 +274,20 @@ def factors_json(long: pd.DataFrame, store_id: str, origin: str, values: dict | 
 
 
 # ---------------------------------------------------------------------------
-def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: str, origin: str | None,
-        n_background: int, max_stores: int | None, seed: int = 20260925) -> pd.DataFrame:
-    t0 = time.time()
-    out_dir.mkdir(parents=True, exist_ok=True)
-    df = train_detect.load_master(master_path)
-    if online_path is not None:
-        df = train_detect.attach_online(df, online_path)
-    cols = features.select_features(df.columns, primary)
-    check_mapping(cols)
-    X = features.build_X(df, cols)
-    y = df["event_12m"].to_numpy().astype(int)
-    origins = splits.sorted_origins(df)
-    origin = origin or origins[-1]
-    t = origins.index(origin)
-    tr = df["origin"].isin(origins[: t - train_detect.EMBARGO]).to_numpy()
-    te_idx = np.flatnonzero((df["origin"] == origin).to_numpy())
-    rng = np.random.default_rng(seed)
-    if max_stores and len(te_idx) > max_stores:
-        te_idx = np.sort(rng.choice(te_idx, max_stores, replace=False))
-    train_detect.log(f"진단 대상 {origin} {len(te_idx):,}점포 · 학습 {origins[0]}~{origins[t - train_detect.EMBARGO - 1]} "
-                     f"· feature set {primary}")
-    model = detect.DetectModel().fit(X[tr], y[tr])
+def explain(model: detect.DetectModel, Xt: pd.DataFrame, Xb: pd.DataFrame, meta: pd.DataFrame,
+            raw: pd.DataFrame) -> dict:
+    """학습된 모형 하나로 대상 점포들의 요인 진단을 만든다 (진단·서빙 공용).
 
+    meta: 대상 행의 store_id, origin, biz_type, gu, age_months (Xt와 같은 순서)
+    raw : 대상 행의 원래 값 (판단 근거 `values` 출력용, Xt와 같은 순서)
+    반환: long(점포×요인), by_category, active(요인 목록), base, meta(확률 포함), values(함수)
+    """
+    meta = meta.reset_index(drop=True).copy()
+    raw = raw.reset_index(drop=True)
     active = [f for f in FACTORS if any(c in model.columns_ for c in f["features"])]
     dropped = [f["id"] for f in FACTORS if f not in active]
     factor_cols = [[c for c in f["features"] if c in model.columns_] for f in active]
-    bg_idx = rng.choice(np.flatnonzero(tr), n_background, replace=False)
-    Xt, Xb = X.iloc[te_idx], X.iloc[bg_idx]
-    train_detect.log(f"요인 {len(active)}개 (학습에 값이 없어 제외: {dropped or '없음'}) · 배경 {n_background}개 · "
+    train_detect.log(f"요인 {len(active)}개 (학습에 값이 없어 제외: {dropped or '없음'}) · 배경 {len(Xb)}개 · "
                      f"조합 {2 ** len(active)}개")
     phi, base = factor_shapley(model, Xt, Xb, factor_cols)
     p = model.predict_proba(Xt)
@@ -311,7 +296,6 @@ def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: 
     if gap > 1e-6:
         raise RuntimeError("Shapley 가법성이 깨졌다")
 
-    meta = df.iloc[te_idx][["store_id", "origin", "biz_type", "gu", "age_months"]].reset_index(drop=True)
     meta["age_band"] = age_band(meta["age_months"])
     meta["probability_12m"] = p
     meta["base_value"] = base
@@ -339,7 +323,7 @@ def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: 
         long.loc[m, "driver_text"] = texts
         # 화면 표시 보류: 온라인 요인이 위험을 올리는데 주된 근거가 "언급이 있음/많음"인 경우.
         # 사업자가 할 수 있는 일로 번역되지 않고(언급을 줄이라는 뜻이 아니다), 이름 오탐(#28)이나
-        # 유행 상권 신규 점포 효과일 수 있어 검증 전까지 진단문에 내보내지 않는다. 기여값은 그대로 둔다.
+        # 유행 상권 인기 점포 효과일 수 있어 검증 전까지 진단문에 내보내지 않는다. 기여값은 그대로 둔다.
         presence = np.array([online_signal_is_presence(f, vals.at[i, f]) for i, f in enumerate(drv)])
         hold = presence & (phi[:, on] > 0)
         idx = np.flatnonzero(m)
@@ -349,14 +333,50 @@ def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: 
     long = add_peer_percentiles(long)
     long["rank_in_store"] = long.groupby(["store_id", "origin"])["contribution"].rank(ascending=False, method="first").astype(int)
     long["explanation"] = long.apply(explanation, axis=1)
-    long.to_parquet(out_dir / "diagnosis.parquet", index=False)
-
     cat = long.groupby(["store_id", "origin", "category"])["contribution"].sum().unstack(fill_value=0.0)
     cat = cat.reindex(columns=list(CATEGORIES), fill_value=0.0).reset_index()
     # 활성 요인이 하나도 없는 유형(현재 비용)은 0이 아니라 "판단 불가"다. 화면이 0으로 그리지 않도록 표시한다.
     for c in CATEGORIES:
         cat[f"{c}_available"] = any(f["category"] == c for f in active)
     cat = cat.merge(meta[["store_id", "origin", "probability_12m", "base_value"]], on=["store_id", "origin"])
+    pos = {(s_, o_): i for i, (s_, o_) in enumerate(zip(raw["store_id"], raw["origin"]))}
+
+    def values(store_id, origin_):
+        row = raw.iloc[pos[(store_id, origin_)]]
+        return {f["id"]: {c: row[c] for c in f["features"] if c in raw.columns} for f in active}
+
+    return {"long": long, "by_category": cat, "active": active, "base": base, "meta": meta, "values": values}
+
+
+def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: str, origin: str | None,
+        n_background: int, max_stores: int | None, seed: int = 20260925) -> pd.DataFrame:
+    t0 = time.time()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    df = train_detect.load_master(master_path)
+    if online_path is not None:
+        df = train_detect.attach_online(df, online_path)
+    cols = features.select_features(df.columns, primary)
+    check_mapping(cols)
+    X = features.build_X(df, cols)
+    y = df["event_12m"].to_numpy().astype(int)
+    origins = splits.sorted_origins(df)
+    origin = origin or origins[-1]
+    t = origins.index(origin)
+    tr = df["origin"].isin(origins[: t - train_detect.EMBARGO]).to_numpy()
+    te_idx = np.flatnonzero((df["origin"] == origin).to_numpy())
+    rng = np.random.default_rng(seed)
+    if max_stores and len(te_idx) > max_stores:
+        te_idx = np.sort(rng.choice(te_idx, max_stores, replace=False))
+    train_detect.log(f"진단 대상 {origin} {len(te_idx):,}점포 · 학습 {origins[0]}~{origins[t - train_detect.EMBARGO - 1]} "
+                     f"· feature set {primary}")
+    model = detect.DetectModel().fit(X[tr], y[tr])
+
+    bg_idx = rng.choice(np.flatnonzero(tr), n_background, replace=False)
+    meta = df.iloc[te_idx][["store_id", "origin", "biz_type", "gu", "age_months"]].reset_index(drop=True)
+    res = explain(model, X.iloc[te_idx], X.iloc[bg_idx], meta, df.iloc[te_idx].reset_index(drop=True))
+    long, cat, active, base, meta = res["long"], res["by_category"], res["active"], res["base"], res["meta"]
+    long.to_parquet(out_dir / "diagnosis.parquet", index=False)
+
     cat.to_parquet(out_dir / "diagnosis_by_category.parquet", index=False)
 
     summary = long.groupby(["category", "factor_id", "factor", "actionability"]).agg(
@@ -369,13 +389,7 @@ def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: 
     # 샘플 진단문 10건: high 등급 쪽에서 5건, 나머지 5건
     order = meta.sort_values("probability_12m", ascending=False)
     pick = pd.concat([order.head(5), order.sample(5, random_state=seed)])
-    raw = df.iloc[te_idx].reset_index(drop=True)
-    pos = {(s_, o_): i for i, (s_, o_) in enumerate(zip(raw["store_id"], raw["origin"]))}
-
-    def vals(store_id, origin_):
-        row = raw.iloc[pos[(store_id, origin_)]]
-        return {f["id"]: {c: row[c] for c in f["features"] if c in raw.columns} for f in active}
-
+    vals = res["values"]
     sample = [{"store_id": r.store_id, "origin": r.origin, "probability_12m": round(float(r.probability_12m), 4),
                "base_value": round(base, 4),
                "unavailable_categories": [c for c in CATEGORIES if not any(f["category"] == c for f in active)],
