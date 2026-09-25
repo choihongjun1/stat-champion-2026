@@ -9,10 +9,10 @@
 | 필드 | 더미 | 서빙 | 방향 |
 |---|---|---|---|
 | 상호 | `name` | `name` | 같음 |
-| 도로명 주소 | `address_road` | `road_address` | **맞춤(서빙)**: `address_road`로 변경 |
-| 지번 주소 | (검색 인덱스에 `address_jibun`) | `address` | **맞춤(서빙)**: `address_jibun`으로 변경 |
+| 도로명 주소 | `address_road` | `address_road` | 반영 완료(PR #36) |
+| 지번 주소 | (검색 인덱스에 `address_jibun`) | `address_jibun` | 반영 완료(PR #36) |
 | 동 | `dong` | `dong` | 같음 |
-| 인허가일 | `license_date` | 없음 | **맞춤(서빙)**: 인허가 데이터에서 추가 |
+| 인허가일 | `license_date` | `license_date` | 반영 완료(PR #36) |
 | MDIS 산업코드 | `mdis_industry_code` | 없음 | **논의**: 처방(W2-4) 쪽에서 붙일지, 서빙이 업종→코드 고정 매핑으로 붙일지 |
 
 ## 2. risk 블록
