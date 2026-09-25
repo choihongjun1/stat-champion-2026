@@ -99,6 +99,9 @@ def test_run_end_to_end(tmp_path, panel):
     online = [f for f in sample[0]["factors"] if f["factor_id"] == "online_attention"][0]
     assert set(online["values"]) == set(features.ONLINE_PREDICTORS)  # 판단 근거 값이 함께 나간다
     assert online["driver"] and "주된 근거" in online["explanation"]
+    assert isinstance(online["display"], bool)
+    held = long[~long["display"]]
+    assert (held["factor_id"] == "online_attention").all() and (held["contribution"] > 0).all()
     assert (long.loc[long["factor_id"] == "online_attention", "driver_feature"].isin(features.ONLINE_PREDICTORS)).all()
     assert sample[0]["unavailable_categories"] == ["비용"]
     assert (cat["비용_available"] == False).all() and (cat["경쟁_available"] == True).all()  # noqa: E712
@@ -124,3 +127,13 @@ def test_peer_sentence_only_for_top30():
 ])
 def test_online_driver_text(feature, v, expect):
     assert diagnose.online_driver_text(feature, v) == expect
+
+
+@pytest.mark.parametrize("feature,v,presence", [
+    ("online_blog_cnt_12m", 101, True), ("online_blog_cnt_12m", 0, False),
+    ("online_blog_trend_6m", -37, False), ("online_blog_trend_6m", 5, True),
+    ("online_blog_months_since_last", 0, True), ("online_blog_months_since_last", 12, False),
+    ("online_blog_months_since_last", float("nan"), False), ("online_blog_has_ever", 0, False),
+])
+def test_online_presence_signal(feature, v, presence):
+    assert diagnose.online_signal_is_presence(feature, v) is presence

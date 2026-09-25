@@ -203,6 +203,20 @@ def online_driver_text(feature: str, v) -> str:
     return feature
 
 
+def online_signal_is_presence(feature: str, v) -> bool:
+    """주된 근거가 '언급이 있음/많음/늘어남'인지. 부재·감소·오래 끊김이면 False."""
+    if v is None or pd.isna(v):
+        return False
+    v = float(v)
+    if feature in ("online_blog_cnt_3m", "online_blog_cnt_12m", "online_blog_has_12m", "online_blog_has_ever"):
+        return v > 0
+    if feature == "online_blog_trend_6m":
+        return v > 0
+    if feature == "online_blog_months_since_last":
+        return v <= 3
+    return False
+
+
 def online_drivers(model, Xt: pd.DataFrame, Xb: pd.DataFrame, online_cols: list[str],
                    other_cols: list[str], sign: np.ndarray) -> tuple[list[str], np.ndarray]:
     """온라인 요인 안에서 가장 크게 작용한 feature를 고른다.
@@ -254,6 +268,7 @@ def factors_json(long: pd.DataFrame, store_id: str, origin: str, values: dict | 
         "peer_percentile": None if pd.isna(r["peer_percentile"]) else int(r["peer_percentile"]),
         "actionability": r["actionability"], "explanation": r["explanation"],
         "driver": r["driver_text"] or None,
+        "display": bool(r["display"]), "display_note": r["display_note"] or None,
         "values": {k: _plain(v) for k, v in values.get(r["factor_id"], {}).items()},
     } for _, r in g.iterrows()]
 
@@ -309,6 +324,7 @@ def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: 
         long.append(part)
     long = pd.concat(long, ignore_index=True)
     long["driver_feature"], long["driver_text"] = "", ""
+    long["display"], long["display_note"] = True, ""
     on = next((k for k, f in enumerate(active) if f["id"] == "online_attention"), None)
     if on is not None:
         online_cols = factor_cols[on]
@@ -321,6 +337,15 @@ def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: 
         m = (long["factor_id"] == "online_attention").to_numpy()
         long.loc[m, "driver_feature"] = drv
         long.loc[m, "driver_text"] = texts
+        # 화면 표시 보류: 온라인 요인이 위험을 올리는데 주된 근거가 "언급이 있음/많음"인 경우.
+        # 사업자가 할 수 있는 일로 번역되지 않고(언급을 줄이라는 뜻이 아니다), 이름 오탐(#28)이나
+        # 유행 상권 신규 점포 효과일 수 있어 검증 전까지 진단문에 내보내지 않는다. 기여값은 그대로 둔다.
+        presence = np.array([online_signal_is_presence(f, vals.at[i, f]) for i, f in enumerate(drv)])
+        hold = presence & (phi[:, on] > 0)
+        idx = np.flatnonzero(m)
+        long.loc[idx[hold], "display"] = False
+        long.loc[idx[hold], "display_note"] = "언급이 많은 쪽에서 위험이 높게 나온 경우 — 이름 오탐(#28)·유행 상권 효과 검토 전까지 표시 보류"
+        train_detect.log(f"온라인 요인 표시 보류: {int(hold.sum()):,}점포 (위험을 올리고 주된 근거가 언급 있음/많음)")
     long = add_peer_percentiles(long)
     long["rank_in_store"] = long.groupby(["store_id", "origin"])["contribution"].rank(ascending=False, method="first").astype(int)
     long["explanation"] = long.apply(explanation, axis=1)
