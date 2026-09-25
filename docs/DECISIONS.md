@@ -411,3 +411,22 @@ row 부재 패턴 실측. 상세 수치는 `outputs/master/qa_report.md` "업종
 - 매출건수 합계는 매출금액과 Spearman 0.894로 중복이 커 추가하지 않았다.
 - 개업·폐업률은 원천 정의(건수 / 분기 말 전체 점포 수 × 100)로 합계 재계산한다. 원천 `폐업_률`도 100% 초과가
   있으므로(806행, 최대 500) 자르지 않는다.
+
+## 2026-09-25 — W2 경쟁지표 개발과 모델링 병렬 진행
+근거: PR #31(W2-0 master_base) 리뷰 후속 논의. 위 2026-09-23 W2-0 결정들은 그대로 유효하다.
+
+- **경쟁지표 6종은 별도 모듈·별도 PR로 개발한다.** master_base(PR #31)에는 넣지 않는다.
+  - 인허가 기반 feature로 설계한다. origin_end 시점에 이용 가능한 인허가 정보만 사용한다(시간 누수 방지 규칙 동일).
+  - Base 결합 전 검증을 거친다: `(store_id, origin)` m:1 결합, 행수·label·event 비율 불변, temporal leakage 0.
+  - 구체 지표 정의는 해당 PR에서 확정하고 이 문서에 기록한다.
+- **W2-2 baseline은 현재 master_base의 predictor 19개로 먼저 진행한다.** 경쟁지표 완성을 기다리지 않는다.
+  - 경쟁지표 추가 효과는 baseline과 **동일한 split·평가 조건**에서 비교한다(incremental 평가).
+- **W2-2에서 정할 것**
+  - predictor registry: 모델 입력은 `master_schema.COLUMN_ROLES`의 role == predictor 컬럼을 기준으로 관리한다.
+  - 상권 feature ablation: 상권 단위·업종 단위 feature 포함/제외 비교 (`gu`, 공시지가, 업종 품질 메타 ablation 메모는
+    `docs/MASTER_SPEC.md` 참조).
+  - 2023Q4 이후 민감도 분석: 상권 polygon 스냅샷(2023-10-23) 이후 origin(backcast flag False)만으로 평가한다
+    (2026-09-23 polygon backcast 결정의 후속).
+  - 범주형 처리 기준: `biz_type`, `gu`, `trdar_change_index` 등 범주형 predictor의 인코딩 방식.
+- **온라인 존재감은 Base에서 제외한다.** Enriched에서 별도로 검증한 뒤 `(store_id, origin)` 단위로 결합한다
+  (2026-09-13 온라인 변수 사용 범위, 2026-09-23 W2-0 결정 유지).
