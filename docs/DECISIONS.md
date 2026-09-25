@@ -479,3 +479,35 @@ row 부재 패턴 실측. 상세 수치는 `outputs/master/qa_report.md` "업종
   결측 점포의 폐업률(6~9%)이 관측 점포(11~13%)보다 낮아 결측이 생존 신호가 될 수 있다. 관측된 글만 센
   하한값(`lower_bound`)으로 바꾸면 AUC가 0.0015 낮다 — 이 결측 경로의 기여 상한으로 보고 한계로 기록한다.
 - 등급(enriched): mid 0.1493 / high 0.2142 → low 78.1%(lift 0.82) · mid 14.7%(1.45) · high 7.2%(2.06).
+
+## 2026-09-25 — W2-3 Stage 2 진단: 요인 매핑·기여 계산·peer 비교·A/P/N (초안, 팀 확인 대상)
+근거: `src/models/diagnose.py`, 합성 데이터 검증. 실행 `python -m src.models.diagnose --online ... --primary enriched`.
+
+- **기여 계산 = 요인 단위 정확 Shapley (interventional, 학습 구간 배경 표본 16개).** 요인(feature 묶음) 수가
+  10개 이하라 2^F 조합을 전부 계산한다. 확률 척도이며 Σ기여 + base = 예측 확률이 정확히 성립한다.
+  SHAP 라이브러리(TreeExplainer)는 HistGradientBoosting 범주형 분기를 해석하지 못해 쓰지 않는다
+  (shap 0.51 실측: 기여 합 오차 최대 7.8 log-odds). 기여는 예측 분해이지 인과효과가 아니다.
+- **진단 모형 = 해당 origin의 rolling 학습 규칙(t−5 이하)으로 학습한 모형**이라 risk_scores 예측과 같다.
+  학습 구간에 값이 없는 요인(현재 공시지가)은 진단에서 빠진다.
+- **요인 매핑 (ANALYSIS_PLAN §2 4개 유형)**
+
+| 요인 | 유형 | A/P/N | feature |
+|---|---|---|---|
+| 업력 | 사업체 구조 | external | age_months |
+| 업종·점포 규모 | 사업체 구조 | external | biz_type, area, has_coord |
+| 자치구 | 입지·수요 | external | gu |
+| 상권 유동·배후 인구 | 입지·수요 | external | trdar_flow_pop, trdar_resident_pop, trdar_worker_pop, trdar_facility_cnt |
+| 상권 변화·영업 지속 | 입지·수요 | external | trdar_change_index, trdar_oper_months_avg, trdar_close_months_avg |
+| 온라인 언급(블로그) | 입지·수요 | owner | online_blog_* 6개 |
+| 동종 업종 경쟁·개폐업 | 경쟁 | external | trdar_biz_store_cnt/franchise_cnt/open_rate/close_rate_observed |
+| 동종 업종 매출 수준 | 경쟁 | external | trdar_biz_sales_amt/sales_per_store_observed |
+| 임대료 수준(공시지가) | 비용 | policy | land_price (현재 학습 불가로 기여 0) |
+
+  모든 predictor는 정확히 한 요인에 속해야 하며, 새 predictor(경쟁지표 등)가 추가되면 매핑하지 않으면 실행이 멈춘다.
+- **peer 비교 = 같은 origin·업종·자치구·업력대(1년 미만/1~3/3~5/5~10/10년 이상) 안에서 요인 기여의 백분위.**
+  표본 30개 미만이면 자치구 → 업력대 순으로 조건을 푼다. "유사 상권" 대신 자치구를 쓰는 이유는 상권 유형
+  (`trdar_type`)이 polygon membership 계열이라 predictor·비교 기준에서 제외했기 때문이다(2026-09-23).
+- **진단문**: "○○이 예측 위험도를 약 N%p 높이는 쪽으로 기여했습니다. 같은 업종·자치구·업력대 점포 중 상위 M%"
+  형식. "때문에", "원인", "고치면" 같은 인과 표현은 쓰지 않는다(테스트로 확인).
+- **팀 확인 필요**: (1) 온라인 언급을 입지·수요에 둘지 별도 유형으로 둘지 (2) 현재 owner 요인은 온라인 언급뿐이고
+  policy 요인(공시지가)은 기여가 0이라, W2-7 정책 매칭이 연결할 요인이 사실상 온라인 하나다.
