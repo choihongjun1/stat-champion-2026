@@ -188,3 +188,9 @@ LABELS_BASE_PATH = LABELS_OUTPUT_DIR / "labels_base.parquet"
 MATURITY_TAIL_FIGURE_PATH = FIGURES_OUTPUT_DIR / "closure_maturity_tail.png"
 KM_GWANGJIN_FIGURE_PATH = FIGURES_OUTPUT_DIR / "km_gwangjin.png"
 LABEL_SPEC_PATH = REPO_ROOT / "docs" / "LABEL_SPEC.md"
+
+# W2-0 master dataset 산출물 경로.
+MASTER_OUTPUT_DIR = REPO_ROOT / "outputs" / "master"
+MASTER_BASE_PATH = MASTER_OUTPUT_DIR / "master_base.parquet"
+MASTER_QA_REPORT_PATH = MASTER_OUTPUT_DIR / "qa_report.md"
+MASTER_SPEC_PATH = REPO_ROOT / "docs" / "MASTER_SPEC.md"

@@ -34,6 +34,7 @@ from src.data.config import RAW_DIR
 
 LANDPRICE_DIR = RAW_DIR / "공시지가"
 YEARS = (2024, 2025, 2026)
+LANDPRICE_FILE = "공시지가_{year}년.csv"  # 연도별 raw 파일명 (source_snapshot으로도 쓴다)
 
 # available_at(결정·공시일)의 원 출처. 서울시 「연도별 개별공시지가 결정·공시」 보도자료.
 # 2024년분은 서울시 원 페이지에 직접 접근되지 않아 국회도서관 지방의정포털(CLIK)에
@@ -78,7 +79,7 @@ def load_landprice_year(year: int) -> tuple[pd.DataFrame, dict]:
 
     반환 테이블의 pnu는 19자리 검증·중복 처리 완료 상태 (조인 안전).
     """
-    path = LANDPRICE_DIR / f"공시지가_{year}년.csv"
+    path = LANDPRICE_DIR / LANDPRICE_FILE.format(year=year)
     df = pd.read_csv(path, dtype=str, encoding="cp949",
                      usecols=["토지코드", "공시지가(원/㎡)", "기준년도", "기준년월"])
     qa: dict = {"year": year, "rows": len(df)}

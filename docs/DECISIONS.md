@@ -358,3 +358,75 @@ rebase될 때 이 결정을 참조하는 문구를 함께 추가한다 (M5 SMD �
 
 불변식: `trdar_quarter_used < origin`, `trdar_available_at`이 존재하면 `trdar_available_at <= origin_end`.
 provenance 컬럼은 predictor로 쓰지 않는다.
+
+## 2026-09-23 — W2-0 master_base 구성 결정
+근거: W2-0 계획 검토(labels_base·spatial_joined·ER 산출물 실측). 구현은 `src/data/master.py`,
+컬럼 역할의 단일 출처는 `src/data/master_schema.py: COLUMN_ROLES`.
+
+- **(I-2) ER 결과는 predictor가 아니라 provenance/metadata 전용이다.** `er_matched`(원 `matched`),
+  `er_ambiguous`, `match_tier`, `match_confidence`, `crowded_pnu`, `sj_entity_id`, `unmatched_reason`.
+  - 근거: ER은 소진공 7개 스냅샷(2024-12~2026-06) union으로 계산된다. 모든 Base origin
+    (2021Q1~2025Q2)에서 origin 이후 정보다. 실측 event_12m 비율 — 2021Q1 매칭 1.2% vs 미매칭 21.9%,
+    2025Q2 9.9% vs 15.6%. 점포의 생존이 매칭 여부를 만든 결과이므로 predictor로 쓰면 누수다.
+  - 2026-09-13 "master dataset 모집단"의 "매칭 여부와 match confidence를 별도 feature/metadata
+    컬럼으로 기록"은 **metadata로 기록**한다는 뜻으로 확정한다. 매칭 실패 점포를 삭제하지 않는 원칙은 그대로다.
+  - `W1_FREEZE.md` §8 predictor 금지 목록에 ER 컬럼을 추가했다.
+- **(I-3) 공시지가는 strict as-of로 붙인다.** 행마다 `available_at(y) <= origin_end`인 최대 연도 y의
+  `land_price_{y}_valid` 하나만 `land_price`로 쓴다. 소급(backcast)·carry-forward는 하지 않는다.
+  - 결과: origin 2024Q2~2025Q1 → 2024년, 2025Q2 → 2025년, **2021Q1~2024Q1(13개 origin, 381,406행,
+    72.2%)은 구조적 NA**로 둔다. 2026년 값은 어느 Base origin에서도 쓸 수 없다(0원 이슈 영향 없음).
+  - 구조적 결측이 origin 시기와 겹친다는 점(temporal validation 분포 차이)은 모델 단계에서
+    포함/제외 비교로 다룬다.
+- **(I-1) 업종 단위 상권 feature(점포·추정매출)는 보류한다.** 원천 키가
+  `(분기, 상권, 서비스_업종)`이라 biz_type ↔ 서비스업종 매핑이 필요하며, 매핑 확정 후 별도 커밋으로 추가한다.
+  W2-0 Base는 상권 단위 계열(길단위인구·상권변화지표·상주·직장·집객)만 T-1로 붙인다.
+- 온라인 존재감은 master_base에 넣지 않는다. Enriched는 `(store_id, origin)` 유일 테이블을 m:1로
+  LEFT JOIN하는 인터페이스(`master.attach_enriched_table`)로 확장한다.
+
+## 2026-09-23 — W2-0 I-1 최종: 업종 단위 상권 feature 매핑·집계 규칙
+근거: 업종 코드 체계 실측(인허가 업태 47종 / 상권분석 서비스업종 100종 / 소진공 cat3 247종 — 공통 코드 없음)과
+row 부재 패턴 실측. 상세 수치는 `outputs/master/qa_report.md` "업종 단위 상권 feature" 절. 구현은
+`src/data/trdar_features.py: BIZ_CODE_MAP / aggregate_biz`, `master.attach_trdar_biz_features`.
+위 "W2-0 master_base 구성 결정"의 (I-1) 보류를 이 항목으로 대체한다.
+
+- **매핑 key는 `biz_type`(인허가 종류)이다.** `업태구분명`·`위생업태명`·소진공 cat3는 origin 시점 값임을
+  검증할 수 없으므로 predictor 결합 key로 쓰지 않는다.
+  - 일반음식점 = CS100001·002·003·004·007·008·009 / 휴게음식점 = CS100005·006·010 / 미용업 = CS200028·029·030
+  - CS100006(패스트푸드점)·CS100010(커피-음료)은 휴게음식점에만 둔다. **중복 배정하지 않는다.**
+  - 휴게음식점 편의점 1,158개 점포 등에 예외를 두지 않는다. broad biz_type 매핑의 한계로 문서화한다.
+- **점포 원천: observed partial.** row가 있는 mapped code만 합한다. 점포 원천에서 mapped code의 row 부재는
+  시계열 전이, 명시적 0 row, 매출 원천과의 교차검증 및 연도별 패턴상 점포 0을 의미하는 것으로 해석할 강한 실증
+  근거가 있다. 다만 원천 공식 명세로 확인된 규칙은 아니므로 raw row를 임의 생성하거나 0으로 imputation하지 않고
+  observed-row 집계와 coverage metadata(`trdar_biz_store_n_codes_observed/_expected/_code_coverage/_is_partial`)를
+  유지한다. (분석적 해석 = structural zero 근거 있음 / 물리적 처리 = missing row를 0 row로 만들지 않음)
+  - 실측(서울 전체): 점포>0 이후 사라진 전이 2,041건 중 2,026건이 명시적 0 row를 거쳤다(예외 15건).
+    점포 row가 없는데 매출 row가 있는 셀 0건. 3구 상권 한정으로는 예외 0건.
+- **매출 원천: observed partial + 점포 기준 coverage.** 매출 row 부재는 0이 아니다 — 매출 0원 row가 원천에 없고,
+  점포 1~2개 코드는 매출 row가 100% 없다(소수 점포 매출 비공개/억제로 판단). 매출 합계는 항상 "매출이 공개된
+  mapped code의 합계"(biz_type 전체의 하한/부분관측치)이며, `trdar_biz_sales_store_coverage`
+  (매출 row가 있는 코드의 점포 수 / mapped code 전체 점포 수, 같은 T-1 점포 원천, 분모 0이면 NA)로 대표성을 남긴다.
+- **strict / coverage threshold로 행을 지우거나 NA 처리하지 않는다.** coverage는 provenance/quality 정보로 보존한다.
+- **점포당 매출** `trdar_biz_sales_per_store_observed`: 분자·분모 모두 매출 row가 있는 mapped code 집합.
+  분모 0 또는 code set 불일치면 NA (inf·0 대체 금지).
+- 매출건수 합계는 매출금액과 Spearman 0.894로 중복이 커 추가하지 않았다.
+- 개업·폐업률은 원천 정의(건수 / 분기 말 전체 점포 수 × 100)로 합계 재계산한다. 원천 `폐업_률`도 100% 초과가
+  있으므로(806행, 최대 500) 자르지 않는다.
+
+## 2026-09-25 — W2 경쟁지표 개발과 모델링 병렬 진행
+근거: PR #31(W2-0 master_base) 리뷰 후속 논의. 위 2026-09-23 W2-0 결정들은 그대로 유효하다.
+
+- **경쟁지표 6종은 별도 모듈·별도 PR로 개발한다.** master_base(PR #31)에는 넣지 않는다.
+  - 인허가 기반 feature로 설계한다. origin_end 시점에 이용 가능한 인허가 정보만 사용한다(시간 누수 방지 규칙 동일).
+  - Base 결합 전 검증을 거친다: `(store_id, origin)` m:1 결합, 행수·label·event 비율 불변, temporal leakage 0.
+  - 구체 지표 정의는 해당 PR에서 확정하고 이 문서에 기록한다.
+- **W2-2 baseline은 현재 master_base의 predictor 19개로 먼저 진행한다.** 경쟁지표 완성을 기다리지 않는다.
+  - 경쟁지표 추가 효과는 baseline과 **동일한 split·평가 조건**에서 비교한다(incremental 평가).
+- **W2-2에서 정할 것**
+  - predictor registry: 모델 입력은 `master_schema.COLUMN_ROLES`의 role == predictor 컬럼을 기준으로 관리한다.
+  - 상권 feature ablation: 상권 단위·업종 단위 feature 포함/제외 비교 (`gu`, 공시지가, 업종 품질 메타 ablation 메모는
+    `docs/MASTER_SPEC.md` 참조).
+  - 2023Q4 이후 민감도 분석: 상권 polygon 스냅샷(2023-10-23) 이후 origin(backcast flag False)만으로 평가한다
+    (2026-09-23 polygon backcast 결정의 후속).
+  - 범주형 처리 기준: `biz_type`, `gu`, `trdar_change_index` 등 범주형 predictor의 인코딩 방식.
+- **온라인 존재감은 Base에서 제외한다.** Enriched에서 별도로 검증한 뒤 `(store_id, origin)` 단위로 결합한다
+  (2026-09-13 온라인 변수 사용 범위, 2026-09-23 W2-0 결정 유지).
