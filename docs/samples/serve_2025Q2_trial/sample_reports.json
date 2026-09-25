@@ -7,9 +7,10 @@
       "biz_type": "휴게음식점",
       "gu": "마포구",
       "name": "(샘플) 휴게음식점 A",
-      "road_address": "서울특별시 마포구 샘플로 1",
-      "address": "서울특별시 마포구 샘플로 1",
-      "dong": null
+      "address_road": "서울특별시 마포구 샘플로 1",
+      "address_jibun": "서울특별시 마포구 샘플로 1",
+      "dong": null,
+      "license_date": "2022-01-01"
     },
     "risk": {
       "probability_12m": 0.6648,
@@ -195,9 +196,10 @@
       "biz_type": "일반음식점",
       "gu": "광진구",
       "name": "(샘플) 일반음식점 A",
-      "road_address": "서울특별시 광진구 샘플로 2",
-      "address": "서울특별시 광진구 샘플로 2",
-      "dong": null
+      "address_road": "서울특별시 광진구 샘플로 2",
+      "address_jibun": "서울특별시 광진구 샘플로 2",
+      "dong": null,
+      "license_date": "2024-01-01"
     },
     "risk": {
       "probability_12m": 0.6507,
@@ -382,9 +384,10 @@
       "biz_type": "일반음식점",
       "gu": "마포구",
       "name": "(샘플) 일반음식점 B",
-      "road_address": "서울특별시 마포구 샘플로 3",
-      "address": "서울특별시 마포구 샘플로 3",
-      "dong": null
+      "address_road": "서울특별시 마포구 샘플로 3",
+      "address_jibun": "서울특별시 마포구 샘플로 3",
+      "dong": null,
+      "license_date": "2023-01-01"
     },
     "risk": {
       "probability_12m": 0.4839,
@@ -570,9 +573,10 @@
       "biz_type": "휴게음식점",
       "gu": "광진구",
       "name": "(샘플) 휴게음식점 B",
-      "road_address": "서울특별시 광진구 샘플로 4",
-      "address": "서울특별시 광진구 샘플로 4",
-      "dong": null
+      "address_road": "서울특별시 광진구 샘플로 4",
+      "address_jibun": "서울특별시 광진구 샘플로 4",
+      "dong": null,
+      "license_date": "2024-01-01"
     },
     "risk": {
       "probability_12m": 0.4568,
@@ -758,9 +762,10 @@
       "biz_type": "일반음식점",
       "gu": "마포구",
       "name": "(샘플) 일반음식점 C",
-      "road_address": "서울특별시 마포구 샘플로 5",
-      "address": "서울특별시 마포구 샘플로 5",
-      "dong": null
+      "address_road": "서울특별시 마포구 샘플로 5",
+      "address_jibun": "서울특별시 마포구 샘플로 5",
+      "dong": null,
+      "license_date": "2023-01-01"
     },
     "risk": {
       "probability_12m": 0.4388,
@@ -945,9 +950,10 @@
       "biz_type": "일반음식점",
       "gu": "광진구",
       "name": "(샘플) 일반음식점 D",
-      "road_address": "서울특별시 광진구 샘플로 6",
-      "address": "서울특별시 광진구 샘플로 6",
-      "dong": null
+      "address_road": "서울특별시 광진구 샘플로 6",
+      "address_jibun": "서울특별시 광진구 샘플로 6",
+      "dong": null,
+      "license_date": "2025-01-01"
     },
     "risk": {
       "probability_12m": 0.2585,
@@ -1132,9 +1138,10 @@
       "biz_type": "일반음식점",
       "gu": "광진구",
       "name": "(샘플) 일반음식점 E",
-      "road_address": "서울특별시 광진구 샘플로 7",
-      "address": "서울특별시 광진구 샘플로 7",
-      "dong": null
+      "address_road": "서울특별시 광진구 샘플로 7",
+      "address_jibun": "서울특별시 광진구 샘플로 7",
+      "dong": null,
+      "license_date": "2022-01-01"
     },
     "risk": {
       "probability_12m": 0.2482,
@@ -1320,9 +1327,10 @@
       "biz_type": "일반음식점",
       "gu": "마포구",
       "name": "(샘플) 일반음식점 F",
-      "road_address": "서울특별시 마포구 샘플로 8",
-      "address": "서울특별시 마포구 샘플로 8",
-      "dong": null
+      "address_road": "서울특별시 마포구 샘플로 8",
+      "address_jibun": "서울특별시 마포구 샘플로 8",
+      "dong": null,
+      "license_date": "2024-01-01"
     },
     "risk": {
       "probability_12m": 0.2482,
@@ -1507,9 +1515,10 @@
       "biz_type": "미용업",
       "gu": "광진구",
       "name": "(샘플) 미용업 A",
-      "road_address": "서울특별시 광진구 샘플로 9",
-      "address": "서울특별시 광진구 샘플로 9",
-      "dong": null
+      "address_road": "서울특별시 광진구 샘플로 9",
+      "address_jibun": "서울특별시 광진구 샘플로 9",
+      "dong": null,
+      "license_date": "2025-01-01"
     },
     "risk": {
       "probability_12m": 0.2142,
@@ -1695,9 +1704,10 @@
       "biz_type": "휴게음식점",
       "gu": "마포구",
       "name": "(샘플) 휴게음식점 C",
-      "road_address": "서울특별시 마포구 샘플로 10",
-      "address": "서울특별시 마포구 샘플로 10",
-      "dong": null
+      "address_road": "서울특별시 마포구 샘플로 10",
+      "address_jibun": "서울특별시 마포구 샘플로 10",
+      "dong": null,
+      "license_date": "2023-01-01"
     },
     "risk": {
       "probability_12m": 0.1968,
@@ -1882,9 +1892,10 @@
       "biz_type": "일반음식점",
       "gu": "마포구",
       "name": "(샘플) 일반음식점 G",
-      "road_address": "서울특별시 마포구 샘플로 11",
-      "address": "서울특별시 마포구 샘플로 11",
-      "dong": null
+      "address_road": "서울특별시 마포구 샘플로 11",
+      "address_jibun": "서울특별시 마포구 샘플로 11",
+      "dong": null,
+      "license_date": "2019-01-01"
     },
     "risk": {
       "probability_12m": 0.1743,
@@ -2069,9 +2080,10 @@
       "biz_type": "일반음식점",
       "gu": "마포구",
       "name": "(샘플) 일반음식점 H",
-      "road_address": "서울특별시 마포구 샘플로 12",
-      "address": "서울특별시 마포구 샘플로 12",
-      "dong": null
+      "address_road": "서울특별시 마포구 샘플로 12",
+      "address_jibun": "서울특별시 마포구 샘플로 12",
+      "dong": null,
+      "license_date": "2016-01-01"
     },
     "risk": {
       "probability_12m": 0.1743,
@@ -2257,9 +2269,10 @@
       "biz_type": "일반음식점",
       "gu": "마포구",
       "name": "(샘플) 일반음식점 I",
-      "road_address": "서울특별시 마포구 샘플로 13",
-      "address": "서울특별시 마포구 샘플로 13",
-      "dong": null
+      "address_road": "서울특별시 마포구 샘플로 13",
+      "address_jibun": "서울특별시 마포구 샘플로 13",
+      "dong": null,
+      "license_date": "2017-01-01"
     },
     "risk": {
       "probability_12m": 0.1555,
@@ -2444,9 +2457,10 @@
       "biz_type": "미용업",
       "gu": "마포구",
       "name": "(샘플) 미용업 B",
-      "road_address": "서울특별시 마포구 샘플로 14",
-      "address": "서울특별시 마포구 샘플로 14",
-      "dong": null
+      "address_road": "서울특별시 마포구 샘플로 14",
+      "address_jibun": "서울특별시 마포구 샘플로 14",
+      "dong": null,
+      "license_date": "2024-01-01"
     },
     "risk": {
       "probability_12m": 0.15,
@@ -2632,9 +2646,10 @@
       "biz_type": "일반음식점",
       "gu": "마포구",
       "name": "(샘플) 일반음식점 J",
-      "road_address": "서울특별시 마포구 샘플로 15",
-      "address": "서울특별시 마포구 샘플로 15",
-      "dong": null
+      "address_road": "서울특별시 마포구 샘플로 15",
+      "address_jibun": "서울특별시 마포구 샘플로 15",
+      "dong": null,
+      "license_date": "2024-01-01"
     },
     "risk": {
       "probability_12m": 0.1495,
@@ -2818,9 +2833,10 @@
       "biz_type": "미용업",
       "gu": "마포구",
       "name": "(샘플) 미용업 C",
-      "road_address": "서울특별시 마포구 샘플로 16",
-      "address": "서울특별시 마포구 샘플로 16",
-      "dong": null
+      "address_road": "서울특별시 마포구 샘플로 16",
+      "address_jibun": "서울특별시 마포구 샘플로 16",
+      "dong": null,
+      "license_date": "2017-01-01"
     },
     "risk": {
       "probability_12m": 0.1414,
@@ -3004,9 +3020,10 @@
       "biz_type": "미용업",
       "gu": "광진구",
       "name": "(샘플) 미용업 D",
-      "road_address": "서울특별시 광진구 샘플로 17",
-      "address": "서울특별시 광진구 샘플로 17",
-      "dong": null
+      "address_road": "서울특별시 광진구 샘플로 17",
+      "address_jibun": "서울특별시 광진구 샘플로 17",
+      "dong": null,
+      "license_date": "2021-01-01"
     },
     "risk": {
       "probability_12m": 0.1254,
@@ -3190,9 +3207,10 @@
       "biz_type": "미용업",
       "gu": "광진구",
       "name": "(샘플) 미용업 E",
-      "road_address": "서울특별시 광진구 샘플로 18",
-      "address": "서울특별시 광진구 샘플로 18",
-      "dong": null
+      "address_road": "서울특별시 광진구 샘플로 18",
+      "address_jibun": "서울특별시 광진구 샘플로 18",
+      "dong": null,
+      "license_date": "2023-01-01"
     },
     "risk": {
       "probability_12m": 0.1007,
@@ -3377,9 +3395,10 @@
       "biz_type": "미용업",
       "gu": "광진구",
       "name": "(샘플) 미용업 F",
-      "road_address": "서울특별시 광진구 샘플로 19",
-      "address": "서울특별시 광진구 샘플로 19",
-      "dong": null
+      "address_road": "서울특별시 광진구 샘플로 19",
+      "address_jibun": "서울특별시 광진구 샘플로 19",
+      "dong": null,
+      "license_date": "2019-01-01"
     },
     "risk": {
       "probability_12m": 0.0975,
@@ -3564,9 +3583,10 @@
       "biz_type": "미용업",
       "gu": "마포구",
       "name": "(샘플) 미용업 G",
-      "road_address": "서울특별시 마포구 샘플로 20",
-      "address": "서울특별시 마포구 샘플로 20",
-      "dong": null
+      "address_road": "서울특별시 마포구 샘플로 20",
+      "address_jibun": "서울특별시 마포구 샘플로 20",
+      "dong": null,
+      "license_date": "2023-01-01"
     },
     "risk": {
       "probability_12m": 0.0852,
@@ -3750,9 +3770,10 @@
       "biz_type": "미용업",
       "gu": "영등포구",
       "name": "(샘플) 미용업 H",
-      "road_address": "서울특별시 영등포구 샘플로 21",
-      "address": "서울특별시 영등포구 샘플로 21",
-      "dong": null
+      "address_road": "서울특별시 영등포구 샘플로 21",
+      "address_jibun": "서울특별시 영등포구 샘플로 21",
+      "dong": null,
+      "license_date": "2022-01-01"
     },
     "risk": {
       "probability_12m": 0.0852,
@@ -3938,9 +3959,10 @@
       "biz_type": "미용업",
       "gu": "영등포구",
       "name": "(샘플) 미용업 I",
-      "road_address": "서울특별시 영등포구 샘플로 22",
-      "address": "서울특별시 영등포구 샘플로 22",
-      "dong": null
+      "address_road": "서울특별시 영등포구 샘플로 22",
+      "address_jibun": "서울특별시 영등포구 샘플로 22",
+      "dong": null,
+      "license_date": "2019-01-01"
     },
     "risk": {
       "probability_12m": 0.0615,
@@ -4125,9 +4147,10 @@
       "biz_type": "미용업",
       "gu": "마포구",
       "name": "(샘플) 미용업 J",
-      "road_address": "서울특별시 마포구 샘플로 23",
-      "address": "서울특별시 마포구 샘플로 23",
-      "dong": null
+      "address_road": "서울특별시 마포구 샘플로 23",
+      "address_jibun": "서울특별시 마포구 샘플로 23",
+      "dong": null,
+      "license_date": "2018-01-01"
     },
     "risk": {
       "probability_12m": 0.0526,

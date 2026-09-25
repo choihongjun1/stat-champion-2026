@@ -122,15 +122,15 @@ def test_store_block_gets_name_and_address_from_licenses(detect_run, tmp_path):
     known, unknown = ids[:-3], ids[-3:]
     lic = pd.DataFrame({"store_id": known, "name_raw": [f"가게{i}" for i in range(len(known))],
                         "road_addr_raw": "서울특별시 마포구 월드컵로 1", "addr_raw": "서울특별시 마포구 망원동 1",
-                        "dong": "망원동"})
+                        "dong": "망원동", "license_date": pd.Timestamp("2019-04-11")})
     lp = tmp_path / "licenses.parquet"
     lic.to_parquet(lp, index=False)
     out = tmp_path / "out"
     _serve(detect_run, out, licenses_path=lp)
     recs = {r["store_id"]: r for r in map(json.loads, (out / "reports.jsonl").read_text(encoding="utf-8").splitlines())}
     s = recs[known[0]]["store"]
-    assert s == {"biz_type": s["biz_type"], "gu": s["gu"], "name": "가게0", "road_address": "서울특별시 마포구 월드컵로 1",
-                 "address": "서울특별시 마포구 망원동 1", "dong": "망원동"}
+    assert s == {"biz_type": s["biz_type"], "gu": s["gu"], "name": "가게0", "address_road": "서울특별시 마포구 월드컵로 1",
+                 "address_jibun": "서울특별시 마포구 망원동 1", "dong": "망원동", "license_date": "2019-04-11"}
     for sid in unknown:
         assert {k: recs[sid]["store"][k] for k in serve.STORE_META_COLS} == dict.fromkeys(serve.STORE_META_COLS)
     meta = json.loads((out / "serve_meta.json").read_text(encoding="utf-8"))

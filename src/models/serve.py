@@ -17,7 +17,7 @@
 - `--online` / `--online-score`: 온라인 Enriched 테이블 (enriched일 때). 예측용은
   `python -m src.data.online_features --panel <score parquet> --out <online_score parquet>`로 만든다.
 - `--licenses`: 인허가 표준화 테이블 (기본 `outputs/standardized/licenses_3gu.parquet`, 없으면 건너뜀).
-  store_id로 1:1 조인해 reports.jsonl의 store 블록에 사업장명·주소를 붙인다 (모형 입력에는 쓰지 않는다).
+  store_id로 1:1 조인해 reports.jsonl의 store 블록에 사업장명·주소·인허가일을 붙인다 (모형 입력에는 쓰지 않는다).
 
 출력 (`outputs/serve/<origin>_<feature set>/`)
 - `risk_scores.parquet`, `diagnosis.parquet`, `diagnosis_by_category.parquet`
@@ -46,19 +46,30 @@ SCHEMA_VERSION = "0.1"
 DISCLAIMER = "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다."
 INTERVAL_NOTE = "학습 데이터가 달랐다면 예측이 얼마나 흔들렸을지의 범위이며, 폐업 확률 자체의 범위가 아닙니다."
 DEFAULT_LICENSES = config.REPO_ROOT / "outputs" / "standardized" / "licenses_3gu.parquet"
-# store 블록 필드 ← 인허가 표준화 컬럼 (사업장명·주소는 원문 그대로)
-STORE_META_COLS = {"name": "name_raw", "road_address": "road_addr_raw", "address": "addr_raw", "dong": "dong"}
+# store 블록 필드 ← 인허가 표준화 컬럼 (사업장명·주소는 원문 그대로). 필드명은 W2-6 화면 더미에 맞춘다 (PR #37).
+STORE_META_COLS = {"name": "name_raw", "address_road": "road_addr_raw", "address_jibun": "addr_raw", "dong": "dong",
+                   "license_date": "license_date"}
+
+
+def _meta_value(v):
+    if v is None or pd.isna(v):
+        return None
+    if isinstance(v, pd.Timestamp):
+        return v.strftime("%Y-%m-%d")
+    return str(v)
 
 
 def store_meta(store_ids, licenses_path: Path) -> dict[str, dict]:
-    """store_id → {name, road_address, address, dong}. 인허가 테이블과 1:1 조인, 없는 점포는 값 None."""
+    """store_id → {name, address_road, address_jibun, dong, license_date("YYYY-MM-DD")}.
+
+    인허가 테이블과 1:1 조인, 없는 점포는 값 None.
+    """
     lic = pd.read_parquet(licenses_path, columns=["store_id", *STORE_META_COLS.values()])
     dup = lic["store_id"].duplicated()
     if dup.any():
         raise ValueError(f"인허가 테이블 store_id 중복 {int(dup.sum())}건 — 1:1 조인 불가: {licenses_path}")
     sub = lic.set_index("store_id").reindex(list(store_ids))
-    return {sid: {k: (None if pd.isna(row[c]) else str(row[c])) for k, c in STORE_META_COLS.items()}
-            for sid, row in sub.iterrows()}
+    return {sid: {k: _meta_value(row[c]) for k, c in STORE_META_COLS.items()} for sid, row in sub.iterrows()}
 
 
 def load_score_panel(path: Path) -> pd.DataFrame:

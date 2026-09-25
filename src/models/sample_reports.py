@@ -147,18 +147,22 @@ def _letters(k: int) -> str:
 
 
 def mask_records(recs: list[dict]) -> list[dict]:
-    """공개 저장소용: 점포를 식별할 수 있는 값(store_id·상호·주소·동)을 가린 사본. 순서 = 입력 순서.
+    """공개 저장소용: 점포를 식별할 수 있는 값(store_id·상호·주소·동·인허가일)을 가린 사본. 순서 = 입력 순서.
 
-    store_id는 공개 인허가 데이터로 역추적되므로 함께 가린다. 자치구·업종은 두고, factors[].values의
-    면적·업력은 뭉갠다(`_coarsen_values`). 나머지 values(상권·온라인 수치)는 그대로 둔다.
+    store_id는 공개 인허가 데이터로 역추적되므로 함께 가린다. 자치구·업종은 두고, 인허가일은 연 단위("YYYY-01-01"),
+    factors[].values의 면적·업력은 뭉갠다(`_coarsen_values`). 나머지 values(상권·온라인 수치)는 그대로 둔다.
     """
     out, per_biz = [], {}
     for n, r in enumerate(recs, start=1):
         s = dict(r["store"])
+        for legacy in ("road_address", "address"):  # 필드명 변경 전 서빙 출력이 섞여도 원래 주소가 남지 않게
+            s.pop(legacy, None)
         k = per_biz.get(s["biz_type"], 0)
         per_biz[s["biz_type"]] = k + 1
         addr = f"서울특별시 {s['gu']} 샘플로 {n}"
-        s.update(name=f"(샘플) {s['biz_type']} {_letters(k)}", road_address=addr, address=addr, dong=None)
+        lic = s.get("license_date")
+        s.update(name=f"(샘플) {s['biz_type']} {_letters(k)}", address_road=addr, address_jibun=addr, dong=None,
+                 license_date=f"{str(lic)[:4]}-01-01" if lic else None)
         factors = [{**f, "values": _coarsen_values(f.get("values") or {})} for f in r["factors"]]
         out.append({**r, "store_id": f"SAMPLE-{n:03d}", "store": s, "factors": factors})
     return out
@@ -187,7 +191,7 @@ def _is_under_docs(path: Path) -> bool:
         return False
 
 
-MASK_NOTE = ("- **가게 이름·주소·store_id는 가린 값이고, 면적(10㎡)·업력(연 단위)은 뭉갠 값입니다 (공개 저장소).** 실명판은 팀 드라이브에만 있습니다"
+MASK_NOTE = ("- **가게 이름·주소·store_id는 가린 값이고, 면적(10㎡)·업력·인허가일(연 단위)은 뭉갠 값입니다 (공개 저장소).** 실명판은 팀 드라이브에만 있습니다"
              " (`--mask` 없이 `outputs/` 아래로 추출).\n")
 
 README = """# W2-6 화면 개발용 샘플 결과
@@ -211,7 +215,8 @@ README = """# W2-6 화면 개발용 샘플 결과
   "store_id": "...",
   "as_of": "YYYY-MM-DD",            // 기준 시점 (분기 말일)
   "store": {{"biz_type": "...", "gu": "...",
-            "name": "...", "road_address": "...", "address": "...", "dong": "..."}},
+            "name": "...", "address_road": "...", "address_jibun": "...", "dong": "...",
+            "license_date": "YYYY-MM-DD"}},
   "risk": {{ ... }},
   "factors": [ ... ],               // 기여도 큰 순서 (위험을 올리는 요인 먼저)
   "unavailable_categories": ["비용"],
@@ -224,10 +229,12 @@ README = """# W2-6 화면 개발용 샘플 결과
 |---|---|---|
 | `biz_type`, `gu` | 업종(인허가 종류), 자치구 | 점포 헤더 |
 | `name` | 사업장명 (인허가 원문) | 점포 헤더 제목. 검색 결과 목록 |
-| `road_address`, `address` | 도로명 주소, 지번 주소 (인허가 원문) | 도로명 우선, 없으면 지번 |
+| `address_road`, `address_jibun` | 도로명 주소, 지번 주소 (인허가 원문) | 도로명 우선, 없으면 지번 |
 | `dong` | 행정동 | 보조 표시 |
+| `license_date` | 인허가일 ("YYYY-MM-DD") | "개업 N년차" 등 보조 표시 |
 
-`name`·주소 필드는 서빙을 `--licenses`로 돌렸을 때만 있다. 인허가 데이터에 없는 점포는 값이 null.
+`name`·주소·인허가일은 서빙을 `--licenses`로 돌렸을 때만 있다. 인허가 데이터에 없는 점포는 값이 null.
+필드명은 화면 더미(`docs/samples/w2-6_dummy/`, PR #37)와 같다. 공개용(`--mask`) 샘플의 인허가일은 연 단위("YYYY-01-01").
 
 ## risk 블록
 | 필드 | 뜻 | 화면 처리 |

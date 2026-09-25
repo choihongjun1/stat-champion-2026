@@ -124,14 +124,17 @@ def test_licenses_attach_name_and_keep_existing(tmp_path):
         for r in recs:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
     lic = pd.DataFrame({"store_id": [r["store_id"] for r in recs], "name_raw": [f"가게{i}" for i in range(12)],
-                        "road_addr_raw": "도로명", "addr_raw": "지번", "dong": "망원동"})
+                        "road_addr_raw": "도로명", "addr_raw": "지번", "dong": "망원동",
+                        "license_date": pd.Timestamp("2020-07-15")})
     lic.to_parquet(tmp_path / "lic.parquet", index=False)
     idx = sr.run(d, tmp_path / "out", licenses_path=tmp_path / "lic.parquet")
     by = dict(zip(idx["store_id"], idx["name"]))
     assert by["S0000"] == "서빙에서 붙인 이름"  # reports.jsonl에 이미 있으면 그대로
     assert all(v.startswith("가게") for k, v in by.items() if k != "S0000")
     out = [json.loads(l) for l in (tmp_path / "out" / "sample_reports.jsonl").read_text(encoding="utf-8").splitlines()]
-    assert all({"name", "road_address", "address", "dong"} <= set(r["store"]) for r in out if r["store_id"] != "S0000")
+    assert all({"name", "address_road", "address_jibun", "dong", "license_date"} <= set(r["store"])
+               for r in out if r["store_id"] != "S0000")
+    assert {r["store"]["license_date"] for r in out if r["store_id"] != "S0000"} == {"2020-07-15"}
     assert next(r for r in out if r["store_id"] == "S0000")["store"].get("dong") is None  # 기존 레코드는 손대지 않음
 
 
@@ -154,7 +157,7 @@ def test_mask_removes_every_identifier(tmp_path):
                         "name_raw": [f"실명가게{i:03d}" for i in range(len(recs))],
                         "road_addr_raw": [f"서울특별시 마포구 진짜도로 {i}길 7" for i in range(len(recs))],
                         "addr_raw": [f"서울특별시 마포구 진짜동 {i}-3" for i in range(len(recs))],
-                        "dong": "진짜동"})
+                        "dong": "진짜동", "license_date": pd.Timestamp("2017-08-23")})
     lic.to_parquet(tmp_path / "lic.parquet", index=False)
     out = tmp_path / "out"
     idx = sr.run(d, out, licenses_path=tmp_path / "lic.parquet", mask=True)
@@ -166,7 +169,9 @@ def test_mask_removes_every_identifier(tmp_path):
     assert idx["store_id"].tolist() == [f"SAMPLE-{k:03d}" for k in range(1, len(idx) + 1)]
     assert idx["name"].str.startswith("(샘플) 미용업 ").all()
     rec = json.loads((out / "sample_reports.jsonl").read_text(encoding="utf-8").splitlines()[0])
-    assert rec["store"]["dong"] is None and rec["store"]["road_address"] == "서울특별시 마포구 샘플로 1"
+    assert rec["store"]["dong"] is None and rec["store"]["address_road"] == "서울특별시 마포구 샘플로 1"
+    assert rec["store"]["address_jibun"] == "서울특별시 마포구 샘플로 1" and rec["store"]["license_date"] == "2017-01-01"
+    assert "2017-08-23" not in blob
     assert "가린 값" in (out / "README_W2-6.md").read_text(encoding="utf-8")
 
 
@@ -213,3 +218,11 @@ def test_mask_coarsens_area_and_age(tmp_path):
     sr.run(d, tmp_path / "named")
     raw = [json.loads(l) for l in (tmp_path / "named" / "sample_reports.jsonl").read_text(encoding="utf-8").splitlines()]
     assert any(f["values"].get("age_months", 0) % 12 for r in raw for f in r["factors"])
+
+
+def test_mask_drops_legacy_address_fields():
+    r = _rec(1, 0.1, "low", "plain")
+    r["store"].update(name="실명", road_address="서울특별시 마포구 진짜로 1", address="서울특별시 마포구 진짜동 1")
+    m = sr.mask_records([r])[0]["store"]
+    assert "road_address" not in m and "address" not in m and "진짜" not in json.dumps(m, ensure_ascii=False)
+    assert m["license_date"] is None  # 인허가일이 없던 레코드
