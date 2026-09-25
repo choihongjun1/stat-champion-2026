@@ -114,3 +114,28 @@ def test_future_origin_excludes_unvalidated_land_price(detect_run, tmp_path):
     meta = json.loads((out / "serve_meta.json").read_text(encoding="utf-8"))
     assert "land_price" in meta["excluded_unvalidated"] and "land_price" not in meta["features_used"]
     assert meta["as_of"] == str(nxt.end_time.date())
+
+
+def test_store_block_gets_name_and_address_from_licenses(detect_run, tmp_path):
+    """--licenses: store_id로 1:1 조인해 store 블록에 이름·주소를 붙이고, 없는 점포는 None."""
+    ids = pd.read_parquet(detect_run["sp"], columns=["store_id"])["store_id"].tolist()
+    known, unknown = ids[:-3], ids[-3:]
+    lic = pd.DataFrame({"store_id": known, "name_raw": [f"가게{i}" for i in range(len(known))],
+                        "road_addr_raw": "서울특별시 마포구 월드컵로 1", "addr_raw": "서울특별시 마포구 망원동 1",
+                        "dong": "망원동"})
+    lp = tmp_path / "licenses.parquet"
+    lic.to_parquet(lp, index=False)
+    out = tmp_path / "out"
+    _serve(detect_run, out, licenses_path=lp)
+    recs = {r["store_id"]: r for r in map(json.loads, (out / "reports.jsonl").read_text(encoding="utf-8").splitlines())}
+    s = recs[known[0]]["store"]
+    assert s == {"biz_type": s["biz_type"], "gu": s["gu"], "name": "가게0", "road_address": "서울특별시 마포구 월드컵로 1",
+                 "address": "서울특별시 마포구 망원동 1", "dong": "망원동"}
+    for sid in unknown:
+        assert {k: recs[sid]["store"][k] for k in serve.STORE_META_COLS} == dict.fromkeys(serve.STORE_META_COLS)
+    meta = json.loads((out / "serve_meta.json").read_text(encoding="utf-8"))
+    assert meta["n_stores_without_name"] == 3 and meta["licenses_sha256"] == train_detect.sha256(lp)
+
+    pd.concat([lic, lic.head(1)]).to_parquet(tmp_path / "dup.parquet", index=False)
+    with pytest.raises(ValueError, match="중복"):
+        serve.store_meta(ids, tmp_path / "dup.parquet")

@@ -16,6 +16,8 @@
 - `--score` : 예측용 패널 (master_base와 같은 predictor, `event_12m` 없음, origin 하나)
 - `--online` / `--online-score`: 온라인 Enriched 테이블 (enriched일 때). 예측용은
   `python -m src.data.online_features --panel <score parquet> --out <online_score parquet>`로 만든다.
+- `--licenses`: 인허가 표준화 테이블 (기본 `outputs/standardized/licenses_3gu.parquet`, 없으면 건너뜀).
+  store_id로 1:1 조인해 reports.jsonl의 store 블록에 사업장명·주소를 붙인다 (모형 입력에는 쓰지 않는다).
 
 출력 (`outputs/serve/<origin>_<feature set>/`)
 - `risk_scores.parquet`, `diagnosis.parquet`, `diagnosis_by_category.parquet`
@@ -43,6 +45,20 @@ from src.models import bands, detect, diagnose, features, train_detect, uncertai
 SCHEMA_VERSION = "0.1"
 DISCLAIMER = "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다."
 INTERVAL_NOTE = "학습 데이터가 달랐다면 예측이 얼마나 흔들렸을지의 범위이며, 폐업 확률 자체의 범위가 아닙니다."
+DEFAULT_LICENSES = config.REPO_ROOT / "outputs" / "standardized" / "licenses_3gu.parquet"
+# store 블록 필드 ← 인허가 표준화 컬럼 (사업장명·주소는 원문 그대로)
+STORE_META_COLS = {"name": "name_raw", "road_address": "road_addr_raw", "address": "addr_raw", "dong": "dong"}
+
+
+def store_meta(store_ids, licenses_path: Path) -> dict[str, dict]:
+    """store_id → {name, road_address, address, dong}. 인허가 테이블과 1:1 조인, 없는 점포는 값 None."""
+    lic = pd.read_parquet(licenses_path, columns=["store_id", *STORE_META_COLS.values()])
+    dup = lic["store_id"].duplicated()
+    if dup.any():
+        raise ValueError(f"인허가 테이블 store_id 중복 {int(dup.sum())}건 — 1:1 조인 불가: {licenses_path}")
+    sub = lic.set_index("store_id").reindex(list(store_ids))
+    return {sid: {k: (None if pd.isna(row[c]) else str(row[c])) for k, c in STORE_META_COLS.items()}
+            for sid, row in sub.iterrows()}
 
 
 def load_score_panel(path: Path) -> pd.DataFrame:
@@ -91,9 +107,12 @@ def read_detect_run(detect_dir: Path) -> tuple[dict, dict, object | None]:
 
 def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *, primary: str,
         online_path: Path | None = None, online_score_path: Path | None = None,
+        licenses_path: Path | None = None,
         n_boot: int = 20, n_background: int = 16, seed: int = 20260925) -> pd.DataFrame:
     t0 = time.time()
     out_dir.mkdir(parents=True, exist_ok=True)
+    if licenses_path is not None and not Path(licenses_path).exists():
+        raise FileNotFoundError(f"인허가 테이블이 없다: {licenses_path}")
     run_meta, cut, iso = read_detect_run(detect_dir)
     if run_meta.get("primary_feature_set", "base") != primary:
         raise ValueError(f"탐지 실행의 feature set({run_meta.get('primary_feature_set')})과 서빙({primary})이 다르다")
@@ -164,11 +183,15 @@ def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *,
     unavailable = [c for c in diagnose.CATEGORIES if not any(f["category"] == c for f in res["active"])]
     as_of = str(pd.Period(s, freq="Q").end_time.date())
     by_store = dict(tuple(long.groupby("store_id", sort=False)))
+    names = store_meta(risk["store_id"], licenses_path) if licenses_path is not None else {}
+    n_no_name = sum(v["name"] is None for v in names.values()) if names else None
+    if names:
+        train_detect.log(f"가게 메타 결합: {len(names) - n_no_name:,} / {len(names):,}점포 (이름 없음 {n_no_name:,})")
     with open(out_dir / "reports.jsonl", "w", encoding="utf-8") as f:
         for r in risk.itertuples(index=False):
             rec = {
                 "_schema_version": SCHEMA_VERSION, "store_id": r.store_id, "as_of": as_of,
-                "store": {"biz_type": r.biz_type, "gu": r.gu},
+                "store": {"biz_type": r.biz_type, "gu": r.gu, **names.get(r.store_id, {})},
                 "risk": {"probability_12m": round(float(r.probability_12m), 4),
                          "ci_low": round(float(r.ci_low), 4), "ci_high": round(float(r.ci_high), 4),
                          "interval_note": INTERVAL_NOTE, "band": r.band,
@@ -190,6 +213,9 @@ def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *,
         "master": str(master_path), "master_sha256": train_detect.sha256(master_path),
         "score": str(score_path), "score_sha256": train_detect.sha256(score_path),
         "online_score": str(online_score_path) if online_score_path else None,
+        "licenses": str(licenses_path) if licenses_path is not None else None,
+        "licenses_sha256": train_detect.sha256(licenses_path) if licenses_path is not None else None,
+        "n_stores_without_name": n_no_name,
         "calibrated": iso is not None,
         "features_used": list(model.columns_), "excluded_unvalidated": excluded,
         "diagnosis_scale": "calibrated와 다름 (보정 전 확률)" if iso is not None else "risk 확률과 같음",
@@ -216,16 +242,24 @@ def main(argv=None) -> None:
                     help="train_detect 결과 폴더 (기본: outputs/models/detect_v0[_<primary>])")
     ap.add_argument("--online", type=Path, default=None)
     ap.add_argument("--online-score", type=Path, default=None)
+    ap.add_argument("--licenses", type=Path, default=None,
+                    help=f"인허가 표준화 테이블 (기본: {DEFAULT_LICENSES.relative_to(config.REPO_ROOT)}가 있으면 사용)")
     ap.add_argument("--n-boot", type=int, default=20)
     ap.add_argument("--n-background", type=int, default=16)
     ap.add_argument("--out", type=Path, default=None)
     a = ap.parse_args(argv)
+    licenses = a.licenses
+    if licenses is None:
+        if DEFAULT_LICENSES.exists():
+            licenses = DEFAULT_LICENSES
+        else:
+            train_detect.log(f"경고: {DEFAULT_LICENSES}가 없어 store 블록에 이름·주소를 붙이지 않는다")
     models = config.REPO_ROOT / "outputs" / "models"
     detect_dir = a.detect_dir or (models / (train_detect.MODEL_NAME + ("" if a.primary == "base" else f"_{a.primary}")))
     origin = str(pd.read_parquet(a.score, columns=["origin"])["origin"].iloc[0])
     out = a.out or (config.REPO_ROOT / "outputs" / "serve" / f"{origin}_{a.primary}")
     run(a.master, a.score, detect_dir, out, primary=a.primary, online_path=a.online,
-        online_score_path=a.online_score, n_boot=a.n_boot, n_background=a.n_background)
+        online_score_path=a.online_score, licenses_path=licenses, n_boot=a.n_boot, n_background=a.n_background)
 
 
 if __name__ == "__main__":
