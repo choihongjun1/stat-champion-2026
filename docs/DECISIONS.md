@@ -460,3 +460,23 @@ row 부재 패턴 실측. 상세 수치는 `outputs/master/qa_report.md` "업종
   2024Q2~2025Q2뿐이고, 검증 가능한 마지막 origin(2025Q2)의 학습 구간이 2024Q1까지이기 때문이다.
   검증되지 않은 feature를 서빙 모형에만 넣지 않도록, **서빙 모형은 검증과 같은 feature set으로 학습**하고
   land_price는 라벨이 쌓여 검증 가능해질 때까지 Base 서빙 입력에서 제외한다.
+
+## 2026-09-25 — 온라인 feature 사용 판정(#26)과 Enriched 탐지 모형 채택
+근거: `src/data/online_features.py`, `src/analysis/online_deletion_bias.py`,
+`python -m src.models.train_detect --online ... --primary enriched` 실데이터 결과.
+
+- **(#26) 18개 origin 모두 온라인 feature를 쓴다 (불통과 0건).** 오래된 origin(2021Q1~2022Q3)의
+  보유율 격차(비폐업 − 폐업)는 기준선(2022Q4~2025Q2 평균 0.0597)보다 오히려 작다(전 origin에서 95% 구간
+  상한 < 0). 최근 4개 origin만 기준선으로 둔 보조 판정과 업종별 판정도 불통과가 없다.
+  격차는 분기당 +0.49%p씩 커지지만, enriched의 성능 향상은 같은 기간 분기당 −0.0007 AUC로 오히려 줄었다
+  (2023년 +0.022 → 최근 +0.017). 수집 시점(2026-09) 비대칭이 성능을 부풀렸다면 반대 방향이어야 하므로
+  향상은 실제 신호로 본다.
+- **주 탐지 모형은 enriched(base 19개 + 온라인 6개)다.** rolling OOF 10개 origin 모두에서 base보다 높다
+  (평균 AUC 0.6029 → 0.6219, AP 0.1764 → 0.1872). 온라인 묶음의 permutation 기여(0.029)는 상권 묶음(0.0055)의
+  5배를 넘고, 대부분 `online_blog_months_since_last`에서 나온다. 보정은 적용하지 않는다(raw ECE 0.0111).
+- **절단 점포 결측은 `na`(미관측 구간 NA)를 유지한다.** `first_date_truncated`는 수집 시점의 누적 게시물 수로
+  정해지는 미래 정보이므로 **predictor로 쓰지 않고 결측 처리에만 쓴다** — 2026-09-24 항목(#25)의
+  "`first_date_truncated`는 feature로도 넘긴다"를 이 문장으로 대체한다.
+  결측 점포의 폐업률(6~9%)이 관측 점포(11~13%)보다 낮아 결측이 생존 신호가 될 수 있다. 관측된 글만 센
+  하한값(`lower_bound`)으로 바꾸면 AUC가 0.0015 낮다 — 이 결측 경로의 기여 상한으로 보고 한계로 기록한다.
+- 등급(enriched): mid 0.1493 / high 0.2142 → low 78.1%(lift 0.82) · mid 14.7%(1.45) · high 7.2%(2.06).
