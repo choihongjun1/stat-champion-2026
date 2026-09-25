@@ -69,6 +69,25 @@ def sha256(path: Path) -> str:
 # ---------------------------------------------------------------------------
 # 입력
 # ---------------------------------------------------------------------------
+def attach_online(df: pd.DataFrame, path: Path) -> pd.DataFrame:
+    """온라인 Enriched 테이블을 (store_id, origin) m:1로 붙인다. 행 수·순서 불변, 시점 위반 0건을 확인한다."""
+    on = pd.read_parquet(path)
+    cols = ["store_id", "origin"] + [c for c in features.ONLINE_PREDICTORS if c in on.columns]
+    if "online_available_at" in on.columns:
+        cols.append("online_available_at")
+    if on.duplicated(["store_id", "origin"]).any():
+        raise ValueError("온라인 테이블 (store_id, origin) 중복")
+    out = df.merge(on[cols], on=["store_id", "origin"], how="left", validate="1:1")
+    if len(out) != len(df):
+        raise ValueError("온라인 조인 후 행 수가 바뀌었다")
+    if "online_available_at" in out.columns:
+        late = (pd.to_datetime(out["online_available_at"]) > pd.to_datetime(out["origin_end"])).sum()
+        if late:
+            raise ValueError(f"online_available_at > origin_end {late}건 — 시점 누수")
+        out = out.drop(columns="online_available_at")
+    return out
+
+
 def load_master(path: Path) -> pd.DataFrame:
     df = pd.read_parquet(path)
     need = {"store_id", "origin", "event_12m"}
@@ -221,16 +240,25 @@ def permutation_importance(df, X, y, origins: list[str], *, n_sample: int = 3000
 
 # ---------------------------------------------------------------------------
 def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
-        with_split_comparison: bool) -> None:
+        with_split_comparison: bool, online_path: Path | None = None, primary: str = "base") -> None:
+    """primary: 보정·등급·부트스트랩·risk_scores를 만들 feature set (기본 base, 온라인 반영 시 enriched)."""
     t0 = time.time()
     out_dir.mkdir(parents=True, exist_ok=True)
     df = load_master(master_path)
+    if online_path is not None:
+        df = attach_online(df, online_path)
+        log(f"온라인 Enriched 테이블 결합: {online_path}")
+    elif "enriched" in feature_sets:
+        log("온라인 테이블이 없어 enriched feature set을 건너뛴다")
+        feature_sets = [f for f in feature_sets if f != "enriched"]
     y = df["event_12m"].to_numpy().astype(int)
     origins = splits.sorted_origins(df)
     test_origins = origins[-TEST_SIZE:]
     log(f"master {len(df):,}행 / 점포 {df['store_id'].nunique():,} / origin {origins[0]}~{origins[-1]}")
 
-    meta = {"master": str(master_path), "master_sha256": sha256(master_path), "embargo": EMBARGO,
+    meta = {"primary_feature_set": primary, "master": str(master_path), "master_sha256": sha256(master_path),
+            "online": str(online_path) if online_path else None,
+            "online_sha256": sha256(online_path) if online_path else None, "embargo": EMBARGO,
             "min_train_origins": MIN_TRAIN_ORIGINS, "eval_from": EVAL_FROM, "test_origins": test_origins,
             "n_boot": n_boot, "params": detect.DEFAULT_PARAMS, "feature_sets": {}}
 
@@ -246,7 +274,7 @@ def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
         summary.append({"feature_set": fs, "n_features": len(cols), **summarize(bo, oof)})
         log(f"[{fs}] AUC 평균 {bo['auc'].mean():.4f} / AP 평균 {bo['ap'].mean():.4f} "
             f"/ {EVAL_FROM}~ AUC {bo.loc[bo['origin'] >= EVAL_FROM, 'auc'].mean():.4f}")
-        if fs == "base":
+        if fs == primary:
             oof_base, X_base = oof, X
             features.missing_by_origin(df, cols).to_csv(out_dir / "missing_by_origin.csv")
 
@@ -259,7 +287,7 @@ def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
     summ.to_csv(out_dir / "sensitivity_summary.csv", index=False)
 
     if oof_base is None:
-        log("base feature set이 없어 보정·등급·risk_scores를 건너뛴다")
+        log(f"주 feature set({primary})이 없어 보정·등급·risk_scores를 건너뛴다")
         return
 
     if with_split_comparison:
@@ -318,7 +346,7 @@ def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
     rows["ci_high"] = np.fmax(ci_hi, p_te)
     rows["band"] = band_te
     rows = peer_stats(rows)
-    rows["model"] = MODEL_NAME
+    rows["model"] = MODEL_NAME if primary == "base" else f"{MODEL_NAME}_{primary}"
     rows["calibrated"] = apply
     rows["event_12m"] = te_oof["y"].to_numpy()  # 검증용. 화면 스키마에는 넣지 않는다
     rows.to_parquet(out_dir / "risk_scores.parquet", index=False)
@@ -338,14 +366,20 @@ def main(argv=None) -> None:
     ap.add_argument("--master", type=Path, default=config.MASTER_BASE_PATH)
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--tag", default="", help="출력 폴더 접미사 (예: t2)")
+    ap.add_argument("--online", type=Path, default=None,
+                    help="온라인 Enriched 테이블 (src.data.online_features 산출물). 주면 enriched feature set 평가")
     ap.add_argument("--feature-sets", default=",".join(features.FEATURE_SETS))
     ap.add_argument("--n-boot", type=int, default=20)
     ap.add_argument("--no-split-comparison", action="store_true")
+    ap.add_argument("--primary", default="base", help="risk_scores를 만들 feature set (예: enriched)")
     ap.add_argument("--quick", action="store_true", help="base만, 부트스트랩 5회, 분할 비교 생략")
     a = ap.parse_args(argv)
-    fsets = ["base"] if a.quick else [s.strip() for s in a.feature_sets.split(",") if s.strip()]
+    fsets = [a.primary] if a.quick else [s.strip() for s in a.feature_sets.split(",") if s.strip()]
+    if a.primary not in fsets:
+        fsets.append(a.primary)
     out = a.out or (config.REPO_ROOT / "outputs" / "models" / (MODEL_NAME + (f"_{a.tag}" if a.tag else "")))
-    run(a.master, out, fsets, 5 if a.quick else a.n_boot, not (a.quick or a.no_split_comparison))
+    run(a.master, out, fsets, 5 if a.quick else a.n_boot, not (a.quick or a.no_split_comparison), a.online,
+        a.primary)
 
 
 if __name__ == "__main__":
