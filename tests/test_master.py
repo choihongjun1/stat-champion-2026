@@ -256,3 +256,52 @@ def test_biz_integrity_detects_violations():
     bad = out.copy()
     bad["trdar_biz_store_is_partial"] = ~bad["trdar_biz_store_is_partial"]
     assert master.biz_integrity_counts(bad)["store is_partial != (observed < expected)"] > 0
+
+
+def test_md_handles_nullable_na_and_keeps_integers():
+    """tabulate 0.9.0은 pd.NA에서 크래시한다 (requirements 고정 버전). 정수가 float로 바뀌지도 않아야 한다."""
+    df = pd.DataFrame({
+        "year": pd.array([2024, None], dtype="Int64"),
+        "rate": pd.array([0.5, None], dtype="Float64"),
+        "flag": pd.array([True, None], dtype="boolean"),
+    })
+    text = master._md(df)
+    assert "2024" in text and "2024.0" not in text
+    assert "0.5000" in text and "True" in text
+    assert "<NA>" not in text
+    # 입력 DataFrame은 바꾸지 않는다
+    assert str(df["year"].dtype) == "Int64" and df["year"].isna().sum() == 1
+
+
+def test_write_qa_report_and_spec_with_na(tmp_path):
+    """NA가 섞인 합성 master로 QA 리포트·MASTER_SPEC 생성까지 끝까지 실행한다."""
+    from src.data import trdar_features as tf
+    out, log = _build(_labels())
+    nullable = [c for c in out.columns if pd.api.types.is_extension_array_dtype(out[c].dtype)]
+    assert nullable and out[nullable].isna().any().any()  # 실제로 NA가 있는 nullable 컬럼으로 검사
+
+    store = pd.DataFrame([("3110001", "2025Q1", "CS100001", 10, 1, 1, 1)],
+                         columns=["trdar_cd", "quarter", "code", "store_total", "store_franchise",
+                                  "store_open", "store_close"])
+    sales = pd.DataFrame([("3110001", "2025Q1", "CS100001", 100.0)],
+                         columns=["trdar_cd", "quarter", "code", "sales_amt"])
+    g = tf.code_level_grid(store, sales, {"3110001"}, {"2025Q1"})
+    biz_qa = {"files": [{"series": "점포", "file": "x.csv", "rows": 1, "sha16": "0" * 16,
+                         "sha16_matches_catalog": None}],
+              "evidence": tf.store_absence_evidence(g), "n_sales_code_without_store": 0}
+    trdar_qas = [{"series": "길단위인구", "file": "y.csv", "rows": 1, "sha16_matches_catalog": True}]
+
+    report = tmp_path / "qa_report.md"
+    master.write_qa_report(out, log, trdar_qas=trdar_qas, biz_qa=biz_qa, path=report)
+    assert report.exists()
+    text = report.read_text(encoding="utf-8")
+    for section in ["## 단계별 검증", "## Temporal leakage", "## Predictor 결측률 (origin별)",
+                    "## 공시지가 strict as-of", "## 상권 T-1 (origin별)", "## 업종 단위 상권 feature",
+                    "### 매핑표", "### WARNING", "### 불변식", "### row 부재 실증",
+                    "### sales_store_coverage 분포", "## ER 누수 경고 지표", "## 컬럼 역할"]:
+        assert section in text, section
+    assert "<NA>" not in text
+
+    spec = tmp_path / "MASTER_SPEC.md"
+    master.write_master_spec_md(out, path=spec)
+    assert spec.exists() and "## 변수" in spec.read_text(encoding="utf-8")

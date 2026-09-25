@@ -347,7 +347,12 @@ def missing_rate_tables(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def _md(df: pd.DataFrame, index: bool = True, floatfmt: str = ".4f") -> str:
-    return df.to_markdown(index=index, floatfmt=floatfmt)
+    """tabulate는 pd.NA를 처리하지 못한다 → nullable 컬럼의 NA를 None으로 바꿔 넘긴다."""
+    out = df.copy()
+    for c in out.columns:
+        if pd.api.types.is_extension_array_dtype(out[c].dtype):
+            out[c] = out[c].astype(object).where(out[c].notna(), None)
+    return out.to_markdown(index=index, floatfmt=floatfmt)
 
 
 def trdar_origin_table(df: pd.DataFrame) -> pd.DataFrame:
