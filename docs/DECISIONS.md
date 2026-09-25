@@ -430,3 +430,33 @@ row 부재 패턴 실측. 상세 수치는 `outputs/master/qa_report.md` "업종
   - 범주형 처리 기준: `biz_type`, `gu`, `trdar_change_index` 등 범주형 predictor의 인코딩 방식.
 - **온라인 존재감은 Base에서 제외한다.** Enriched에서 별도로 검증한 뒤 `(store_id, origin)` 단위로 결합한다
   (2026-09-13 온라인 변수 사용 범위, 2026-09-23 W2-0 결정 유지).
+
+## 2026-09-25 — W2-2 Stage 1 탐지 모형 검증·보정·구간·등급 규칙
+근거: `labels_base`(feature 4개) 실험과 합성 master 규모 검증. 구현은 `src/models/`, 실행은
+`python -m src.models.train_detect`.
+
+- **입력은 `master_schema.predictor_columns()`뿐이다** (`src/models/features.py`). "메타를 뺀 나머지 전부"
+  방식은 ER 매칭 결과·상권 배정 컬럼을 입력에 섞어 누수를 만든다. 결측 지시자(`*_isna`)는 만들지 않는다 —
+  상권 feature 결측은 polygon 소속 여부, 공시지가 결측은 origin 시기를 그대로 드러내기 때문이다.
+  NaN은 HistGradientBoosting이 직접 처리한다. 학습 구간에서 값이 전부 NA인 컬럼은 그 fold에서만 뺀다.
+- **시간 분할 + 라벨 성숙 embargo 4분기.** origin t 예측은 t−5 이하로 학습한다(t−1~t−4 비움). 수식상
+  경계(s ≤ t−4)보다 한 분기 보수적이며, 폐업 신고 지연(성숙 컷오프 1개월)을 흡수한다. embargo 없는
+  분할은 성능을 부풀린다(feature 4개 실험에서 AP 상대 +23.6%). random split·점포 홀드아웃은 대조군이다.
+- **성능·민감도·보정은 rolling OOF 예측으로 한다** (학습 origin ≥ 4개가 되는 2023Q1부터 매 origin).
+  상권 polygon 스냅샷(2023-10-23) 이후 origin(2023Q4~)만의 성능을 따로 보고한다.
+- **민감도 feature set**: base / no_trdar / no_land_price / no_gu / license_only. T-2 상권은
+  `attach_trdar_features(lag_quarters=2)`로 만든 master를 `--master`로 넣어 같은 평가를 돌린다.
+- **보정(isotonic)은 첫 검증 origin 기준 학습 가능 구간의 OOF 예측으로 적합**하고, 검증 구간 ECE가
+  개선될 때만 적용한다. raw·calibrated 지표를 둘 다 남긴다 (origin별 base rate 변동이 커서 보정이
+  오히려 나빠질 수 있다 — 실측 상대 27% 변동).
+- **불확실성 구간 = 점포 단위 부트스트랩 재학습의 5~95 백분위** (기본 B=20). Venn-ABERS는 보정 표본이
+  크면 폭이 사실상 0이라(평균 0.0013, 구간 커버 0/10) 화면에 쓰지 않는다. 화면 문구는 "예측이 얼마나
+  흔들리는가"의 구간이며 "폐업 확률의 범위"가 아니다. 점추정이 구간 밖에 놓이면 구간을 넓혀 포함시킨다.
+- **band = 절대 확률 컷오프.** high = {p ≥ c} 집단의 실측 위험이 보정 구간 평균의 2배 이상이 되는 가장
+  낮은 컷오프, mid = 예측 확률이 평균의 1.2배 이상. (mid를 구간 평균 lift로 찾으면 평균 미만 점포가 섞여
+  컷오프가 base rate 아래로 내려가 mid가 61%가 됐다 — 실데이터 첫 실행.) 백분위 컷오프는 isotonic 동점 때문에 의도한 비율을 만들지 못하고(q90 → 15.1%),
+  "상위 N%" 동어반복이라 쓰지 않는다. 상대 위치는 `percentile`(같은 origin·자치구·업종 내)이 맡는다.
+- **공시지가(`land_price`)는 시간 분할 검증에서 학습에 한 번도 들어가지 못한다.** 값이 있는 origin이
+  2024Q2~2025Q2뿐이고, 검증 가능한 마지막 origin(2025Q2)의 학습 구간이 2024Q1까지이기 때문이다.
+  검증되지 않은 feature를 서빙 모형에만 넣지 않도록, **서빙 모형은 검증과 같은 feature set으로 학습**하고
+  land_price는 라벨이 쌓여 검증 가능해질 때까지 Base 서빙 입력에서 제외한다.
