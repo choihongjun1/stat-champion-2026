@@ -180,8 +180,13 @@ def test_end_to_end(tmp_path, panel):
     assert set(summ["feature_set"]) == {"base", "no_trdar"}
     # 누수 미끼(er_matched)가 입력에 섞였다면 AUC가 0.95를 넘는다
     assert summ["all_auc_mean"].max() < 0.9
+    cut = pd.read_csv(out / "band_cutoffs.csv").iloc[0]
+    assert cut["base_rate"] <= cut["cut_mid"] < cut["cut_high"]  # mid는 평균 이상 위험에서 시작한다
+    imp = pd.read_csv(out / "feature_importance.csv")
+    assert "[group] trdar" in set(imp["feature"]) and "er_matched" not in set(imp["feature"])
     sc = pd.read_csv(out / "split_comparison.csv")
     assert {"time_split(embargo=4)", "time_split(embargo=0)"} <= set(sc["setting"])
     for f in ("calibration_report.csv", "band_cutoffs.csv", "band_profile.csv", "run_meta.json",
-              "oof_metrics_by_origin.csv", "missing_by_origin.csv", "reliability.png"):
+              "oof_metrics_by_origin.csv", "missing_by_origin.csv", "reliability.png",
+              "feature_importance.csv"):
         assert (out / f).exists(), f

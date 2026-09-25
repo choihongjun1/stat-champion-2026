@@ -61,10 +61,9 @@ def suggest_cutoffs(
     """데이터로 컷오프를 고른다.
 
     기준: **등급이 실제 위험도 차이를 반영해야 한다.**
-    high 구간의 실측 폐업률이 전체 평균의 `target_high_lift`배 이상,
-    mid 구간은 `target_mid_lift`배 이상이 되는 가장 낮은 확률 컷오프를 찾는다.
-
-    이렇게 하면 "high = 전체 평균의 2배 이상 위험"이라는 설명 가능한 정의가 된다.
+    - high: {p ≥ c} 집단의 실측 폐업률이 평균의 `target_high_lift`배 이상이 되는 가장 낮은 컷오프
+      → "high 등급 점포들은 실제로 평균의 2배 위험"
+    - mid: 예측 확률이 평균의 `target_mid_lift`배 이상 → "예측 위험이 평균보다 높은 점포"
     """
     y = np.asarray(y, dtype=float)
     p = np.asarray(p, dtype=float)
@@ -82,19 +81,13 @@ def suggest_cutoffs(
     if cut_high is None:
         cut_high = float(np.quantile(p, 0.95))
 
-    grid_mid = np.unique(np.quantile(p, np.linspace(0.20, 0.90, 200)))
-    cut_mid = None
-    for c in grid_mid:
-        if c >= cut_high:
-            break
-        m = (p >= c) & (p < cut_high)
-        if m.sum() < 200:
-            continue
-        if y[m].mean() >= base * target_mid_lift:
-            cut_mid = float(c)
-            break
-    if cut_mid is None:
-        cut_mid = float(np.quantile(p, 0.70))
+    # mid는 "예측 위험이 평균의 target_mid_lift배 이상"인 점포다 (개별 예측값 기준).
+    # 구간 평균 lift로 찾으면(이전 방식) 구간 안에 평균 미만 점포가 섞여 컷오프가 base rate 아래로
+    # 내려간다 — 실데이터에서 mid 0.0846 < base 0.1245, mid 비율 61%가 됐다. 보정 오차(ECE)가
+    # 작을 때 개별 예측값 기준이 "평균 대비 N배"라는 설명과 일치한다.
+    cut_mid = float(base * target_mid_lift)
+    if cut_mid >= cut_high:
+        cut_mid = float(base)
 
     return {"cut_mid": cut_mid, "cut_high": cut_high, "base_rate": float(base)}
 

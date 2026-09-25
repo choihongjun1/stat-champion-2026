@@ -26,6 +26,7 @@
 - `oof_metrics_by_origin.csv`  feature set × origin별 AUC·AP·ECE
 - `sensitivity_summary.csv`    feature set별 전체 / 2023Q4 이후 성능 요약
 - `split_comparison.csv`       embargo 유무 · random split · 점포 홀드아웃 비교 (base)
+- `feature_importance.csv`     permutation AUC 감소 (컬럼별 + group별, 마지막 origin, 예측 기여 진단용)
 - `missing_by_origin.csv`      base 입력의 origin별 결측률
 - `calibration_report.csv`, `reliability.png`
 - `band_cutoffs.csv`, `band_profile.csv`, `band_share_by_origin.csv`
@@ -178,6 +179,47 @@ def peer_stats(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# 변수 기여 진단 (permutation)
+# ---------------------------------------------------------------------------
+def permutation_importance(df, X, y, origins: list[str], *, n_sample: int = 30000, n_repeats: int = 3,
+                           seed: int = 20260925, params=None) -> pd.DataFrame:
+    """마지막 origin을 rolling 규칙(≤ t−EMBARGO−1)으로 예측한 모형에서, 컬럼(또는 group)을 섞었을 때의
+    AUC 감소. 예측 기여 진단용이며 인과 해석이 아니다. group 행은 같은 group 컬럼을 함께 섞은 값이다.
+    """
+    from sklearn.metrics import roc_auc_score
+
+    rng = np.random.default_rng(seed)
+    t = len(origins) - 1
+    tr = df["origin"].isin(origins[: t - EMBARGO]).to_numpy()
+    te = np.flatnonzero((df["origin"] == origins[t]).to_numpy())
+    if len(te) > n_sample:
+        te = rng.choice(te, n_sample, replace=False)
+    model = detect.DetectModel(params=dict(params or detect.DEFAULT_PARAMS)).fit(X[tr], y[tr])
+    Xt, yt = X.iloc[te].reset_index(drop=True), y[te]
+    base_auc = roc_auc_score(yt, model.predict_proba(Xt))
+    units = [(c, [c]) for c in model.columns_]
+    groups: dict[str, list[str]] = {}
+    for c in model.columns_:
+        groups.setdefault(features.group_of(c), []).append(c)
+    units += [(f"[group] {g}", cs) for g, cs in groups.items() if len(cs) > 1]
+    rows = []
+    for name, cs in units:
+        drops = []
+        for _ in range(n_repeats):
+            Xp = Xt.copy()
+            perm = rng.permutation(len(Xp))
+            for c in cs:
+                Xp[c] = Xt[c].iloc[perm].to_numpy() if not isinstance(Xt[c].dtype, pd.CategoricalDtype) \
+                    else pd.Categorical(Xt[c].iloc[perm].to_numpy(), categories=Xt[c].cat.categories)
+            drops.append(base_auc - roc_auc_score(yt, model.predict_proba(Xp)))
+        rows.append({"feature": name, "auc_drop_mean": float(np.mean(drops)), "auc_drop_std": float(np.std(drops)),
+                     "missing_rate": float(Xt[cs].isna().all(axis=1).mean())})
+    out = pd.DataFrame(rows).sort_values("auc_drop_mean", ascending=False)
+    out.attrs["base_auc"] = base_auc
+    return out.assign(base_auc=base_auc, test_origin=origins[t], dropped_all_na=",".join(model.dropped_all_na_))
+
+
+# ---------------------------------------------------------------------------
 def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
         with_split_comparison: bool) -> None:
     t0 = time.time()
@@ -223,6 +265,10 @@ def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
     if with_split_comparison:
         log("분할 방식 비교 (embargo 4/0, random, 점포 홀드아웃)")
         split_comparison(df, X_base, y).to_csv(out_dir / "split_comparison.csv", index=False)
+    log(f"변수 기여 진단 (permutation, {origins[-1]})")
+    imp = permutation_importance(df, X_base, y, origins)
+    imp.to_csv(out_dir / "feature_importance.csv", index=False)
+    log("\n" + imp.head(12)[["feature", "auc_drop_mean", "auc_drop_std", "missing_rate"]].to_string(index=False))
 
     # --- 보정
     iso, apply, calib_origins, rep = calibration_step(oof_base, origins, test_origins)
