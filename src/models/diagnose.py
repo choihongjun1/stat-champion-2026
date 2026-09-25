@@ -179,6 +179,43 @@ def _josa(word: str, with_final: str, without_final: str) -> str:
     return word + with_final + "(" + without_final + ")"
 
 
+def online_driver_text(feature: str, v) -> str:
+    """온라인 요인 안에서 가장 크게 작용한 신호를 사람이 읽는 말로 바꾼다 (관측값 서술, 인과 표현 없음)."""
+    if v is None or pd.isna(v):
+        return "블로그 언급 이력 없음" if feature == "online_blog_months_since_last" else "관측 불가(검색 결과 상한)"
+    v = float(v)
+    if feature == "online_blog_trend_6m":
+        if v < 0:
+            return f"최근 6개월 블로그 언급이 그 전 6개월보다 {abs(int(v))}건 줄어듦"
+        if v > 0:
+            return f"최근 6개월 블로그 언급이 그 전 6개월보다 {int(v)}건 늘어남"
+        return "최근 1년 블로그 언급 수 변화 없음"
+    if feature == "online_blog_cnt_12m":
+        return f"최근 12개월 블로그 언급 {int(v)}건"
+    if feature == "online_blog_cnt_3m":
+        return f"최근 3개월 블로그 언급 {int(v)}건"
+    if feature == "online_blog_has_12m":
+        return "최근 12개월 블로그 언급 있음" if v > 0 else "최근 12개월 블로그 언급 없음"
+    if feature == "online_blog_has_ever":
+        return "과거 블로그 언급 이력 있음" if v > 0 else "블로그 언급 이력 없음"
+    if feature == "online_blog_months_since_last":
+        return "이번 달에도 블로그 언급 있음" if v == 0 else f"마지막 블로그 언급 이후 {int(v)}개월"
+    return feature
+
+
+def online_drivers(model, Xt: pd.DataFrame, Xb: pd.DataFrame, online_cols: list[str],
+                   other_cols: list[str], sign: np.ndarray) -> tuple[list[str], np.ndarray]:
+    """온라인 요인 안에서 가장 크게 작용한 feature를 고른다.
+
+    나머지 요인 전체를 한 참가자로 묶고 온라인 feature 각각을 참가자로 둔 Shapley(2^(1+m) 조합)를 계산해,
+    온라인 요인 기여와 같은 방향으로 가장 큰 feature를 고른다. 설명문용이며 요인 기여값 자체는 바꾸지 않는다.
+    """
+    sub, _ = factor_shapley(model, Xt, Xb, [other_cols] + [[c] for c in online_cols])
+    sub = sub[:, 1:] * sign[:, None]
+    k = sub.argmax(axis=1)
+    return [online_cols[i] for i in k], sub.max(axis=1)
+
+
 def explanation(row) -> str:
     pp = abs(row["contribution"]) * 100
     peer = {"biz_type·gu·age_band": "같은 업종·자치구·업력대", "biz_type·age_band": "같은 업종·업력대",
@@ -187,6 +224,8 @@ def explanation(row) -> str:
         return f"{_josa(row['factor'], '은', '는')} 이 점포의 예측 위험도에 거의 영향을 주지 않았습니다."
     way = "높이는" if row["contribution"] > 0 else "낮추는"
     s = f"{_josa(row['factor'], '이', '가')} 예측 위험도를 약 {pp:.1f}%p {way} 쪽으로 기여했습니다."
+    if row.get("driver_text"):
+        s += f" 주된 근거: {row['driver_text']}."
     if pd.notna(row["peer_percentile"]) and row["contribution"] > 0 and row["peer_percentile"] >= PEER_SENTENCE_MIN:
         s += f" {peer} 점포 중 이 요인의 위험 기여가 상위 {max(1, 100 - int(row['peer_percentile']))}% 수준입니다."
     return s
@@ -214,6 +253,7 @@ def factors_json(long: pd.DataFrame, store_id: str, origin: str, values: dict | 
         "direction": "위험 증가" if r["contribution"] > 0 else "위험 감소",
         "peer_percentile": None if pd.isna(r["peer_percentile"]) else int(r["peer_percentile"]),
         "actionability": r["actionability"], "explanation": r["explanation"],
+        "driver": r["driver_text"] or None,
         "values": {k: _plain(v) for k, v in values.get(r["factor_id"], {}).items()},
     } for _, r in g.iterrows()]
 
@@ -268,6 +308,19 @@ def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: 
         part["contribution"] = phi[:, k]
         long.append(part)
     long = pd.concat(long, ignore_index=True)
+    long["driver_feature"], long["driver_text"] = "", ""
+    on = next((k for k, f in enumerate(active) if f["id"] == "online_attention"), None)
+    if on is not None:
+        online_cols = factor_cols[on]
+        other_cols = [c for k, cs in enumerate(factor_cols) if k != on for c in cs]
+        sign = np.where(phi[:, on] >= 0, 1.0, -1.0)
+        train_detect.log(f"온라인 요인 세부 근거 계산 (참가자 {1 + len(online_cols)}명)")
+        drv, _ = online_drivers(model, Xt, Xb, online_cols, other_cols, sign)
+        vals = Xt[online_cols].reset_index(drop=True)
+        texts = [online_driver_text(f, vals.at[i, f]) for i, f in enumerate(drv)]
+        m = (long["factor_id"] == "online_attention").to_numpy()
+        long.loc[m, "driver_feature"] = drv
+        long.loc[m, "driver_text"] = texts
     long = add_peer_percentiles(long)
     long["rank_in_store"] = long.groupby(["store_id", "origin"])["contribution"].rank(ascending=False, method="first").astype(int)
     long["explanation"] = long.apply(explanation, axis=1)

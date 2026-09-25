@@ -98,6 +98,8 @@ def test_run_end_to_end(tmp_path, panel):
                        "explanation", "values"}
     online = [f for f in sample[0]["factors"] if f["factor_id"] == "online_attention"][0]
     assert set(online["values"]) == set(features.ONLINE_PREDICTORS)  # 판단 근거 값이 함께 나간다
+    assert online["driver"] and "주된 근거" in online["explanation"]
+    assert (long.loc[long["factor_id"] == "online_attention", "driver_feature"].isin(features.ONLINE_PREDICTORS)).all()
     assert sample[0]["unavailable_categories"] == ["비용"]
     assert (cat["비용_available"] == False).all() and (cat["경쟁_available"] == True).all()  # noqa: E712
     text = " ".join(f["explanation"] for s in sample for f in s["factors"])
@@ -111,3 +113,14 @@ def test_peer_sentence_only_for_top30():
     base = {"factor": "업력", "contribution": 0.05, "peer_level": "biz_type·gu·age_band"}
     assert "상위" in diagnose.explanation({**base, "peer_percentile": 85})
     assert "상위" not in diagnose.explanation({**base, "peer_percentile": 60})
+
+
+@pytest.mark.parametrize("feature,v,expect", [
+    ("online_blog_trend_6m", -37, "최근 6개월 블로그 언급이 그 전 6개월보다 37건 줄어듦"),
+    ("online_blog_months_since_last", float("nan"), "블로그 언급 이력 없음"),
+    ("online_blog_months_since_last", 0, "이번 달에도 블로그 언급 있음"),
+    ("online_blog_cnt_12m", 101, "최근 12개월 블로그 언급 101건"),
+    ("online_blog_cnt_3m", float("nan"), "관측 불가(검색 결과 상한)"),
+])
+def test_online_driver_text(feature, v, expect):
+    assert diagnose.online_driver_text(feature, v) == expect
