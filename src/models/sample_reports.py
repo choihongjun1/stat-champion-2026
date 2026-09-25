@@ -149,7 +149,8 @@ def _letters(k: int) -> str:
 def mask_records(recs: list[dict]) -> list[dict]:
     """공개 저장소용: 점포를 식별할 수 있는 값(store_id·상호·주소·동)을 가린 사본. 순서 = 입력 순서.
 
-    store_id는 공개 인허가 데이터로 역추적되므로 함께 가린다. 자치구·업종·factors[].values(업력·면적 등)는 둔다.
+    store_id는 공개 인허가 데이터로 역추적되므로 함께 가린다. 자치구·업종은 두고, factors[].values의
+    면적·업력은 뭉갠다(`_coarsen_values`). 나머지 values(상권·온라인 수치)는 그대로 둔다.
     """
     out, per_biz = [], {}
     for n, r in enumerate(recs, start=1):
@@ -158,8 +159,22 @@ def mask_records(recs: list[dict]) -> list[dict]:
         per_biz[s["biz_type"]] = k + 1
         addr = f"서울특별시 {s['gu']} 샘플로 {n}"
         s.update(name=f"(샘플) {s['biz_type']} {_letters(k)}", road_address=addr, address=addr, dong=None)
-        out.append({**r, "store_id": f"SAMPLE-{n:03d}", "store": s})
+        factors = [{**f, "values": _coarsen_values(f.get("values") or {})} for f in r["factors"]]
+        out.append({**r, "store_id": f"SAMPLE-{n:03d}", "store": s, "factors": factors})
     return out
+
+
+def _coarsen_values(values: dict) -> dict:
+    """면적·업력은 인허가 공개 데이터와 맞춰 점포를 좁힐 수 있어 공개용에서는 뭉갠다.
+
+    area: 10㎡ 단위 반올림 / age_months: 연 단위 내림 (41 → 36).
+    """
+    v = dict(values)
+    if v.get("area") is not None:
+        v["area"] = float(round(float(v["area"]) / 10) * 10)
+    if v.get("age_months") is not None:
+        v["age_months"] = int(v["age_months"]) // 12 * 12
+    return v
 
 
 def _is_under_docs(path: Path) -> bool:
@@ -172,7 +187,7 @@ def _is_under_docs(path: Path) -> bool:
         return False
 
 
-MASK_NOTE = ("- **가게 이름·주소·store_id는 가린 값입니다 (공개 저장소).** 실명판은 팀 드라이브에만 있습니다"
+MASK_NOTE = ("- **가게 이름·주소·store_id는 가린 값이고, 면적(10㎡)·업력(연 단위)은 뭉갠 값입니다 (공개 저장소).** 실명판은 팀 드라이브에만 있습니다"
              " (`--mask` 없이 `outputs/` 아래로 추출).\n")
 
 README = """# W2-6 화면 개발용 샘플 결과

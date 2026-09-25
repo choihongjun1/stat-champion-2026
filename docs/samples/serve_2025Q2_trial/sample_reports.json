@@ -60,7 +60,7 @@
         "display_note": null,
         "data_missing": false,
         "values": {
-          "age_months": 40
+          "age_months": 36
         }
       },
       {
@@ -78,7 +78,7 @@
         "data_missing": false,
         "values": {
           "biz_type": "휴게음식점",
-          "area": 58.32,
+          "area": 60.0,
           "has_coord": true
         }
       },
@@ -227,7 +227,7 @@
         "data_missing": false,
         "values": {
           "biz_type": "일반음식점",
-          "area": 15.47,
+          "area": 20.0,
           "has_coord": true
         }
       },
@@ -435,7 +435,7 @@
         "display_note": null,
         "data_missing": false,
         "values": {
-          "age_months": 22
+          "age_months": 12
         }
       },
       {
@@ -470,7 +470,7 @@
         "data_missing": false,
         "values": {
           "biz_type": "일반음식점",
-          "area": 110.48,
+          "area": 110.0,
           "has_coord": true
         }
       },
@@ -700,7 +700,7 @@
         "data_missing": false,
         "values": {
           "biz_type": "휴게음식점",
-          "area": 93.33,
+          "area": 90.0,
           "has_coord": true
         }
       },
@@ -789,7 +789,7 @@
         "display_note": null,
         "data_missing": false,
         "values": {
-          "age_months": 22
+          "age_months": 12
         }
       },
       {
@@ -826,7 +826,7 @@
         "data_missing": false,
         "values": {
           "biz_type": "일반음식점",
-          "area": 14.42,
+          "area": 10.0,
           "has_coord": true
         }
       },
@@ -996,7 +996,7 @@
         "display_note": null,
         "data_missing": false,
         "values": {
-          "age_months": 2
+          "age_months": 0
         }
       },
       {
@@ -1110,7 +1110,7 @@
         "data_missing": false,
         "values": {
           "biz_type": "일반음식점",
-          "area": 66.0,
+          "area": 70.0,
           "has_coord": true
         }
       }
@@ -1163,7 +1163,7 @@
         "display_note": null,
         "data_missing": false,
         "values": {
-          "age_months": 31
+          "age_months": 24
         }
       },
       {
@@ -1351,7 +1351,7 @@
         "display_note": null,
         "data_missing": false,
         "values": {
-          "age_months": 17
+          "age_months": 12
         }
       },
       {
@@ -1465,7 +1465,7 @@
         "data_missing": false,
         "values": {
           "biz_type": "일반음식점",
-          "area": 32.4,
+          "area": 30.0,
           "has_coord": true
         }
       },
@@ -1672,7 +1672,7 @@
         "data_missing": false,
         "values": {
           "biz_type": "미용업",
-          "area": 50.37,
+          "area": 50.0,
           "has_coord": true
         }
       }
@@ -1726,7 +1726,7 @@
         "display_note": null,
         "data_missing": false,
         "values": {
-          "age_months": 19
+          "age_months": 12
         }
       },
       {
@@ -1764,7 +1764,7 @@
         "data_missing": false,
         "values": {
           "biz_type": "휴게음식점",
-          "area": 63.86,
+          "area": 60.0,
           "has_coord": true
         }
       },
@@ -2030,7 +2030,7 @@
         "data_missing": false,
         "values": {
           "biz_type": "일반음식점",
-          "area": 30.94,
+          "area": 30.0,
           "has_coord": true
         }
       },
@@ -2048,7 +2048,7 @@
         "display_note": null,
         "data_missing": false,
         "values": {
-          "age_months": 76
+          "age_months": 72
         }
       }
     ],
@@ -2196,7 +2196,7 @@
         "display_note": null,
         "data_missing": false,
         "values": {
-          "age_months": 102
+          "age_months": 96
         }
       },
       {
@@ -2234,7 +2234,7 @@
         "data_missing": false,
         "values": {
           "biz_type": "일반음식점",
-          "area": 41.92,
+          "area": 40.0,
           "has_coord": true
         }
       }
@@ -2289,7 +2289,7 @@
         "data_missing": false,
         "values": {
           "biz_type": "일반음식점",
-          "area": 7.0,
+          "area": 10.0,
           "has_coord": true
         }
       },
@@ -2423,7 +2423,7 @@
         "display_note": null,
         "data_missing": false,
         "values": {
-          "age_months": 92
+          "age_months": 84
         }
       }
     ],
@@ -2475,7 +2475,7 @@
         "display_note": null,
         "data_missing": false,
         "values": {
-          "age_months": 8
+          "age_months": 0
         }
       },
       {
@@ -2609,7 +2609,7 @@
         "data_missing": false,
         "values": {
           "biz_type": "미용업",
-          "area": 67.52,
+          "area": 70.0,
           "has_coord": true
         }
       }
@@ -2681,7 +2681,7 @@
         "data_missing": false,
         "values": {
           "biz_type": "일반음식점",
-          "area": 33.0,
+          "area": 30.0,
           "has_coord": true
         }
       },
@@ -2719,7 +2719,7 @@
         "display_note": null,
         "data_missing": false,
         "values": {
-          "age_months": 10
+          "age_months": 0
         }
       },
       {
@@ -2903,7 +2903,7 @@
         "display_note": null,
         "data_missing": false,
         "values": {
-          "age_months": 95
+          "age_months": 84
         }
       },
       {
@@ -2963,7 +2963,7 @@
         "data_missing": false,
         "values": {
           "biz_type": "미용업",
-          "area": 125.0,
+          "area": 120.0,
           "has_coord": true
         }
       },
@@ -3035,7 +3035,7 @@
         "display_note": null,
         "data_missing": false,
         "values": {
-          "age_months": 46
+          "age_months": 36
         }
       },
       {
@@ -3169,7 +3169,7 @@
         "data_missing": false,
         "values": {
           "biz_type": "미용업",
-          "area": 16.5,
+          "area": 20.0,
           "has_coord": true
         }
       }
@@ -3221,7 +3221,7 @@
         "display_note": null,
         "data_missing": false,
         "values": {
-          "age_months": 26
+          "age_months": 24
         }
       },
       {
@@ -3355,7 +3355,7 @@
         "data_missing": false,
         "values": {
           "biz_type": "미용업",
-          "area": 61.93,
+          "area": 60.0,
           "has_coord": true
         }
       }
@@ -3524,7 +3524,7 @@
         "display_note": null,
         "data_missing": false,
         "values": {
-          "age_months": 75
+          "age_months": 72
         }
       },
       {
@@ -3542,7 +3542,7 @@
         "data_missing": false,
         "values": {
           "biz_type": "미용업",
-          "area": 35.0,
+          "area": 40.0,
           "has_coord": true
         }
       }
@@ -3595,7 +3595,7 @@
         "display_note": null,
         "data_missing": false,
         "values": {
-          "age_months": 29
+          "age_months": 24
         }
       },
       {
@@ -3729,7 +3729,7 @@
         "data_missing": false,
         "values": {
           "biz_type": "미용업",
-          "area": 36.0,
+          "area": 40.0,
           "has_coord": true
         }
       }
@@ -3781,7 +3781,7 @@
         "display_note": null,
         "data_missing": false,
         "values": {
-          "age_months": 41
+          "age_months": 36
         }
       },
       {
@@ -3915,7 +3915,7 @@
         "data_missing": false,
         "values": {
           "biz_type": "미용업",
-          "area": 31.5,
+          "area": 30.0,
           "has_coord": true
         }
       }
@@ -4026,7 +4026,7 @@
         "display_note": null,
         "data_missing": false,
         "values": {
-          "age_months": 76
+          "age_months": 72
         }
       },
       {
@@ -4103,7 +4103,7 @@
         "data_missing": false,
         "values": {
           "biz_type": "미용업",
-          "area": 41.85,
+          "area": 40.0,
           "has_coord": true
         }
       }
@@ -4230,7 +4230,7 @@
         "display_note": null,
         "data_missing": false,
         "values": {
-          "age_months": 79
+          "age_months": 72
         }
       },
       {
@@ -4268,7 +4268,7 @@
         "data_missing": false,
         "values": {
           "biz_type": "미용업",
-          "area": 132.0,
+          "area": 130.0,
           "has_coord": true
         }
       },

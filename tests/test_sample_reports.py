@@ -188,3 +188,28 @@ def test_one_line_without_risk_raising_factor():
     assert sr.one_line(r).startswith("위험을 높이는 요인 없음")
     r["factors"][0]["contribution"] = 0.02
     assert sr.one_line(r).startswith("최대 위험 요인:")
+
+
+def test_mask_coarsens_area_and_age(tmp_path):
+    recs = [_rec(i, 0.05 + i / 200, "low", "plain") for i in range(20)]
+    for i, r in enumerate(recs):
+        for f in r["factors"]:
+            if f["factor_id"] == "tenure":
+                f["values"] = {"age_months": 13 + i * 7}
+            elif f["factor_id"] == "store_profile":
+                f["values"] = {"biz_type": "미용업", "area": 23.4 + i * 3.3, "has_coord": True}
+    d = tmp_path / "serve"
+    _write_serve(d, recs)
+    out = tmp_path / "out"
+    sr.run(d, out, mask=True)
+    got = [json.loads(l) for l in (out / "sample_reports.jsonl").read_text(encoding="utf-8").splitlines()]
+    vals = [f["values"] for r in got for f in r["factors"] if f["factor_id"] in ("tenure", "store_profile")]
+    ages = [v["age_months"] for v in vals if "age_months" in v]
+    areas = [v["area"] for v in vals if "area" in v]
+    assert ages and all(a % 12 == 0 for a in ages)
+    assert areas and all(a % 10 == 0 for a in areas)
+    assert sr._coarsen_values({"age_months": 41, "area": 46.0}) == {"age_months": 36, "area": 50.0}
+    # 가리지 않으면 원래 값 그대로
+    sr.run(d, tmp_path / "named")
+    raw = [json.loads(l) for l in (tmp_path / "named" / "sample_reports.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert any(f["values"].get("age_months", 0) % 12 for r in raw for f in r["factors"])
