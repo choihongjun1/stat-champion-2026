@@ -100,7 +100,7 @@ def test_run_end_to_end(tmp_path, panel):
     assert set(online["values"]) == set(features.ONLINE_PREDICTORS)  # 판단 근거 값이 함께 나간다
     assert online["driver"] and "주된 근거" in online["explanation"]
     assert isinstance(online["display"], bool)
-    held = long[~long["display"]]
+    held = long[~long["display"] & ~long["data_missing"]]  # 데이터 없음 보류는 따로 검사
     assert (held["factor_id"] == "online_attention").all() and (held["contribution"] > 0).all()
     assert (long.loc[long["factor_id"] == "online_attention", "driver_feature"].isin(features.ONLINE_PREDICTORS)).all()
     assert sample[0]["unavailable_categories"] == ["비용"]
@@ -137,3 +137,20 @@ def test_online_driver_text(feature, v, expect):
 ])
 def test_online_presence_signal(feature, v, presence):
     assert diagnose.online_signal_is_presence(feature, v) is presence
+
+
+def test_all_missing_factor_is_held(tmp_path, panel):
+    """상권 feature가 전부 결측인 점포(상권 경계 밖)는 상권 요인을 진단문으로 내보내지 않는다."""
+    mp, op = tmp_path / "master.parquet", tmp_path / "online.parquet"
+    panel.to_parquet(mp, index=False)
+    _online_table(panel).to_parquet(op, index=False)
+    long = diagnose.run(mp, tmp_path / "diag", online_path=op, primary="enriched", origin=None,
+                        n_background=4, max_stores=60)
+    trdar_ids = {f["id"] for f in diagnose.FACTORS if any(c.startswith("trdar_") for c in f["features"])}
+    miss = long[long["data_missing"]]
+    assert len(miss) > 0 and set(miss["factor_id"]) <= trdar_ids | {"online_attention"}
+    assert miss["factor_id"].isin(trdar_ids).any()
+    assert miss.loc[miss["factor_id"].isin(trdar_ids), "explanation"].str.contains("상권 경계 밖").all()
+    assert (~miss["display"]).all() and miss["display_note"].eq(diagnose.MISSING_NOTE).all()
+    assert miss["explanation"].str.contains("진단하지 않습니다").all()
+    assert not miss["explanation"].str.contains("기여했습니다").any()

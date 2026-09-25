@@ -194,12 +194,14 @@ def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *,
         "features_used": list(model.columns_), "excluded_unvalidated": excluded,
         "diagnosis_scale": "calibrated와 다름 (보정 전 확률)" if iso is not None else "risk 확률과 같음",
         "band_share": risk["band"].value_counts(normalize=True).round(4).to_dict(),
-        "display_held_online": int((~long["display"]).sum()),
+        "display_held_online": int((~long["display"] & ~long["data_missing"]).sum()),
+        "display_held_missing": long.loc[long["data_missing"]].groupby("factor_id").size().to_dict(),
         "seconds": round(time.time() - t0, 1),
     }
     (out_dir / "serve_meta.json").write_text(json.dumps(serve_meta, ensure_ascii=False, indent=2, default=str),
                                              encoding="utf-8")
-    train_detect.log(f"등급 비율 {serve_meta['band_share']} · 온라인 표시 보류 {serve_meta['display_held_online']:,}점포")
+    train_detect.log(f"등급 비율 {serve_meta['band_share']} · 온라인 표시 보류 {serve_meta['display_held_online']:,}점포 "
+                     f"· 데이터 없음 보류 {serve_meta['display_held_missing']}")
     train_detect.log(f"완료 ({serve_meta['seconds']}초) → {out_dir}")
     return risk
 

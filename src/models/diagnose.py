@@ -230,8 +230,17 @@ def online_drivers(model, Xt: pd.DataFrame, Xb: pd.DataFrame, online_cols: list[
     return [online_cols[i] for i in k], sub.max(axis=1)
 
 
+MISSING_NOTE = "이 점포에는 해당 데이터가 없음 — 기여는 값이 아니라 '데이터 없음' 자체에서 나와 표시 보류"
+MISSING_REASON = {"trdar_population": "상권 경계 밖", "trdar_vitality": "상권 경계 밖",
+                  "peer_competition": "상권 경계 밖", "peer_sales": "상권 경계 밖",
+                  "online_attention": "관측 불가"}
+
+
 def explanation(row) -> str:
     pp = abs(row["contribution"]) * 100
+    if row.get("data_missing"):
+        why = MISSING_REASON.get(row["factor_id"], "데이터 없음")
+        return f"이 점포는 {row['factor']} 데이터가 없어({why}) 이 요인은 진단하지 않습니다."
     peer = {"biz_type·gu·age_band": "같은 업종·자치구·업력대", "biz_type·age_band": "같은 업종·업력대",
             "biz_type": "같은 업종"}.get(row["peer_level"], "비슷한 점포")
     if abs(row["contribution"]) < 0.001:
@@ -330,6 +339,19 @@ def explain(model: detect.DetectModel, Xt: pd.DataFrame, Xb: pd.DataFrame, meta:
         long.loc[idx[hold], "display"] = False
         long.loc[idx[hold], "display_note"] = "언급이 많은 쪽에서 위험이 높게 나온 경우 — 이름 오탐(#28)·유행 상권 효과 검토 전까지 표시 보류"
         train_detect.log(f"온라인 요인 표시 보류: {int(hold.sum()):,}점포 (위험을 올리고 주된 근거가 언급 있음/많음)")
+    # 데이터 없음 표시 보류: 요인에 속한 feature 값이 이 점포에서 전부 결측이면(예: 상권 경계 밖 점포의
+    # 상권 요인) 기여는 "값"이 아니라 "데이터가 없다는 사실"(= 상권 밖 위치)에서 나온다. "동종 업종 경쟁이
+    # 위험을 낮췄다" 같은 문장은 사실과 다르므로 진단문으로 내보내지 않는다. 기여값·가법성은 그대로 둔다.
+    long["data_missing"] = False
+    n = len(meta)
+    for k, f in enumerate(active):
+        allna = Xt[factor_cols[k]].isna().all(axis=1).to_numpy()
+        if not allna.any():
+            continue
+        idx = np.flatnonzero((long["factor_id"] == f["id"]).to_numpy())[allna]
+        long.loc[idx, ["data_missing", "display"]] = [True, False]
+        long.loc[idx, "display_note"] = MISSING_NOTE
+        train_detect.log(f"데이터 없음 표시 보류 [{f['id']}]: {int(allna.sum()):,} / {n:,}점포")
     long = add_peer_percentiles(long)
     long["rank_in_store"] = long.groupby(["store_id", "origin"])["contribution"].rank(ascending=False, method="first").astype(int)
     long["explanation"] = long.apply(explanation, axis=1)
