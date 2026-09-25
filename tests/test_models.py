@@ -190,3 +190,50 @@ def test_end_to_end(tmp_path, panel):
               "oof_metrics_by_origin.csv", "missing_by_origin.csv", "reliability.png",
               "feature_importance.csv"):
         assert (out / f).exists(), f
+
+
+# ---------------------------------------------------------------- Enriched (온라인)
+def _online_table(panel, seed=1):
+    rng = np.random.default_rng(seed)
+    t = panel[["store_id", "origin", "origin_end"]].copy()
+    y = panel["event_12m"].to_numpy()
+    has = (rng.random(len(t)) < np.where(y == 1, 0.3, 0.6)).astype(float)
+    for c in features.ONLINE_PREDICTORS:
+        t[c] = rng.poisson(3, len(t)).astype(float)
+    t["online_blog_has_12m"] = has
+    t.loc[rng.random(len(t)) < 0.1, list(features.ONLINE_PREDICTORS)] = np.nan
+    t["online_available_at"] = t["origin_end"]
+    return t.drop(columns="origin_end")
+
+
+def test_enriched_feature_set_requires_online(panel):
+    with pytest.raises(ValueError):
+        features.select_features(panel.columns, "enriched")
+    cols = features.select_features(list(panel.columns) + list(features.ONLINE_PREDICTORS), "enriched")
+    assert set(features.ONLINE_PREDICTORS) <= set(cols)
+    assert not set(features.ONLINE_PREDICTORS) & set(features.select_features(
+        list(panel.columns) + list(features.ONLINE_PREDICTORS), "base"))
+
+
+def test_end_to_end_with_online(tmp_path, panel):
+    mp, op = tmp_path / "master.parquet", tmp_path / "online.parquet"
+    panel.to_parquet(mp, index=False)
+    _online_table(panel).to_parquet(op, index=False)
+    out = tmp_path / "out"
+    train_detect.run(mp, out, ["base", "enriched"], n_boot=0, with_split_comparison=False,
+                     online_path=op, primary="enriched")
+    summ = pd.read_csv(out / "sensitivity_summary.csv").set_index("feature_set")
+    assert summ.loc["enriched", "n_features"] == summ.loc["base", "n_features"] + len(features.ONLINE_PREDICTORS)
+    assert summ.loc["enriched", "all_auc_mean"] > summ.loc["base", "all_auc_mean"]  # 심어 둔 신호를 쓴다
+    imp = pd.read_csv(out / "feature_importance.csv")
+    assert "[group] online" in set(imp["feature"])
+    assert set(pd.read_parquet(out / "risk_scores.parquet")["model"]) == {"detect_v0_enriched"}
+
+
+def test_online_time_leak_is_rejected(tmp_path, panel):
+    t = _online_table(panel)
+    t["online_available_at"] = t["online_available_at"] + pd.Timedelta(days=1)
+    op = tmp_path / "online.parquet"
+    t.to_parquet(op, index=False)
+    with pytest.raises(ValueError, match="시점 누수"):
+        train_detect.attach_online(panel, op)

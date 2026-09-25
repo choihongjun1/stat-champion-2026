@@ -20,6 +20,13 @@ import pandas as pd
 
 from src.data import master_schema as ms
 
+# Enriched predictor — master_base 밖에서 (store_id, origin) 단위로 붙는다 (`--online`).
+# 시점 규칙·결측 규칙은 `src/data/online_features.py`, 사용 조건은 이슈 #26 진단을 따른다.
+ONLINE_PREDICTORS = (
+    "online_blog_cnt_3m", "online_blog_cnt_12m", "online_blog_has_12m",
+    "online_blog_trend_6m", "online_blog_has_ever", "online_blog_months_since_last",
+)
+
 # 범주형 predictor. 순서가 없으므로 category dtype으로 넘긴다.
 CATEGORICAL = ("biz_type", "gu", "trdar_change_index")
 
@@ -35,10 +42,14 @@ FEATURE_SETS: dict[str, dict] = {
     "no_gu": {"drop_cols": ("gu",)},
     # 인허가 기본 속성만 — 하한선 모형
     "license_only": {"keep_groups": ("license",)},
+    # base + 온라인 블로그 언급 (Enriched). 온라인 테이블을 붙인 경우에만 의미가 있다.
+    "enriched": {"include_online": True},
 }
 
 
 def group_of(col: str) -> str:
+    if col in ONLINE_PREDICTORS:
+        return "online"
     return ms.COLUMN_ROLES[col][1]
 
 
@@ -52,13 +63,18 @@ def select_features(columns, feature_set: str = "base") -> list[str]:
         cols = [c for c in cols if group_of(c) in rule["keep_groups"]]
     cols = [c for c in cols if group_of(c) not in rule.get("drop_groups", ())]
     cols = [c for c in cols if c not in rule.get("drop_cols", ())]
+    if rule.get("include_online"):
+        online = [c for c in ONLINE_PREDICTORS if c in set(columns)]
+        if not online:
+            raise ValueError("enriched feature set인데 온라인 feature 컬럼이 없다 (--online으로 붙였는지 확인)")
+        cols += online
     assert_predictors_only(cols)
     return cols
 
 
 def assert_predictors_only(cols) -> None:
     """입력 컬럼이 전부 predictor이고 금지 목록에 걸리지 않는지 확인한다."""
-    allowed = set(ms.predictor_columns())
+    allowed = set(ms.predictor_columns()) | set(ONLINE_PREDICTORS)
     bad = [c for c in cols if c not in allowed]
     forbidden = [
         c for c in cols
@@ -112,7 +128,7 @@ def missing_by_origin(df: pd.DataFrame, cols, origin_col: str = "origin") -> pd.
 
 
 __all__ = [
-    "CATEGORICAL", "FEATURE_SETS", "select_features", "assert_predictors_only",
+    "CATEGORICAL", "FEATURE_SETS", "ONLINE_PREDICTORS", "select_features", "assert_predictors_only",
     "fit_categories", "build_X", "missing_by_origin", "group_of",
 ]
 
