@@ -67,6 +67,7 @@ CATEGORIES = ("입지·수요", "경쟁", "비용", "사업체 구조")
 ACTIONABILITY = ("owner", "policy", "external")
 AGE_BANDS = [(-1, 12, "1년 미만"), (12, 36, "1~3년"), (36, 60, "3~5년"), (60, 120, "5~10년"), (120, 10**6, "10년 이상")]
 MIN_PEER_N = 30
+PEER_SENTENCE_MIN = 70  # peer 비교 문장은 상위 30% 이내일 때만 붙인다 ("상위 85%" 같은 문장은 오해를 부른다)
 
 
 def factor_table() -> pd.DataFrame:
@@ -186,19 +187,34 @@ def explanation(row) -> str:
         return f"{_josa(row['factor'], '은', '는')} 이 점포의 예측 위험도에 거의 영향을 주지 않았습니다."
     way = "높이는" if row["contribution"] > 0 else "낮추는"
     s = f"{_josa(row['factor'], '이', '가')} 예측 위험도를 약 {pp:.1f}%p {way} 쪽으로 기여했습니다."
-    if pd.notna(row["peer_percentile"]) and row["contribution"] > 0:
+    if pd.notna(row["peer_percentile"]) and row["contribution"] > 0 and row["peer_percentile"] >= PEER_SENTENCE_MIN:
         s += f" {peer} 점포 중 이 요인의 위험 기여가 상위 {max(1, 100 - int(row['peer_percentile']))}% 수준입니다."
     return s
 
 
-def factors_json(long: pd.DataFrame, store_id: str, origin: str) -> list[dict]:
+def _plain(v):
+    if v is None or (not isinstance(v, str) and pd.isna(v)):
+        return None
+    if isinstance(v, (bool, np.bool_)):
+        return bool(v)
+    if isinstance(v, (int, np.integer)):
+        return int(v)
+    if isinstance(v, (float, np.floating)):
+        return round(float(v), 4)
+    return str(v)
+
+
+def factors_json(long: pd.DataFrame, store_id: str, origin: str, values: dict | None = None) -> list[dict]:
+    """values: {factor_id: {feature: 값}} — 화면이 "무엇을 보고 이렇게 판단했는지"를 함께 보여줄 수 있게 한다."""
     g = long[(long["store_id"] == store_id) & (long["origin"] == origin)].sort_values("contribution", ascending=False)
+    values = values or {}
     return [{
         "category": r["category"], "name": r["factor"], "factor_id": r["factor_id"],
         "contribution": round(float(r["contribution"]), 4),
         "direction": "위험 증가" if r["contribution"] > 0 else "위험 감소",
         "peer_percentile": None if pd.isna(r["peer_percentile"]) else int(r["peer_percentile"]),
         "actionability": r["actionability"], "explanation": r["explanation"],
+        "values": {k: _plain(v) for k, v in values.get(r["factor_id"], {}).items()},
     } for _, r in g.iterrows()]
 
 
@@ -259,6 +275,9 @@ def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: 
 
     cat = long.groupby(["store_id", "origin", "category"])["contribution"].sum().unstack(fill_value=0.0)
     cat = cat.reindex(columns=list(CATEGORIES), fill_value=0.0).reset_index()
+    # 활성 요인이 하나도 없는 유형(현재 비용)은 0이 아니라 "판단 불가"다. 화면이 0으로 그리지 않도록 표시한다.
+    for c in CATEGORIES:
+        cat[f"{c}_available"] = any(f["category"] == c for f in active)
     cat = cat.merge(meta[["store_id", "origin", "probability_12m", "base_value"]], on=["store_id", "origin"])
     cat.to_parquet(out_dir / "diagnosis_by_category.parquet", index=False)
 
@@ -272,8 +291,17 @@ def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: 
     # 샘플 진단문 10건: high 등급 쪽에서 5건, 나머지 5건
     order = meta.sort_values("probability_12m", ascending=False)
     pick = pd.concat([order.head(5), order.sample(5, random_state=seed)])
+    raw = df.iloc[te_idx].reset_index(drop=True)
+    pos = {(s_, o_): i for i, (s_, o_) in enumerate(zip(raw["store_id"], raw["origin"]))}
+
+    def vals(store_id, origin_):
+        row = raw.iloc[pos[(store_id, origin_)]]
+        return {f["id"]: {c: row[c] for c in f["features"] if c in raw.columns} for f in active}
+
     sample = [{"store_id": r.store_id, "origin": r.origin, "probability_12m": round(float(r.probability_12m), 4),
-               "base_value": round(base, 4), "factors": factors_json(long, r.store_id, r.origin),
+               "base_value": round(base, 4),
+               "unavailable_categories": [c for c in CATEGORIES if not any(f["category"] == c for f in active)],
+               "factors": factors_json(long, r.store_id, r.origin, vals(r.store_id, r.origin)),
                "disclaimer": "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다."}
               for r in pick.itertuples()]
     (out_dir / "sample_factors.json").write_text(json.dumps(sample, ensure_ascii=False, indent=2), encoding="utf-8")

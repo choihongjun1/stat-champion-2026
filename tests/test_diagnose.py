@@ -94,9 +94,20 @@ def test_run_end_to_end(tmp_path, panel):
     assert np.allclose(total, cat["probability_12m"])  # 유형 합 + base = 예측 확률
     sample = json.loads((out / "sample_factors.json").read_text(encoding="utf-8"))
     f0 = sample[0]["factors"][0]
-    assert set(f0) >= {"category", "name", "contribution", "direction", "peer_percentile", "actionability", "explanation"}
+    assert set(f0) >= {"category", "name", "contribution", "direction", "peer_percentile", "actionability",
+                       "explanation", "values"}
+    online = [f for f in sample[0]["factors"] if f["factor_id"] == "online_attention"][0]
+    assert set(online["values"]) == set(features.ONLINE_PREDICTORS)  # 판단 근거 값이 함께 나간다
+    assert sample[0]["unavailable_categories"] == ["비용"]
+    assert (cat["비용_available"] == False).all() and (cat["경쟁_available"] == True).all()  # noqa: E712
     text = " ".join(f["explanation"] for s in sample for f in s["factors"])
     for banned in ("때문", "원인", "고치면", "개선하면"):  # 인과 표현 금지 (§10-3)
         assert banned not in text
     for f in ("factor_map.csv", "factor_summary.csv", "diagnosis.parquet"):
         assert (out / f).exists()
+
+
+def test_peer_sentence_only_for_top30():
+    base = {"factor": "업력", "contribution": 0.05, "peer_level": "biz_type·gu·age_band"}
+    assert "상위" in diagnose.explanation({**base, "peer_percentile": 85})
+    assert "상위" not in diagnose.explanation({**base, "peer_percentile": 60})
