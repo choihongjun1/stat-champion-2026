@@ -1,0 +1,112 @@
+[
+  {
+    "_dummy": true,
+    "store_id": "DUMMY-GR-0003",
+    "name": "(더미) 음식점 C",
+    "name_norm": "(더미)음식점C",
+    "biz_type": "일반음식점",
+    "gu": "광진구",
+    "dong": "화양동",
+    "address_road": "서울특별시 광진구 샘플로 3, 2층",
+    "address_jibun": "서울특별시 광진구 화양동 샘플 3"
+  },
+  {
+    "_dummy": true,
+    "store_id": "DUMMY-GR-0004",
+    "name": "(더미) 음식점 D",
+    "name_norm": "(더미)음식점D",
+    "biz_type": "일반음식점",
+    "gu": "광진구",
+    "dong": "자양동",
+    "address_road": "서울특별시 광진구 샘플로 4, 1층",
+    "address_jibun": "서울특별시 광진구 자양동 샘플 4"
+  },
+  {
+    "_dummy": true,
+    "store_id": "DUMMY-SR-0008",
+    "name": "(더미) 카페 H",
+    "name_norm": "(더미)카페H",
+    "biz_type": "휴게음식점",
+    "gu": "광진구",
+    "dong": "구의동",
+    "address_road": "서울특별시 광진구 샘플로 8, 1층",
+    "address_jibun": "서울특별시 광진구 구의동 샘플 8"
+  },
+  {
+    "_dummy": true,
+    "store_id": "DUMMY-BT-0001",
+    "name": "(더미) 미용실 A",
+    "name_norm": "(더미)미용실A",
+    "biz_type": "미용업",
+    "gu": "광진구",
+    "dong": "화양동",
+    "address_road": "서울특별시 광진구 샘플로 1, 2층",
+    "address_jibun": "서울특별시 광진구 화양동 샘플 1"
+  },
+  {
+    "_dummy": true,
+    "store_id": "DUMMY-GR-0005",
+    "name": "(더미) 음식점 E",
+    "name_norm": "(더미)음식점E",
+    "biz_type": "일반음식점",
+    "gu": "마포구",
+    "dong": "서교동",
+    "address_road": "서울특별시 마포구 샘플로 5, 1층",
+    "address_jibun": "서울특별시 마포구 서교동 샘플 5"
+  },
+  {
+    "_dummy": true,
+    "store_id": "DUMMY-SR-0009",
+    "name": "(더미) 카페 I",
+    "name_norm": "(더미)카페I",
+    "biz_type": "휴게음식점",
+    "gu": "마포구",
+    "dong": "합정동",
+    "address_road": "서울특별시 마포구 샘플로 9, 1층",
+    "address_jibun": "서울특별시 마포구 합정동 샘플 9"
+  },
+  {
+    "_dummy": true,
+    "store_id": "DUMMY-BT-0002",
+    "name": "(더미) 미용실 B",
+    "name_norm": "(더미)미용실B",
+    "biz_type": "미용업",
+    "gu": "마포구",
+    "dong": "망원동",
+    "address_road": "서울특별시 마포구 샘플로 2, 2층",
+    "address_jibun": "서울특별시 마포구 망원동 샘플 2"
+  },
+  {
+    "_dummy": true,
+    "store_id": "DUMMY-GR-0006",
+    "name": "(더미) 음식점 F",
+    "name_norm": "(더미)음식점F",
+    "biz_type": "일반음식점",
+    "gu": "영등포구",
+    "dong": "여의도동",
+    "address_road": "서울특별시 영등포구 샘플로 6, 지하1층",
+    "address_jibun": "서울특별시 영등포구 여의도동 샘플 6"
+  },
+  {
+    "_dummy": true,
+    "store_id": "DUMMY-SR-0010",
+    "name": "(더미) 카페 J",
+    "name_norm": "(더미)카페J",
+    "biz_type": "휴게음식점",
+    "gu": "영등포구",
+    "dong": "문래동3가",
+    "address_road": "서울특별시 영등포구 샘플로 10, 1층",
+    "address_jibun": "서울특별시 영등포구 문래동3가 샘플 10"
+  },
+  {
+    "_dummy": true,
+    "store_id": "DUMMY-GR-0007",
+    "name": "(더미) 음식점 G",
+    "name_norm": "(더미)음식점G",
+    "biz_type": "일반음식점",
+    "gu": "영등포구",
+    "dong": "영등포동",
+    "address_road": "서울특별시 영등포구 샘플로 7, 1층",
+    "address_jibun": "서울특별시 영등포구 영등포동 샘플 7"
+  }
+]
