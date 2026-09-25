@@ -154,3 +154,53 @@ def test_all_missing_factor_is_held(tmp_path, panel):
     assert (~miss["display"]).all() and miss["display_note"].eq(diagnose.MISSING_NOTE).all()
     assert miss["explanation"].str.contains("진단하지 않습니다").all()
     assert not miss["explanation"].str.contains("기여했습니다").any()
+
+
+def _factor_features(fid):
+    return next(f["features"] for f in diagnose.FACTORS if f["id"] == fid)
+
+
+def test_missing_reason_inside_vs_outside_trdar(panel):
+    """상권 안인데 매출 feature만 전부 NA인 점포는 '매출 공개 자료 없음', 상권 밖 점포는 4개 요인 모두 '상권 경계 밖'."""
+    cols = features.select_features(panel.columns, "base")
+    X = features.build_X(panel, cols)
+    model = detect.DetectModel().fit(X, panel["event_12m"].to_numpy().astype(int))
+    last = (panel["origin"] == panel["origin"].max()).to_numpy()
+    raw = panel[last].reset_index(drop=True)
+    Xt = X[last].reset_index(drop=True)
+    inside = int(np.flatnonzero(raw["trdar_cd"].notna())[0])
+    outside = int(np.flatnonzero(raw["trdar_cd"].isna())[0])
+    sales = [c for c in _factor_features("peer_sales") if c in Xt.columns]
+    Xt.loc[inside, sales] = np.nan
+    raw.loc[inside, sales] = np.nan
+    meta = raw[["store_id", "origin", "biz_type", "gu", "age_months"]]
+    res = diagnose.explain(model, Xt, X.sample(4, random_state=0), meta, raw)
+    long = res["long"]
+    sid_in, sid_out, org = raw.at[inside, "store_id"], raw.at[outside, "store_id"], raw.at[inside, "origin"]
+
+    ins = long[(long["store_id"] == sid_in) & (long["factor_id"] == "peer_sales")].iloc[0]
+    assert ins["data_missing"] and ins["missing_reason"] == "해당 상권에 이 업종 매출 공개 자료 없음"
+    assert "매출 공개 자료 없음" in ins["explanation"] and "상권 경계 밖" not in ins["explanation"]
+    other = long[(long["store_id"] == sid_in) & long["factor_id"].isin(["trdar_population", "trdar_vitality",
+                                                                         "peer_competition"])]
+    assert len(other) == 3 and not other["data_missing"].any()  # 값이 있는 상권 요인은 그대로 진단
+
+    out = long[(long["store_id"] == sid_out) & long["factor_id"].isin(diagnose.TRDAR_FACTOR_IDS)]
+    assert len(out) == 4 and out["data_missing"].all() and (~out["display"]).all()
+    assert out["explanation"].str.contains("상권 경계 밖").all()
+
+    fj = diagnose.factors_json(long, sid_in, org, res["values"](sid_in, org))
+    assert all(isinstance(f["data_missing"], bool) for f in fj)
+    ps = next(f for f in fj if f["factor_id"] == "peer_sales")
+    assert ps["data_missing"] is True and ps["display"] is False
+    assert sum(f["data_missing"] for f in fj) == 1
+
+
+def test_missing_reason_does_not_assume_outside_without_trdar_cd():
+    no_cd = pd.DataFrame({"store_id": ["a", "b"]})
+    for fid in diagnose.TRDAR_FACTOR_IDS:
+        assert set(diagnose.missing_reasons(fid, no_cd)) == {"상권 데이터 없음"}
+    raw = pd.DataFrame({"trdar_cd": [None, "3110001"]})
+    assert list(diagnose.missing_reasons("trdar_population", raw)) == ["상권 경계 밖", "해당 분기 상권 자료 없음"]
+    assert list(diagnose.missing_reasons("peer_competition", raw)) == ["상권 경계 밖", "해당 상권에 이 업종 자료 없음"]
+    assert list(diagnose.missing_reasons("online_attention", raw)) == ["관측 불가", "관측 불가"]

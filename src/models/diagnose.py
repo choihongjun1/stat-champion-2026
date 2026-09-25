@@ -231,15 +231,34 @@ def online_drivers(model, Xt: pd.DataFrame, Xb: pd.DataFrame, online_cols: list[
 
 
 MISSING_NOTE = "이 점포에는 해당 데이터가 없음 — 기여는 값이 아니라 '데이터 없음' 자체에서 나와 표시 보류"
-MISSING_REASON = {"trdar_population": "상권 경계 밖", "trdar_vitality": "상권 경계 밖",
-                  "peer_competition": "상권 경계 밖", "peer_sales": "상권 경계 밖",
-                  "online_attention": "관측 불가"}
+# 데이터 없음 이유 (점포별). 상권 요인은 trdar_cd(provenance, predictor 아님)로 상권 밖/안을 가른다.
+TRDAR_FACTOR_IDS = ("trdar_population", "trdar_vitality", "peer_competition", "peer_sales")
+REASON_OUTSIDE = "상권 경계 밖"
+REASON_TRDAR_UNKNOWN = "상권 데이터 없음"  # raw에 trdar_cd가 없어 상권 밖인지 판단할 수 없을 때
+REASON_INSIDE = {"trdar_population": "해당 분기 상권 자료 없음", "trdar_vitality": "해당 분기 상권 자료 없음",
+                 "peer_competition": "해당 상권에 이 업종 자료 없음",
+                 "peer_sales": "해당 상권에 이 업종 매출 공개 자료 없음"}
+REASON_ONLINE = "관측 불가"
+REASON_DEFAULT = "데이터 없음"
+
+
+def missing_reasons(factor_id: str, raw: pd.DataFrame) -> np.ndarray:
+    """요인 feature가 전부 결측인 이유를 점포(raw 행)별로 고른다."""
+    n = len(raw)
+    if factor_id == "online_attention":
+        return np.full(n, REASON_ONLINE, dtype=object)
+    if factor_id not in TRDAR_FACTOR_IDS:
+        return np.full(n, REASON_DEFAULT, dtype=object)
+    if "trdar_cd" not in raw.columns:
+        return np.full(n, REASON_TRDAR_UNKNOWN, dtype=object)
+    inside = raw["trdar_cd"].notna().to_numpy()
+    return np.where(inside, REASON_INSIDE[factor_id], REASON_OUTSIDE).astype(object)
 
 
 def explanation(row) -> str:
     pp = abs(row["contribution"]) * 100
     if row.get("data_missing"):
-        why = MISSING_REASON.get(row["factor_id"], "데이터 없음")
+        why = row.get("missing_reason") or REASON_DEFAULT
         return f"이 점포는 {row['factor']} 데이터가 없어({why}) 이 요인은 진단하지 않습니다."
     peer = {"biz_type·gu·age_band": "같은 업종·자치구·업력대", "biz_type·age_band": "같은 업종·업력대",
             "biz_type": "같은 업종"}.get(row["peer_level"], "비슷한 점포")
@@ -278,6 +297,7 @@ def factors_json(long: pd.DataFrame, store_id: str, origin: str, values: dict | 
         "actionability": r["actionability"], "explanation": r["explanation"],
         "driver": r["driver_text"] or None,
         "display": bool(r["display"]), "display_note": r["display_note"] or None,
+        "data_missing": bool(r.get("data_missing", False)),
         "values": {k: _plain(v) for k, v in values.get(r["factor_id"], {}).items()},
     } for _, r in g.iterrows()]
 
@@ -342,16 +362,21 @@ def explain(model: detect.DetectModel, Xt: pd.DataFrame, Xb: pd.DataFrame, meta:
     # 데이터 없음 표시 보류: 요인에 속한 feature 값이 이 점포에서 전부 결측이면(예: 상권 경계 밖 점포의
     # 상권 요인) 기여는 "값"이 아니라 "데이터가 없다는 사실"(= 상권 밖 위치)에서 나온다. "동종 업종 경쟁이
     # 위험을 낮췄다" 같은 문장은 사실과 다르므로 진단문으로 내보내지 않는다. 기여값·가법성은 그대로 둔다.
+    # 이유는 점포별로 다르다 (상권 밖 / 상권 안이지만 해당 업종 자료·매출 공개 없음 / 온라인 관측 불가).
     long["data_missing"] = False
+    long["missing_reason"] = ""
     n = len(meta)
     for k, f in enumerate(active):
         allna = Xt[factor_cols[k]].isna().all(axis=1).to_numpy()
         if not allna.any():
             continue
         idx = np.flatnonzero((long["factor_id"] == f["id"]).to_numpy())[allna]
+        why = missing_reasons(f["id"], raw)[allna]
         long.loc[idx, ["data_missing", "display"]] = [True, False]
         long.loc[idx, "display_note"] = MISSING_NOTE
-        train_detect.log(f"데이터 없음 표시 보류 [{f['id']}]: {int(allna.sum()):,} / {n:,}점포")
+        long.loc[idx, "missing_reason"] = why
+        by_reason = pd.Series(why).value_counts().to_dict()
+        train_detect.log(f"데이터 없음 표시 보류 [{f['id']}]: {int(allna.sum()):,} / {n:,}점포 {by_reason}")
     long = add_peer_percentiles(long)
     long["rank_in_store"] = long.groupby(["store_id", "origin"])["contribution"].rank(ascending=False, method="first").astype(int)
     long["explanation"] = long.apply(explanation, axis=1)

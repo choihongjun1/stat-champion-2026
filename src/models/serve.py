@@ -195,7 +195,8 @@ def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *,
         "diagnosis_scale": "calibrated와 다름 (보정 전 확률)" if iso is not None else "risk 확률과 같음",
         "band_share": risk["band"].value_counts(normalize=True).round(4).to_dict(),
         "display_held_online": int((~long["display"] & ~long["data_missing"]).sum()),
-        "display_held_missing": long.loc[long["data_missing"]].groupby("factor_id").size().to_dict(),
+        "display_held_missing": {fid: g["missing_reason"].value_counts().to_dict()
+                                 for fid, g in long.loc[long["data_missing"]].groupby("factor_id")},
         "seconds": round(time.time() - t0, 1),
     }
     (out_dir / "serve_meta.json").write_text(json.dumps(serve_meta, ensure_ascii=False, indent=2, default=str),
