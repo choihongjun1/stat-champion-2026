@@ -160,7 +160,7 @@
       "direction": "위험 감소",
       "peer_percentile": 55,
       "explanation": "'온라인 언급(블로그)' 요인이 예측 위험도를 약 0.4%p 낮추는 쪽으로 기여했습니다. 주된 근거: 최근 12개월 블로그 언급 6건. [합성 예시]",
-      "driver": "최근 12개월 블로그 언급 6건 [합성 예시]",
+      "driver": "최근 12개월 블로그 언급 6건",
       "values": {},
       "display": true,
       "data_missing": false,

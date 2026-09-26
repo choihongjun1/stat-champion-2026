@@ -76,7 +76,7 @@ def _records(version):
     v = version
     return [
         _record(A, "광진구", "일반음식점", 0.15, "mid", [
-            _f("online_attention", 0.03, v, driver="마지막 블로그 언급 후 14개월"),
+            _f("online_attention", 0.03, v, driver="마지막 블로그 언급 이후 14개월"),
             _f("tenure", 0.01, v), _f("district", 0.0004, v), _f("store_profile", -0.005, v)], v,
             store_extra={"name": "샘플식당", "address_road": "서울특별시 광진구 샘플로 1", "dong": "샘플동",
                          "license_date": "2023-01-15"}),
@@ -412,3 +412,55 @@ def test_passed_canonical_is_not_downgraded(tmp_path):
     assert run["final_contract"] == "not_ready" and _runs(out)["final_contract"] == "not_ready"
     # not_ready → not_ready, not_ready → passed 교체는 막지 않는다
     bd.build(d / "reports.jsonl", d / "serve_meta.json", d / "licenses.parquet", out)
+
+
+# ---------------------------------------------------------------------------
+# 온라인 요인 정책 연결 조건 (FACTOR_POLICY_LINKS.md §2, PR #38 초안): driver가 노출 부족일 때만
+ONLINE_POLICY = {"id": "p_online", "name": "(예시) 온라인", "operator": "(예시) 기관", "link": None,
+                 "announce_year": 2026, "collected_at": "2026-09-20", "eligibility_text": "(예시)",
+                 "conditions": {"gu": None, "biz_type": None, "tenure_months_min": None, "tenure_months_max": None},
+                 "unverifiable_conditions": [], "related_factor_ids": ["online_attention", "tenure"]}
+
+
+@pytest.mark.parametrize("driver, linked", [
+    ("최근 6개월 블로그 언급이 그 전 6개월보다 4건 줄어듦", True),     # 감소
+    ("마지막 블로그 언급 이후 14개월", True),                         # 끊김
+    ("블로그 언급 이력 없음", True),                                  # 이력 없음
+    ("최근 3개월 블로그 언급 0건", True),                             # 최근 없음
+    ("최근 12개월 블로그 언급 없음", True),
+    ("관측 불가(검색 결과 상한)", False),                             # 해석 불가
+    ("최근 1년 블로그 언급 수 변화 없음", False),                     # 노출 부족이 아님
+    ("최근 3개월 블로그 언급 2건", False),                            # 언급 있음
+    ("마지막 블로그 언급 이후 3개월", False),                         # 3개월 이하는 언급 있음 (#36 규칙)
+])
+def test_online_policy_link_requires_exposure_shortfall(driver, linked):
+    store = {"gu": "마포구", "biz_type": "미용업", "license_date": "2020-01-01"}
+    factors = [_f("online_attention", 0.02, "0.2", driver=driver), _f("tenure", 0.01, "0.2")]
+    m = bd.match_policies(store, factors, [ONLINE_POLICY], AS_OF)
+    assert m[0]["linked_factor_ids"] == (["online_attention", "tenure"] if linked else ["tenure"])
+
+
+def test_online_link_needs_positive_displayed_factor():
+    store = {"gu": "마포구", "biz_type": "미용업", "license_date": "2020-01-01"}
+    decline = "최근 6개월 블로그 언급이 그 전 6개월보다 4건 줄어듦"
+    for f in (_f("online_attention", -0.02, "0.2", driver=decline),                         # 위험을 낮춤
+              _f("online_attention", 0.02, "0.2", driver=decline, display=False, hold_reason="online_review")):
+        assert bd.match_policies(store, [f], [ONLINE_POLICY], AS_OF)[0]["linked_factor_ids"] == []
+
+
+def test_unknown_online_driver_text_is_rejected(inputs, tmp_path):
+    """driver를 부분 문자열로 추측하지 않는다 — 템플릿에 없는 문구는 입력 검증에서 멈춘다."""
+    recs = _records("0.2")
+    recs[0]["factors"][0]["driver"] = "블로그 언급이 줄어드는 추세"
+    with pytest.raises(bd.BuildError, match="알려진 템플릿"):
+        _build(inputs, tmp_path / "r.sqlite", version="0.2", records=recs)
+
+
+def test_final_report_rejects_online_link_with_unobservable_driver(inputs, tmp_path):
+    out = tmp_path / "r.sqlite"
+    _build(inputs, out, version="0.2", policies=True)
+    rec = _reports(out)[A]
+    assert rv.validate_report(rec) == []
+    f = next(x for x in rec["factors"] if x["factor_id"] == "online_attention")
+    f["driver"] = "관측 불가(검색 결과 상한)"
+    assert any("연결할 수 없는 요인" in e for e in rv.validate_report(rec))

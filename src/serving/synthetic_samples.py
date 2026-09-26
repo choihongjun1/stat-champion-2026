@@ -108,7 +108,8 @@ def _factor(fid: str, spec) -> dict:
     driver = None
     if fid == "online_attention" and kind != "missing":
         driver = ("최근 12개월 블로그 언급 40건" if kind == "hold" else
-                  "마지막 블로그 언급 후 14개월" if c > 0 else "최근 12개월 블로그 언급 6건") + TAG
+                  "마지막 블로그 언급 이후 14개월" if c > 0 else "최근 12개월 블로그 언급 6건")
+        # driver는 PR #36 online_driver_text 템플릿 그대로 (정책 연결 판정에 쓰이므로 [합성 예시] 표시는 설명문에만)
     if kind == "missing":
         expl = f"이 점포는 {name} 데이터가 없어({REASON_TEXT[reason]}) 이 요인은 진단하지 않습니다.{TAG}"
     elif abs(c) < 0.001:
@@ -117,7 +118,7 @@ def _factor(fid: str, spec) -> dict:
         way = "높이는" if c > 0 else "낮추는"
         expl = f"'{name}' 요인이 예측 위험도를 약 {abs(c) * 100:.1f}%p {way} 쪽으로 기여했습니다.{TAG}"
         if driver:
-            expl = expl[:-len(TAG)] + f" 주된 근거: {driver[:-len(TAG)]}.{TAG}"
+            expl = expl[:-len(TAG)] + f" 주된 근거: {driver}.{TAG}"
     return {"category": cat, "name": name, "factor_id": fid, "contribution": c, "direction": rv.direction_of(c),
             "peer_percentile": None if kind == "missing" else 55, "actionability": act, "explanation": expl,
             "driver": driver, "display": kind == "normal",

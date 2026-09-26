@@ -49,7 +49,7 @@ def _policy(pid="sample_online_2026", linked=("online_attention",), status="matc
 def _report_basic():
     """상권 안 점포, 온라인 언급 감소가 위험을 올린 경우 (정책 요인 연결 있음)."""
     factors = [
-        _factor("online_attention", 0.031, pp=92, driver="마지막 블로그 언급 후 14개월",
+        _factor("online_attention", 0.031, pp=92, driver="마지막 블로그 언급 이후 14개월",
                 values={"online_blog_months_since_last": 14.0}),
         _factor("tenure", 0.012, values={"age_months": 30}),
         _factor("trdar_population", 0.004),

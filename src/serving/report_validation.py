@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -83,6 +84,62 @@ def allowed_directions(contribution: float) -> set[str]:
     return {direction_of(contribution)}
 
 
+# 온라인 요인 driver 문구 → 분류. PR #36 `diagnose.online_driver_text`의 템플릿 전부를 전체 일치로 옮긴 계약 사본이다
+# (부분 문자열 검색 아님). 서빙 쪽 문구가 바뀌면 이 표를 같은 PR에서 바꾼다 — 모르는 문구는 검증 오류다.
+# lapse 경계(마지막 언급 후 3개월 이하 = 언급 있음)는 `diagnose.online_signal_is_presence`와 같다.
+ONLINE_LAPSE_MAX_PRESENT_MONTHS = 3
+_ONLINE_DRIVER_PATTERNS: list[tuple[re.Pattern, object]] = [
+    (re.compile(r"최근 6개월 블로그 언급이 그 전 6개월보다 (\d+)건 줄어듦"), "decline"),
+    (re.compile(r"최근 6개월 블로그 언급이 그 전 6개월보다 (\d+)건 늘어남"), "presence"),
+    (re.compile(r"최근 1년 블로그 언급 수 변화 없음"), "no_change"),
+    (re.compile(r"최근 12개월 블로그 언급 (\d+)건"), lambda n: "absent" if n == 0 else "presence"),
+    (re.compile(r"최근 3개월 블로그 언급 (\d+)건"), lambda n: "absent" if n == 0 else "presence"),
+    (re.compile(r"최근 12개월 블로그 언급 있음"), "presence"),
+    (re.compile(r"최근 12개월 블로그 언급 없음"), "absent"),
+    (re.compile(r"과거 블로그 언급 이력 있음"), "presence"),
+    (re.compile(r"블로그 언급 이력 없음"), "absent"),
+    (re.compile(r"이번 달에도 블로그 언급 있음"), "presence"),
+    (re.compile(r"마지막 블로그 언급 이후 (\d+)개월"),
+     lambda n: "lapse" if n > ONLINE_LAPSE_MAX_PRESENT_MONTHS else "presence"),
+    (re.compile(r"관측 불가\(검색 결과 상한\)"), "unobservable"),
+]
+# PR #38 §2: 온라인 요인은 근거가 언급 감소·끊김·없음(온라인 노출 부족)일 때만 정책에 연결한다.
+# 관측 불가(검색 결과 상한)·변화 없음·언급 있음/많음은 연결하지 않는다.
+ONLINE_DRIVER_LINKABLE = frozenset({"decline", "lapse", "absent"})
+
+
+def classify_online_driver(text: str | None) -> str | None:
+    """온라인 driver 문구 → decline/lapse/absent/presence/no_change/unobservable. 템플릿에 없는 문구면 None."""
+    if text is None:
+        return None
+    for pat, cls in _ONLINE_DRIVER_PATTERNS:
+        m = pat.fullmatch(text)
+        if m:
+            return cls(int(m.group(1))) if callable(cls) else cls
+    return None
+
+
+def online_driver_errors(factors: list[dict]) -> list[str]:
+    """온라인 요인 driver가 알려진 템플릿인지 (serve 입력·최종 리포트 공통)."""
+    return [f"online_attention: 알 수 없는 driver 문구 '{f['driver']}' (PR #36 online_driver_text 템플릿과 다름)"
+            for f in factors if f["factor_id"] == "online_attention" and f["driver"] is not None
+            and classify_online_driver(f["driver"]) is None]
+
+
+def policy_linkable_factors(factors: list[dict]) -> dict[str, float]:
+    """정책을 요인에 연결할 수 있는 요인 → 기여 (FACTOR_POLICY_LINKS.md §1·§2, PR #38 초안).
+    공통: 표시되고(display=true) 위험을 올린(contribution > 0) 요인 — factors에 없는 비활성 요인은 자연히 빠진다.
+    온라인 요인은 driver가 노출 부족(ONLINE_DRIVER_LINKABLE)일 때만."""
+    out = {}
+    for f in factors:
+        if not (f["display"] and f["contribution"] > 0):
+            continue
+        if f["factor_id"] == "online_attention" and classify_online_driver(f["driver"]) not in ONLINE_DRIVER_LINKABLE:
+            continue
+        out[f["factor_id"]] = f["contribution"]
+    return out
+
+
 def quarter_end(quarter: str) -> str:
     return str(pd.Period(quarter, freq="Q").end_time.date())
 
@@ -123,20 +180,22 @@ def semantic_errors(rec: dict) -> list[str]:
             errs.append(f"{f['factor_id']}: 진단문에 인과 표현")
         if f["driver"] is not None and f["factor_id"] != "online_attention":
             errs.append(f"{f['factor_id']}: driver는 온라인 요인에만 있다")
+    errs += online_driver_errors(factors)
 
     present = {f["category"] for f in factors}
     both = present & set(rec["unavailable_categories"])
     if both:
         errs.append(f"unavailable_categories {sorted(both)}에 속한 요인이 factors에 있다")
 
-    linkable = {f["factor_id"] for f in factors if f["display"] and f["contribution"] > 0}
+    linkable = set(policy_linkable_factors(factors))
     pol_ids = [p["id"] for p in rec["policies"]]
     if len(pol_ids) != len(set(pol_ids)):
         errs.append("policies id 중복")
     for p in rec["policies"]:
         bad = set(p["linked_factor_ids"]) - linkable
         if bad:
-            errs.append(f"정책 {p['id']}: 표시되지 않거나 위험을 올리지 않은 요인에 연결 {sorted(bad)}")
+            errs.append(f"정책 {p['id']}: 연결할 수 없는 요인에 연결 {sorted(bad)} "
+                        "(표시 안 됨·위험을 올리지 않음·온라인 근거가 노출 부족이 아님)")
     rx_ids = [p["id"] for p in rec["prescriptions"]]
     if len(rx_ids) != len(set(rx_ids)):
         errs.append("prescriptions id 중복")

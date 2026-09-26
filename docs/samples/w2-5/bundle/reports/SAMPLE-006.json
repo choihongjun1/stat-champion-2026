@@ -41,7 +41,7 @@
       "direction": "위험 증가",
       "peer_percentile": 55,
       "explanation": "'온라인 언급(블로그)' 요인이 예측 위험도를 약 6.3%p 높이는 쪽으로 기여했습니다. 주된 근거: 최근 12개월 블로그 언급 40건. [합성 예시]",
-      "driver": "최근 12개월 블로그 언급 40건 [합성 예시]",
+      "driver": "최근 12개월 블로그 언급 40건",
       "values": {},
       "display": false,
       "data_missing": false,

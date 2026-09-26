@@ -1,6 +1,6 @@
 {
   "_schema_version": "0.2",
-  "run_id": "21636cf5e37ae2b9",
+  "run_id": "a92163b7f6f97b8f",
   "score_origin": "2026Q2",
   "as_of": "2026-06-30",
   "export_version": "w2-5-export-0.1",
@@ -19,43 +19,43 @@
   "files": [
     {
       "path": "dong_summary.json",
-      "sha256": "03f69fe023ecf87fbfc50e12de1b93b7201fce08174868bfca68375caba0b1e6",
+      "sha256": "e5147aeda5d323b1d8aa20938e0e93e9619b45a8e0ac55c6e2bde1a8d1fd1b64",
       "bytes": 1932,
       "rows": 2,
       "schema_version": "0.2",
-      "run_id": "21636cf5e37ae2b9"
+      "run_id": "a92163b7f6f97b8f"
     },
     {
       "path": "dongs.json",
-      "sha256": "8feaf581083f0d04b6e404b8c2d4b51a01cf6886b90de03d22aac3f42662ce2a",
+      "sha256": "8526356ecd4bf8c42668daa7b212562fa7b65fc53f38dde42ec410fe332e0883",
       "bytes": 237,
       "rows": 1,
       "schema_version": "0.2",
-      "run_id": "21636cf5e37ae2b9"
+      "run_id": "a92163b7f6f97b8f"
     },
     {
       "path": "meta.json",
-      "sha256": "f2e8c668a776a0b4154cd500296582f634686eeaafec756f12887cf719be8cc6",
+      "sha256": "5c5361d38a6b00169191b192567dc94fdc0681569b12b7c73190250aaf7bad71",
       "bytes": 920,
       "rows": 1,
       "schema_version": "0.2",
-      "run_id": "21636cf5e37ae2b9"
+      "run_id": "a92163b7f6f97b8f"
     },
     {
       "path": "reports/SAMPLE-010.json",
-      "sha256": "83108fbae9bd9fd8f8dc8455b22d2faaf3abca3bb9a4d197d2900d25ad45623e",
-      "bytes": 6289,
+      "sha256": "5a3a193b58d4bfc89e7625fd887a299a6b7311051f93922eeeb57a3bc0b79ac9",
+      "bytes": 6273,
       "rows": 1,
       "schema_version": "0.2",
-      "run_id": "21636cf5e37ae2b9"
+      "run_id": "a92163b7f6f97b8f"
     },
     {
       "path": "search_index.json",
-      "sha256": "30e3b1bc062d140210a0d66e280a7298e0eb1ae578f3a2a8531822292e878f9a",
+      "sha256": "a5a42466548629643bd7a029f3f87c445d423f3f15c19dd85f3d744a1997e485",
       "bytes": 524,
       "rows": 1,
       "schema_version": "0.2",
-      "run_id": "21636cf5e37ae2b9"
+      "run_id": "a92163b7f6f97b8f"
     }
   ]
 }

@@ -260,6 +260,8 @@ def validate_serve_input(records: list[dict], serve_meta: dict) -> str:
     for i, r in enumerate(records, 1):
         errs += [f"{i}번째 줄 {r.get('store_id')}: {e}" for e in rv.validate_def(INPUT_DEFS[version], r)]
     _fail(f"serve 입력 스키마({INPUT_DEFS[version]}) 위반", errs)
+    errs = [f"{r['store_id']}: {e}" for r in records for e in rv.online_driver_errors(r["factors"])]
+    _fail("serve 입력의 온라인 driver 문구가 알려진 템플릿이 아니다 — 정책 연결 조건을 판정할 수 없다", errs)
 
     for key in ("score_origin", "as_of", "n_stores"):
         if key not in serve_meta:
@@ -375,7 +377,7 @@ def tenure_months(license_date: str, as_of: str) -> int:
 
 def match_policies(store: dict, factors: list[dict], policies: list[dict], as_of: str) -> list[dict]:
     """자격 매칭 + 요인 연결. 데이터에 없는 자격정보는 추정하지 않고 check_required로 둔다."""
-    linkable = {f["factor_id"]: f["contribution"] for f in factors if f["display"] and f["contribution"] > 0}
+    linkable = rv.policy_linkable_factors(factors)  # 온라인 요인은 driver가 노출 부족일 때만 (PR #38 §2)
     out = []
     for p in policies:
         c = p["conditions"]
