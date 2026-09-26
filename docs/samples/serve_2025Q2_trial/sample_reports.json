@@ -1,7 +1,8 @@
 [
   {
-    "_schema_version": "0.1",
+    "_schema_version": "0.2",
     "store_id": "SAMPLE-001",
+    "score_origin": "2025Q2",
     "as_of": "2025-06-30",
     "store": {
       "biz_type": "휴게음식점",
@@ -38,6 +39,8 @@
         "display": false,
         "display_note": "언급이 많은 쪽에서 위험이 높게 나온 경우 — 이름 오탐(#28)·유행 상권 효과 검토 전까지 표시 보류",
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": "online_review",
         "values": {
           "online_blog_cnt_3m": 19.0,
           "online_blog_cnt_12m": 101.0,
@@ -60,6 +63,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "age_months": 36
         }
@@ -77,6 +82,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "biz_type": "휴게음식점",
           "area": 60.0,
@@ -96,6 +103,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_change_index": "LL",
           "trdar_oper_months_avg": 76.0,
@@ -115,6 +124,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "gu": "마포구"
         }
@@ -132,6 +143,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_flow_pop": 5024504.0,
           "trdar_resident_pop": 6602.0,
@@ -152,6 +165,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_sales_amt_observed": 9183194420.0,
           "trdar_biz_sales_per_store_observed": 27089069.0855
@@ -170,6 +185,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_store_cnt_observed": 339.0,
           "trdar_biz_franchise_cnt_observed": 37.0,
@@ -189,8 +206,9 @@
     ]
   },
   {
-    "_schema_version": "0.1",
+    "_schema_version": "0.2",
     "store_id": "SAMPLE-002",
+    "score_origin": "2025Q2",
     "as_of": "2025-06-30",
     "store": {
       "biz_type": "일반음식점",
@@ -227,6 +245,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "biz_type": "일반음식점",
           "area": 20.0,
@@ -246,6 +266,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "age_months": 12
         }
@@ -263,6 +285,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_flow_pop": 1953436.0,
           "trdar_resident_pop": 4920.0,
@@ -283,6 +307,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_store_cnt_observed": 218.0,
           "trdar_biz_franchise_cnt_observed": 38.0,
@@ -303,6 +329,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "online_blog_cnt_3m": 0.0,
           "online_blog_cnt_12m": 0.0,
@@ -325,6 +353,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_change_index": "LL",
           "trdar_oper_months_avg": 91.0,
@@ -344,6 +374,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "gu": "광진구"
         }
@@ -361,6 +393,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_sales_amt_observed": 9885751534.0,
           "trdar_biz_sales_per_store_observed": 45347484.1009
@@ -377,8 +411,9 @@
     ]
   },
   {
-    "_schema_version": "0.1",
+    "_schema_version": "0.2",
     "store_id": "SAMPLE-003",
+    "score_origin": "2025Q2",
     "as_of": "2025-06-30",
     "store": {
       "biz_type": "일반음식점",
@@ -415,6 +450,8 @@
         "display": false,
         "display_note": "언급이 많은 쪽에서 위험이 높게 나온 경우 — 이름 오탐(#28)·유행 상권 효과 검토 전까지 표시 보류",
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": "online_review",
         "values": {
           "online_blog_cnt_3m": 1.0,
           "online_blog_cnt_12m": 150.0,
@@ -437,6 +474,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "age_months": 12
         }
@@ -454,6 +493,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "gu": "마포구"
         }
@@ -471,6 +512,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "biz_type": "일반음식점",
           "area": 110.0,
@@ -490,6 +533,8 @@
         "display": false,
         "display_note": "이 점포에는 해당 데이터가 없음 — 기여는 값이 아니라 '데이터 없음' 자체에서 나와 표시 보류",
         "data_missing": true,
+        "missing_reason": "out_of_trdar",
+        "hold_reason": "data_missing",
         "values": {
           "trdar_flow_pop": null,
           "trdar_resident_pop": null,
@@ -510,6 +555,8 @@
         "display": false,
         "display_note": "이 점포에는 해당 데이터가 없음 — 기여는 값이 아니라 '데이터 없음' 자체에서 나와 표시 보류",
         "data_missing": true,
+        "missing_reason": "out_of_trdar",
+        "hold_reason": "data_missing",
         "values": {
           "trdar_biz_sales_amt_observed": null,
           "trdar_biz_sales_per_store_observed": null
@@ -528,6 +575,8 @@
         "display": false,
         "display_note": "이 점포에는 해당 데이터가 없음 — 기여는 값이 아니라 '데이터 없음' 자체에서 나와 표시 보류",
         "data_missing": true,
+        "missing_reason": "out_of_trdar",
+        "hold_reason": "data_missing",
         "values": {
           "trdar_biz_store_cnt_observed": null,
           "trdar_biz_franchise_cnt_observed": null,
@@ -548,6 +597,8 @@
         "display": false,
         "display_note": "이 점포에는 해당 데이터가 없음 — 기여는 값이 아니라 '데이터 없음' 자체에서 나와 표시 보류",
         "data_missing": true,
+        "missing_reason": "out_of_trdar",
+        "hold_reason": "data_missing",
         "values": {
           "trdar_change_index": null,
           "trdar_oper_months_avg": null,
@@ -566,8 +617,9 @@
     ]
   },
   {
-    "_schema_version": "0.1",
+    "_schema_version": "0.2",
     "store_id": "SAMPLE-004",
+    "score_origin": "2025Q2",
     "as_of": "2025-06-30",
     "store": {
       "biz_type": "휴게음식점",
@@ -604,6 +656,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "age_months": 12
         }
@@ -621,6 +675,8 @@
         "display": false,
         "display_note": "언급이 많은 쪽에서 위험이 높게 나온 경우 — 이름 오탐(#28)·유행 상권 효과 검토 전까지 표시 보류",
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": "online_review",
         "values": {
           "online_blog_cnt_3m": 11.0,
           "online_blog_cnt_12m": 31.0,
@@ -643,6 +699,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_store_cnt_observed": 5.0,
           "trdar_biz_franchise_cnt_observed": 0.0,
@@ -663,6 +721,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_change_index": "LL",
           "trdar_oper_months_avg": 64.0,
@@ -682,6 +742,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_flow_pop": 302256.0,
           "trdar_resident_pop": 2291.0,
@@ -702,6 +764,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "biz_type": "휴게음식점",
           "area": 90.0,
@@ -721,6 +785,8 @@
         "display": false,
         "display_note": "이 점포에는 해당 데이터가 없음 — 기여는 값이 아니라 '데이터 없음' 자체에서 나와 표시 보류",
         "data_missing": true,
+        "missing_reason": "sales_unpublished",
+        "hold_reason": "data_missing",
         "values": {
           "trdar_biz_sales_amt_observed": null,
           "trdar_biz_sales_per_store_observed": null
@@ -739,6 +805,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "gu": "광진구"
         }
@@ -755,8 +823,9 @@
     ]
   },
   {
-    "_schema_version": "0.1",
+    "_schema_version": "0.2",
     "store_id": "SAMPLE-005",
+    "score_origin": "2025Q2",
     "as_of": "2025-06-30",
     "store": {
       "biz_type": "일반음식점",
@@ -793,6 +862,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "age_months": 12
         }
@@ -810,6 +881,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_change_index": "HL",
           "trdar_oper_months_avg": 125.0,
@@ -829,6 +902,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "biz_type": "일반음식점",
           "area": 10.0,
@@ -848,6 +923,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "gu": "마포구"
         }
@@ -865,6 +942,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_store_cnt_observed": 135.0,
           "trdar_biz_franchise_cnt_observed": 22.0,
@@ -885,6 +964,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "online_blog_cnt_3m": 0.0,
           "online_blog_cnt_12m": 1.0,
@@ -907,6 +988,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_sales_amt_observed": 6466057996.0,
           "trdar_biz_sales_per_store_observed": 48616977.4135
@@ -925,6 +1008,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_flow_pop": 809889.0,
           "trdar_resident_pop": 3745.0,
@@ -943,8 +1028,9 @@
     ]
   },
   {
-    "_schema_version": "0.1",
+    "_schema_version": "0.2",
     "store_id": "SAMPLE-006",
+    "score_origin": "2025Q2",
     "as_of": "2025-06-30",
     "store": {
       "biz_type": "일반음식점",
@@ -981,6 +1067,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_flow_pop": 1798203.0,
           "trdar_resident_pop": 6384.0,
@@ -1001,6 +1089,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "age_months": 0
         }
@@ -1018,6 +1108,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "online_blog_cnt_3m": 0.0,
           "online_blog_cnt_12m": 0.0,
@@ -1040,6 +1132,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_sales_amt_observed": 2112255385.0,
           "trdar_biz_sales_per_store_observed": 25759212.0122
@@ -1058,6 +1152,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "gu": "광진구"
         }
@@ -1075,6 +1171,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_store_cnt_observed": 97.0,
           "trdar_biz_franchise_cnt_observed": 15.0,
@@ -1095,6 +1193,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_change_index": "LL",
           "trdar_oper_months_avg": 100.0,
@@ -1114,6 +1214,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "biz_type": "일반음식점",
           "area": 70.0,
@@ -1131,8 +1233,9 @@
     ]
   },
   {
-    "_schema_version": "0.1",
+    "_schema_version": "0.2",
     "store_id": "SAMPLE-007",
+    "score_origin": "2025Q2",
     "as_of": "2025-06-30",
     "store": {
       "biz_type": "일반음식점",
@@ -1169,6 +1272,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "age_months": 24
         }
@@ -1186,6 +1291,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "online_blog_cnt_3m": 0.0,
           "online_blog_cnt_12m": 0.0,
@@ -1208,6 +1315,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_change_index": "HL",
           "trdar_oper_months_avg": 115.0,
@@ -1227,6 +1336,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_store_cnt_observed": 74.0,
           "trdar_biz_franchise_cnt_observed": 8.0,
@@ -1247,6 +1358,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_sales_amt_observed": 1304188290.0,
           "trdar_biz_sales_per_store_observed": 21380135.9016
@@ -1265,6 +1378,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "gu": "광진구"
         }
@@ -1282,6 +1397,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "biz_type": "일반음식점",
           "area": 50.0,
@@ -1301,6 +1418,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_flow_pop": 3109871.0,
           "trdar_resident_pop": 6201.0,
@@ -1320,8 +1439,9 @@
     ]
   },
   {
-    "_schema_version": "0.1",
+    "_schema_version": "0.2",
     "store_id": "SAMPLE-008",
+    "score_origin": "2025Q2",
     "as_of": "2025-06-30",
     "store": {
       "biz_type": "일반음식점",
@@ -1358,6 +1478,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "age_months": 12
         }
@@ -1375,6 +1497,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "online_blog_cnt_3m": 0.0,
           "online_blog_cnt_12m": 0.0,
@@ -1397,6 +1521,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "gu": "마포구"
         }
@@ -1414,6 +1540,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_change_index": "LL",
           "trdar_oper_months_avg": 73.0,
@@ -1433,6 +1561,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_store_cnt_observed": 190.0,
           "trdar_biz_franchise_cnt_observed": 21.0,
@@ -1453,6 +1583,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_sales_amt_observed": 6495630703.0,
           "trdar_biz_sales_per_store_observed": 35111517.3135
@@ -1471,6 +1603,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "biz_type": "일반음식점",
           "area": 30.0,
@@ -1490,6 +1624,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_flow_pop": 961351.0,
           "trdar_resident_pop": 1245.0,
@@ -1508,8 +1644,9 @@
     ]
   },
   {
-    "_schema_version": "0.1",
+    "_schema_version": "0.2",
     "store_id": "SAMPLE-009",
+    "score_origin": "2025Q2",
     "as_of": "2025-06-30",
     "store": {
       "biz_type": "미용업",
@@ -1546,6 +1683,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_sales_amt_observed": 16654568.0,
           "trdar_biz_sales_per_store_observed": 2775761.3333
@@ -1564,6 +1703,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_flow_pop": 302256.0,
           "trdar_resident_pop": 2291.0,
@@ -1584,6 +1725,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "age_months": 0
         }
@@ -1601,6 +1744,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_store_cnt_observed": 14.0,
           "trdar_biz_franchise_cnt_observed": 0.0,
@@ -1621,6 +1766,8 @@
         "display": false,
         "display_note": "언급이 많은 쪽에서 위험이 높게 나온 경우 — 이름 오탐(#28)·유행 상권 효과 검토 전까지 표시 보류",
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": "online_review",
         "values": {
           "online_blog_cnt_3m": 1.0,
           "online_blog_cnt_12m": 3.0,
@@ -1643,6 +1790,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "gu": "광진구"
         }
@@ -1660,6 +1809,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_change_index": "LL",
           "trdar_oper_months_avg": 64.0,
@@ -1679,6 +1830,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "biz_type": "미용업",
           "area": 50.0,
@@ -1697,8 +1850,9 @@
     ]
   },
   {
-    "_schema_version": "0.1",
+    "_schema_version": "0.2",
     "store_id": "SAMPLE-010",
+    "score_origin": "2025Q2",
     "as_of": "2025-06-30",
     "store": {
       "biz_type": "휴게음식점",
@@ -1735,6 +1889,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "age_months": 12
         }
@@ -1752,6 +1908,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_flow_pop": 4215817.0,
           "trdar_resident_pop": 4546.0,
@@ -1772,6 +1930,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "biz_type": "휴게음식점",
           "area": 60.0,
@@ -1791,6 +1951,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_change_index": "LL",
           "trdar_oper_months_avg": 79.0,
@@ -1810,6 +1972,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "gu": "마포구"
         }
@@ -1827,6 +1991,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_sales_amt_observed": 14477519482.0,
           "trdar_biz_sales_per_store_observed": 40103932.0831
@@ -1845,6 +2011,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_store_cnt_observed": 361.0,
           "trdar_biz_franchise_cnt_observed": 60.0,
@@ -1865,6 +2033,8 @@
         "display": false,
         "display_note": "이 점포에는 해당 데이터가 없음 — 기여는 값이 아니라 '데이터 없음' 자체에서 나와 표시 보류",
         "data_missing": true,
+        "missing_reason": "online_unobservable",
+        "hold_reason": "data_missing",
         "values": {
           "online_blog_cnt_3m": null,
           "online_blog_cnt_12m": null,
@@ -1885,8 +2055,9 @@
     ]
   },
   {
-    "_schema_version": "0.1",
+    "_schema_version": "0.2",
     "store_id": "SAMPLE-011",
+    "score_origin": "2025Q2",
     "as_of": "2025-06-30",
     "store": {
       "biz_type": "일반음식점",
@@ -1923,6 +2094,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "online_blog_cnt_3m": 0.0,
           "online_blog_cnt_12m": 0.0,
@@ -1945,6 +2118,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_change_index": "LL",
           "trdar_oper_months_avg": 80.0,
@@ -1964,6 +2139,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "gu": "마포구"
         }
@@ -1981,6 +2158,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_flow_pop": 494477.0,
           "trdar_resident_pop": 1177.0,
@@ -2001,6 +2180,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_sales_amt_observed": 14581025977.0,
           "trdar_biz_sales_per_store_observed": 54003799.9148
@@ -2019,6 +2200,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_store_cnt_observed": 272.0,
           "trdar_biz_franchise_cnt_observed": 68.0,
@@ -2039,6 +2222,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "biz_type": "일반음식점",
           "area": 30.0,
@@ -2058,6 +2243,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "age_months": 72
         }
@@ -2073,8 +2260,9 @@
     ]
   },
   {
-    "_schema_version": "0.1",
+    "_schema_version": "0.2",
     "store_id": "SAMPLE-012",
+    "score_origin": "2025Q2",
     "as_of": "2025-06-30",
     "store": {
       "biz_type": "일반음식점",
@@ -2111,6 +2299,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "online_blog_cnt_3m": 0.0,
           "online_blog_cnt_12m": 0.0,
@@ -2133,6 +2323,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "gu": "마포구"
         }
@@ -2150,6 +2342,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_sales_amt_observed": 1933394117.0,
           "trdar_biz_sales_per_store_observed": 28020204.5942
@@ -2168,6 +2362,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_store_cnt_observed": 76.0,
           "trdar_biz_franchise_cnt_observed": 11.0,
@@ -2180,7 +2376,7 @@
         "name": "상권 변화·영업 지속",
         "factor_id": "trdar_vitality",
         "contribution": -0.0008,
-        "direction": "위험 감소",
+        "direction": "영향 미미",
         "peer_percentile": 27,
         "actionability": "external",
         "explanation": "상권 변화·영업 지속은 이 점포의 예측 위험도에 거의 영향을 주지 않았습니다.",
@@ -2188,6 +2384,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_change_index": "LH",
           "trdar_oper_months_avg": 97.0,
@@ -2207,6 +2405,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "age_months": 96
         }
@@ -2224,6 +2424,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_flow_pop": 2022699.0,
           "trdar_resident_pop": 2727.0,
@@ -2244,6 +2446,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "biz_type": "일반음식점",
           "area": 40.0,
@@ -2262,8 +2466,9 @@
     ]
   },
   {
-    "_schema_version": "0.1",
+    "_schema_version": "0.2",
     "store_id": "SAMPLE-013",
+    "score_origin": "2025Q2",
     "as_of": "2025-06-30",
     "store": {
       "biz_type": "일반음식점",
@@ -2300,6 +2505,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "biz_type": "일반음식점",
           "area": 10.0,
@@ -2319,6 +2526,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "gu": "마포구"
         }
@@ -2336,6 +2545,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_flow_pop": 4961562.0,
           "trdar_resident_pop": 11779.0,
@@ -2356,6 +2567,8 @@
         "display": false,
         "display_note": "언급이 많은 쪽에서 위험이 높게 나온 경우 — 이름 오탐(#28)·유행 상권 효과 검토 전까지 표시 보류",
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": "online_review",
         "values": {
           "online_blog_cnt_3m": 23.0,
           "online_blog_cnt_12m": 83.0,
@@ -2378,6 +2591,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_change_index": "LL",
           "trdar_oper_months_avg": 78.0,
@@ -2397,6 +2612,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_sales_amt_observed": 7202644394.0,
           "trdar_biz_sales_per_store_observed": 26775629.7175
@@ -2415,6 +2632,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_store_cnt_observed": 269.0,
           "trdar_biz_franchise_cnt_observed": 15.0,
@@ -2435,6 +2654,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "age_months": 84
         }
@@ -2450,8 +2671,9 @@
     ]
   },
   {
-    "_schema_version": "0.1",
+    "_schema_version": "0.2",
     "store_id": "SAMPLE-014",
+    "score_origin": "2025Q2",
     "as_of": "2025-06-30",
     "store": {
       "biz_type": "미용업",
@@ -2488,6 +2710,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "age_months": 0
         }
@@ -2505,6 +2729,8 @@
         "display": false,
         "display_note": "언급이 많은 쪽에서 위험이 높게 나온 경우 — 이름 오탐(#28)·유행 상권 효과 검토 전까지 표시 보류",
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": "online_review",
         "values": {
           "online_blog_cnt_3m": 2.0,
           "online_blog_cnt_12m": 35.0,
@@ -2527,6 +2753,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_sales_amt_observed": 186276096.0,
           "trdar_biz_sales_per_store_observed": 16934190.5455
@@ -2545,6 +2773,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_flow_pop": 482701.0,
           "trdar_resident_pop": 5778.0,
@@ -2565,6 +2795,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "gu": "마포구"
         }
@@ -2582,6 +2814,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_change_index": "LH",
           "trdar_oper_months_avg": 82.0,
@@ -2601,6 +2835,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_store_cnt_observed": 22.0,
           "trdar_biz_franchise_cnt_observed": 3.0,
@@ -2621,6 +2857,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "biz_type": "미용업",
           "area": 70.0,
@@ -2639,8 +2877,9 @@
     ]
   },
   {
-    "_schema_version": "0.1",
+    "_schema_version": "0.2",
     "store_id": "SAMPLE-015",
+    "score_origin": "2025Q2",
     "as_of": "2025-06-30",
     "store": {
       "biz_type": "일반음식점",
@@ -2677,6 +2916,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "gu": "마포구"
         }
@@ -2694,6 +2935,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "biz_type": "일반음식점",
           "area": 30.0,
@@ -2713,6 +2956,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_store_cnt_observed": 190.0,
           "trdar_biz_franchise_cnt_observed": 21.0,
@@ -2733,6 +2978,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "age_months": 0
         }
@@ -2750,6 +2997,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_change_index": "LL",
           "trdar_oper_months_avg": 73.0,
@@ -2769,6 +3018,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_sales_amt_observed": 6495630703.0,
           "trdar_biz_sales_per_store_observed": 35111517.3135
@@ -2779,7 +3030,7 @@
         "name": "온라인 언급(블로그)",
         "factor_id": "online_attention",
         "contribution": 0.0009,
-        "direction": "위험 증가",
+        "direction": "영향 미미",
         "peer_percentile": 63,
         "actionability": "owner",
         "explanation": "온라인 언급(블로그)은 이 점포의 예측 위험도에 거의 영향을 주지 않았습니다.",
@@ -2787,6 +3038,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "online_blog_cnt_3m": 0.0,
           "online_blog_cnt_12m": 0.0,
@@ -2809,6 +3062,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_flow_pop": 961351.0,
           "trdar_resident_pop": 1245.0,
@@ -2826,8 +3081,9 @@
     ]
   },
   {
-    "_schema_version": "0.1",
+    "_schema_version": "0.2",
     "store_id": "SAMPLE-016",
+    "score_origin": "2025Q2",
     "as_of": "2025-06-30",
     "store": {
       "biz_type": "미용업",
@@ -2864,6 +3120,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_change_index": "HL",
           "trdar_oper_months_avg": 125.0,
@@ -2883,6 +3141,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "gu": "마포구"
         }
@@ -2900,6 +3160,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_sales_amt_observed": 140467567.0,
           "trdar_biz_sales_per_store_observed": 5202502.4815
@@ -2918,6 +3180,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "age_months": 84
         }
@@ -2935,6 +3199,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_flow_pop": 809889.0,
           "trdar_resident_pop": 3745.0,
@@ -2955,6 +3221,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "online_blog_cnt_3m": 0.0,
           "online_blog_cnt_12m": 0.0,
@@ -2977,6 +3245,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "biz_type": "미용업",
           "area": 120.0,
@@ -2996,6 +3266,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_store_cnt_observed": 27.0,
           "trdar_biz_franchise_cnt_observed": 2.0,
@@ -3013,8 +3285,9 @@
     ]
   },
   {
-    "_schema_version": "0.1",
+    "_schema_version": "0.2",
     "store_id": "SAMPLE-017",
+    "score_origin": "2025Q2",
     "as_of": "2025-06-30",
     "store": {
       "biz_type": "미용업",
@@ -3051,6 +3324,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "age_months": 36
         }
@@ -3068,6 +3343,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "online_blog_cnt_3m": 0.0,
           "online_blog_cnt_12m": 0.0,
@@ -3090,6 +3367,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_change_index": "LH",
           "trdar_oper_months_avg": 101.0,
@@ -3109,6 +3388,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_sales_amt_observed": 722793993.0,
           "trdar_biz_sales_per_store_observed": 7451484.4639
@@ -3127,6 +3408,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "gu": "광진구"
         }
@@ -3144,6 +3427,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_flow_pop": 2464418.0,
           "trdar_resident_pop": 6506.0,
@@ -3164,6 +3449,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_store_cnt_observed": 97.0,
           "trdar_biz_franchise_cnt_observed": 5.0,
@@ -3184,6 +3471,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "biz_type": "미용업",
           "area": 20.0,
@@ -3200,8 +3489,9 @@
     ]
   },
   {
-    "_schema_version": "0.1",
+    "_schema_version": "0.2",
     "store_id": "SAMPLE-018",
+    "score_origin": "2025Q2",
     "as_of": "2025-06-30",
     "store": {
       "biz_type": "미용업",
@@ -3238,6 +3528,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "age_months": 24
         }
@@ -3255,6 +3547,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "online_blog_cnt_3m": 0.0,
           "online_blog_cnt_12m": 0.0,
@@ -3269,7 +3563,7 @@
         "name": "동종 업종 매출 수준",
         "factor_id": "peer_sales",
         "contribution": 0.0009,
-        "direction": "위험 증가",
+        "direction": "영향 미미",
         "peer_percentile": 21,
         "actionability": "external",
         "explanation": "이 점포는 동종 업종 매출 수준 데이터가 없어(상권 경계 밖) 이 요인은 진단하지 않습니다.",
@@ -3277,6 +3571,8 @@
         "display": false,
         "display_note": "이 점포에는 해당 데이터가 없음 — 기여는 값이 아니라 '데이터 없음' 자체에서 나와 표시 보류",
         "data_missing": true,
+        "missing_reason": "out_of_trdar",
+        "hold_reason": "data_missing",
         "values": {
           "trdar_biz_sales_amt_observed": null,
           "trdar_biz_sales_per_store_observed": null
@@ -3295,6 +3591,8 @@
         "display": false,
         "display_note": "이 점포에는 해당 데이터가 없음 — 기여는 값이 아니라 '데이터 없음' 자체에서 나와 표시 보류",
         "data_missing": true,
+        "missing_reason": "out_of_trdar",
+        "hold_reason": "data_missing",
         "values": {
           "trdar_flow_pop": null,
           "trdar_resident_pop": null,
@@ -3315,6 +3613,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "gu": "광진구"
         }
@@ -3332,6 +3632,8 @@
         "display": false,
         "display_note": "이 점포에는 해당 데이터가 없음 — 기여는 값이 아니라 '데이터 없음' 자체에서 나와 표시 보류",
         "data_missing": true,
+        "missing_reason": "out_of_trdar",
+        "hold_reason": "data_missing",
         "values": {
           "trdar_biz_store_cnt_observed": null,
           "trdar_biz_franchise_cnt_observed": null,
@@ -3352,6 +3654,8 @@
         "display": false,
         "display_note": "이 점포에는 해당 데이터가 없음 — 기여는 값이 아니라 '데이터 없음' 자체에서 나와 표시 보류",
         "data_missing": true,
+        "missing_reason": "out_of_trdar",
+        "hold_reason": "data_missing",
         "values": {
           "trdar_change_index": null,
           "trdar_oper_months_avg": null,
@@ -3371,6 +3675,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "biz_type": "미용업",
           "area": 60.0,
@@ -3388,8 +3694,9 @@
     ]
   },
   {
-    "_schema_version": "0.1",
+    "_schema_version": "0.2",
     "store_id": "SAMPLE-019",
+    "score_origin": "2025Q2",
     "as_of": "2025-06-30",
     "store": {
       "biz_type": "미용업",
@@ -3426,6 +3733,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "online_blog_cnt_3m": 0.0,
           "online_blog_cnt_12m": 9.0,
@@ -3448,6 +3757,8 @@
         "display": false,
         "display_note": "이 점포에는 해당 데이터가 없음 — 기여는 값이 아니라 '데이터 없음' 자체에서 나와 표시 보류",
         "data_missing": true,
+        "missing_reason": "sales_unpublished",
+        "hold_reason": "data_missing",
         "values": {
           "trdar_biz_sales_amt_observed": null,
           "trdar_biz_sales_per_store_observed": null
@@ -3466,6 +3777,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_change_index": "HH",
           "trdar_oper_months_avg": 113.0,
@@ -3477,7 +3790,7 @@
         "name": "자치구",
         "factor_id": "district",
         "contribution": 0.0,
-        "direction": "위험 증가",
+        "direction": "영향 미미",
         "peer_percentile": 99,
         "actionability": "external",
         "explanation": "자치구는 이 점포의 예측 위험도에 거의 영향을 주지 않았습니다.",
@@ -3485,6 +3798,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "gu": "광진구"
         }
@@ -3502,6 +3817,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_flow_pop": 260110.0,
           "trdar_resident_pop": 1207.0,
@@ -3522,6 +3839,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_store_cnt_observed": 4.0,
           "trdar_biz_franchise_cnt_observed": 0.0,
@@ -3542,6 +3861,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "age_months": 72
         }
@@ -3559,6 +3880,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "biz_type": "미용업",
           "area": 40.0,
@@ -3576,8 +3899,9 @@
     ]
   },
   {
-    "_schema_version": "0.1",
+    "_schema_version": "0.2",
     "store_id": "SAMPLE-020",
+    "score_origin": "2025Q2",
     "as_of": "2025-06-30",
     "store": {
       "biz_type": "미용업",
@@ -3614,6 +3938,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "age_months": 24
         }
@@ -3631,6 +3957,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_flow_pop": 846589.0,
           "trdar_resident_pop": 1935.0,
@@ -3651,6 +3979,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_sales_amt_observed": 30825411.0,
           "trdar_biz_sales_per_store_observed": 3425045.6667
@@ -3669,6 +3999,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "gu": "마포구"
         }
@@ -3686,6 +4018,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_change_index": "LL",
           "trdar_oper_months_avg": 70.0,
@@ -3705,6 +4039,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_store_cnt_observed": 19.0,
           "trdar_biz_franchise_cnt_observed": 0.0,
@@ -3725,6 +4061,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "online_blog_cnt_3m": 0.0,
           "online_blog_cnt_12m": 0.0,
@@ -3747,6 +4085,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "biz_type": "미용업",
           "area": 40.0,
@@ -3763,8 +4103,9 @@
     ]
   },
   {
-    "_schema_version": "0.1",
+    "_schema_version": "0.2",
     "store_id": "SAMPLE-021",
+    "score_origin": "2025Q2",
     "as_of": "2025-06-30",
     "store": {
       "biz_type": "미용업",
@@ -3801,6 +4142,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "age_months": 36
         }
@@ -3818,6 +4161,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "online_blog_cnt_3m": 0.0,
           "online_blog_cnt_12m": 0.0,
@@ -3840,6 +4185,8 @@
         "display": false,
         "display_note": "이 점포에는 해당 데이터가 없음 — 기여는 값이 아니라 '데이터 없음' 자체에서 나와 표시 보류",
         "data_missing": true,
+        "missing_reason": "out_of_trdar",
+        "hold_reason": "data_missing",
         "values": {
           "trdar_biz_sales_amt_observed": null,
           "trdar_biz_sales_per_store_observed": null
@@ -3858,6 +4205,8 @@
         "display": false,
         "display_note": "이 점포에는 해당 데이터가 없음 — 기여는 값이 아니라 '데이터 없음' 자체에서 나와 표시 보류",
         "data_missing": true,
+        "missing_reason": "out_of_trdar",
+        "hold_reason": "data_missing",
         "values": {
           "trdar_change_index": null,
           "trdar_oper_months_avg": null,
@@ -3877,6 +4226,8 @@
         "display": false,
         "display_note": "이 점포에는 해당 데이터가 없음 — 기여는 값이 아니라 '데이터 없음' 자체에서 나와 표시 보류",
         "data_missing": true,
+        "missing_reason": "out_of_trdar",
+        "hold_reason": "data_missing",
         "values": {
           "trdar_flow_pop": null,
           "trdar_resident_pop": null,
@@ -3897,6 +4248,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "gu": "영등포구"
         }
@@ -3914,6 +4267,8 @@
         "display": false,
         "display_note": "이 점포에는 해당 데이터가 없음 — 기여는 값이 아니라 '데이터 없음' 자체에서 나와 표시 보류",
         "data_missing": true,
+        "missing_reason": "out_of_trdar",
+        "hold_reason": "data_missing",
         "values": {
           "trdar_biz_store_cnt_observed": null,
           "trdar_biz_franchise_cnt_observed": null,
@@ -3934,6 +4289,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "biz_type": "미용업",
           "area": 30.0,
@@ -3952,8 +4309,9 @@
     ]
   },
   {
-    "_schema_version": "0.1",
+    "_schema_version": "0.2",
     "store_id": "SAMPLE-022",
+    "score_origin": "2025Q2",
     "as_of": "2025-06-30",
     "store": {
       "biz_type": "미용업",
@@ -3990,6 +4348,8 @@
         "display": false,
         "display_note": "이 점포에는 해당 데이터가 없음 — 기여는 값이 아니라 '데이터 없음' 자체에서 나와 표시 보류",
         "data_missing": true,
+        "missing_reason": "out_of_trdar",
+        "hold_reason": "data_missing",
         "values": {
           "trdar_biz_sales_amt_observed": null,
           "trdar_biz_sales_per_store_observed": null
@@ -4000,7 +4360,7 @@
         "name": "상권 변화·영업 지속",
         "factor_id": "trdar_vitality",
         "contribution": 0.0004,
-        "direction": "위험 증가",
+        "direction": "영향 미미",
         "peer_percentile": 29,
         "actionability": "external",
         "explanation": "이 점포는 상권 변화·영업 지속 데이터가 없어(상권 경계 밖) 이 요인은 진단하지 않습니다.",
@@ -4008,6 +4368,8 @@
         "display": false,
         "display_note": "이 점포에는 해당 데이터가 없음 — 기여는 값이 아니라 '데이터 없음' 자체에서 나와 표시 보류",
         "data_missing": true,
+        "missing_reason": "out_of_trdar",
+        "hold_reason": "data_missing",
         "values": {
           "trdar_change_index": null,
           "trdar_oper_months_avg": null,
@@ -4019,7 +4381,7 @@
         "name": "상권 유동·배후 인구",
         "factor_id": "trdar_population",
         "contribution": -0.0005,
-        "direction": "위험 감소",
+        "direction": "영향 미미",
         "peer_percentile": 78,
         "actionability": "external",
         "explanation": "이 점포는 상권 유동·배후 인구 데이터가 없어(상권 경계 밖) 이 요인은 진단하지 않습니다.",
@@ -4027,6 +4389,8 @@
         "display": false,
         "display_note": "이 점포에는 해당 데이터가 없음 — 기여는 값이 아니라 '데이터 없음' 자체에서 나와 표시 보류",
         "data_missing": true,
+        "missing_reason": "out_of_trdar",
+        "hold_reason": "data_missing",
         "values": {
           "trdar_flow_pop": null,
           "trdar_resident_pop": null,
@@ -4047,6 +4411,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "age_months": 72
         }
@@ -4064,6 +4430,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "gu": "영등포구"
         }
@@ -4081,6 +4449,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "online_blog_cnt_3m": 1.0,
           "online_blog_cnt_12m": 1.0,
@@ -4103,6 +4473,8 @@
         "display": false,
         "display_note": "이 점포에는 해당 데이터가 없음 — 기여는 값이 아니라 '데이터 없음' 자체에서 나와 표시 보류",
         "data_missing": true,
+        "missing_reason": "out_of_trdar",
+        "hold_reason": "data_missing",
         "values": {
           "trdar_biz_store_cnt_observed": null,
           "trdar_biz_franchise_cnt_observed": null,
@@ -4123,6 +4495,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "biz_type": "미용업",
           "area": 40.0,
@@ -4140,8 +4514,9 @@
     ]
   },
   {
-    "_schema_version": "0.1",
+    "_schema_version": "0.2",
     "store_id": "SAMPLE-023",
+    "score_origin": "2025Q2",
     "as_of": "2025-06-30",
     "store": {
       "biz_type": "미용업",
@@ -4178,6 +4553,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_change_index": "LL",
           "trdar_oper_months_avg": 105.0,
@@ -4197,6 +4574,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_sales_amt_observed": 187833463.0,
           "trdar_biz_sales_per_store_observed": 8166672.3043
@@ -4215,6 +4594,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "gu": "마포구"
         }
@@ -4232,6 +4613,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_biz_store_cnt_observed": 27.0,
           "trdar_biz_franchise_cnt_observed": 1.0,
@@ -4252,6 +4635,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "age_months": 72
         }
@@ -4269,6 +4654,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "trdar_flow_pop": 1298701.0,
           "trdar_resident_pop": 4554.0,
@@ -4289,6 +4676,8 @@
         "display": true,
         "display_note": null,
         "data_missing": false,
+        "missing_reason": null,
+        "hold_reason": null,
         "values": {
           "biz_type": "미용업",
           "area": 130.0,
@@ -4308,6 +4697,8 @@
         "display": false,
         "display_note": "이 점포에는 해당 데이터가 없음 — 기여는 값이 아니라 '데이터 없음' 자체에서 나와 표시 보류",
         "data_missing": true,
+        "missing_reason": "online_unobservable",
+        "hold_reason": "data_missing",
         "values": {
           "online_blog_cnt_3m": null,
           "online_blog_cnt_12m": null,

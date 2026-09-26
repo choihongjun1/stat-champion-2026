@@ -42,7 +42,7 @@ import pandas as pd
 from src.data import config
 from src.models import bands, detect, diagnose, features, train_detect, uncertainty
 
-SCHEMA_VERSION = "0.1"
+SCHEMA_VERSION = "0.2"  # 0.2: score_origin, factors[].missing_reason·hold_reason, direction "영향 미미"
 DISCLAIMER = "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다."
 INTERVAL_NOTE = "학습 데이터가 달랐다면 예측이 얼마나 흔들렸을지의 범위이며, 폐업 확률 자체의 범위가 아닙니다."
 DEFAULT_LICENSES = config.REPO_ROOT / "outputs" / "standardized" / "licenses_3gu.parquet"
@@ -201,7 +201,7 @@ def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *,
     with open(out_dir / "reports.jsonl", "w", encoding="utf-8") as f:
         for r in risk.itertuples(index=False):
             rec = {
-                "_schema_version": SCHEMA_VERSION, "store_id": r.store_id, "as_of": as_of,
+                "_schema_version": SCHEMA_VERSION, "store_id": r.store_id, "score_origin": s, "as_of": as_of,
                 "store": {"biz_type": r.biz_type, "gu": r.gu, **names.get(r.store_id, {})},
                 "risk": {"probability_12m": round(float(r.probability_12m), 4),
                          "ci_low": round(float(r.ci_low), 4), "ci_high": round(float(r.ci_high), 4),

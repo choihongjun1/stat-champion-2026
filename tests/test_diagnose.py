@@ -193,6 +193,11 @@ def test_missing_reason_inside_vs_outside_trdar(panel):
     assert all(isinstance(f["data_missing"], bool) for f in fj)
     ps = next(f for f in fj if f["factor_id"] == "peer_sales")
     assert ps["data_missing"] is True and ps["display"] is False
+    assert ps["missing_reason"] == "sales_unpublished" and ps["hold_reason"] == "data_missing"
+    assert all(f["missing_reason"] is None and f["hold_reason"] is None for f in fj if f["display"])
+    out_codes = long.loc[(long["store_id"] == sid_out) & long["factor_id"].isin(diagnose.TRDAR_FACTOR_IDS),
+                         "missing_reason_code"]
+    assert set(out_codes) == {"out_of_trdar"}
     assert sum(f["data_missing"] for f in fj) == 1
 
 
@@ -204,3 +209,36 @@ def test_missing_reason_does_not_assume_outside_without_trdar_cd():
     assert list(diagnose.missing_reasons("trdar_population", raw)) == ["상권 경계 밖", "해당 분기 상권 자료 없음"]
     assert list(diagnose.missing_reasons("peer_competition", raw)) == ["상권 경계 밖", "해당 상권에 이 업종 자료 없음"]
     assert list(diagnose.missing_reasons("online_attention", raw)) == ["관측 불가", "관측 불가"]
+
+
+def test_missing_reason_codes_cover_every_reason_text():
+    texts = {diagnose.REASON_OUTSIDE, diagnose.REASON_TRDAR_UNKNOWN, diagnose.REASON_ONLINE, diagnose.REASON_DEFAULT,
+             *diagnose.REASON_INSIDE.values()}
+    assert texts == set(diagnose.MISSING_REASON_CODES)  # 모든 사유 문구에 코드가 있다
+    codes = list(diagnose.MISSING_REASON_CODES.values())
+    assert len(codes) == len(set(codes)) == 7  # 코드는 사유 문구와 1:1
+    assert all(c.isascii() and c == c.lower() for c in codes)
+    assert set(diagnose.HOLD_REASONS) == {"online_review", "data_missing"}
+
+
+@pytest.mark.parametrize("c,label", [(0.0, "영향 미미"), (0.0009, "영향 미미"), (-0.0009, "영향 미미"),
+                                     (0.001, "위험 증가"), (-0.001, "위험 감소"), (0.05, "위험 증가")])
+def test_direction_label_negligible(c, label):
+    assert diagnose.direction_label(c) == label
+    # 설명문과 같은 기준
+    text = diagnose.explanation({"factor": "자치구", "contribution": c, "peer_level": "biz_type", "peer_percentile": 50})
+    assert ("거의 영향을 주지 않았습니다" in text) == (label == "영향 미미")
+
+
+def test_online_review_hold_reason(tmp_path, panel):
+    mp, op = tmp_path / "master.parquet", tmp_path / "online.parquet"
+    panel.to_parquet(mp, index=False)
+    _online_table(panel).to_parquet(op, index=False)
+    long = diagnose.run(mp, tmp_path / "diag", online_path=op, primary="enriched", origin=None,
+                        n_background=4, max_stores=60)
+    held = long[~long["display"]]
+    assert set(held["hold_reason"]) <= set(diagnose.HOLD_REASONS)
+    assert (long.loc[long["display"], "hold_reason"] == "").all()
+    review = long[long["hold_reason"] == "online_review"]
+    assert (review["factor_id"] == "online_attention").all() and not review["data_missing"].any()
+    assert (long.loc[long["data_missing"], "hold_reason"] == "data_missing").all()

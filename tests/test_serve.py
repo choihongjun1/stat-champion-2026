@@ -57,8 +57,14 @@ def test_reports_jsonl_schema(detect_run, tmp_path):
     recs = [json.loads(l) for l in (out / "reports.jsonl").read_text(encoding="utf-8").splitlines()]
     assert len(recs) == pd.read_parquet(detect_run["sp"]).shape[0]
     r = recs[0]
-    assert set(r) == {"_schema_version", "store_id", "as_of", "store", "risk", "factors",
+    assert set(r) == {"_schema_version", "store_id", "score_origin", "as_of", "store", "risk", "factors",
                       "unavailable_categories", "disclaimer"}
+    assert r["_schema_version"] == "0.2" and r["score_origin"] == detect_run["last"]
+    for f in r["factors"]:
+        assert {"missing_reason", "hold_reason", "direction"} <= set(f)
+        assert (f["hold_reason"] is None) == f["display"]  # display=false ⇔ hold_reason 있음
+        assert (f["missing_reason"] is None) == (not f["data_missing"])
+        assert f["direction"] in {"위험 증가", "위험 감소", "영향 미미"}
     k = r["risk"]
     assert k["ci_low"] <= k["probability_12m"] <= k["ci_high"]
     meta_d = json.loads((detect_run["ddir"] / "run_meta.json").read_text(encoding="utf-8"))

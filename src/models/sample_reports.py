@@ -211,9 +211,10 @@ README = """# W2-6 화면 개발용 샘플 결과
 ## 레코드 구조
 ```
 {{
-  "_schema_version": "0.1",
+  "_schema_version": "0.2",
   "store_id": "...",
-  "as_of": "YYYY-MM-DD",            // 기준 시점 (분기 말일)
+  "score_origin": "YYYYQn",         // 예측 기준 분기 (0.2에서 추가)
+  "as_of": "YYYY-MM-DD",            // 기준 시점 (score_origin 분기 말일)
   "store": {{"biz_type": "...", "gu": "...",
             "name": "...", "address_road": "...", "address_jibun": "...", "dong": "...",
             "license_date": "YYYY-MM-DD"}},
@@ -230,7 +231,7 @@ README = """# W2-6 화면 개발용 샘플 결과
 | `biz_type`, `gu` | 업종(인허가 종류), 자치구 | 점포 헤더 |
 | `name` | 사업장명 (인허가 원문) | 점포 헤더 제목. 검색 결과 목록 |
 | `address_road`, `address_jibun` | 도로명 주소, 지번 주소 (인허가 원문) | 도로명 우선, 없으면 지번 |
-| `dong` | 행정동 | 보조 표시 |
+| `dong` | 법정동 (인허가 데이터 기준, 예: 당산동1가·문래동3가) | 보조 표시 |
 | `license_date` | 인허가일 ("YYYY-MM-DD") | "개업 N년차" 등 보조 표시 |
 
 `name`·주소·인허가일은 서빙을 `--licenses`로 돌렸을 때만 있다. 인허가 데이터에 없는 점포는 값이 null.
@@ -252,26 +253,42 @@ README = """# W2-6 화면 개발용 샘플 결과
 | `category` | 유형 4개: 사업체 구조 / 입지·수요(온라인 언급 포함) / 경쟁 / 비용 | 유형별 묶음 |
 | `name`, `factor_id` | 요인 이름, 고정 id | W2-7 정책 연결 키는 `factor_id` |
 | `contribution` | 예측 확률에 대한 기여 (확률 단위, +면 위험 증가) | "%p"로 표시. 모든 요인 합 + 기준값 = 예측 확률 |
-| `direction` | 위험 증가 / 위험 감소 | 색 구분 |
+| `direction` | 위험 증가 / 위험 감소 / **영향 미미** (기여 절댓값 < 0.001) | 색 구분. "영향 미미"는 중립 색 (기여 원값은 그대로) |
 | `peer_percentile` | 같은 업종·자치구·업력대 점포 중 이 요인의 위험 기여 백분위 | 70 이상이면 설명문에 "상위 N%" 문장이 이미 들어 있음 |
 | `actionability` | owner(사업자 직접) / policy(정책 지원) / external(외부 환경) | 처방·정책 연결 여부 판단 |
 | `explanation` | 화면용 설명문 (인과 표현 없음) | 그대로 출력 |
 | `driver` | 온라인 요인의 주된 근거 (다른 요인은 null) | 설명문에 이미 포함 |
 | `values` | 판단에 쓴 원래 값 | "근거 데이터 보기" 펼침 영역 (선택) |
 | `display` | **false면 진단문으로 내보내지 않는 요인** | 숨기거나 회색 처리. 기여값은 합계에 포함되어 있음 |
-| `data_missing` | display=false의 이유가 "데이터 없음"인지 | 아래 표 참고 |
+| `hold_reason` | display=false인 이유 코드 (display=true면 null) | 아래 표 — 화면 분기는 이 값으로 |
+| `data_missing` | display=false의 이유가 "데이터 없음"인지 (`hold_reason == "data_missing"`과 같음) | |
+| `missing_reason` | 데이터 없음의 세부 사유 코드 (data_missing=false면 null) | 아래 표 |
 | `display_note` | 보류 이유 (내부용 문장) | 화면에는 아래 권장 문구 사용 |
 
 ### display=false 두 종류
 | 경우 | 조건 | 권장 화면 처리 |
 |---|---|---|
-| 데이터 없음 | `data_missing=true` | 회색 "데이터 없음" 배지 + `explanation` (예: "…데이터가 없어(상권 경계 밖) 이 요인은 진단하지 않습니다.") |
-| 검토 대기 | `data_missing=false` (현재 온라인 요인만) | 숨김. 블로그 언급이 많은 쪽에서 위험이 높게 나온 경우로, 상호 오탐 검수(#28) 전까지 보류 |
+| 데이터 없음 | `hold_reason="data_missing"` (`data_missing=true`) | 회색 "데이터 없음" 배지 + `explanation` (예: "…데이터가 없어(상권 경계 밖) 이 요인은 진단하지 않습니다.") |
+| 검토 대기 | `hold_reason="online_review"` (현재 온라인 요인만) | 숨김. 블로그 언급이 많은 쪽에서 위험이 높게 나온 경우로, 상호 오탐 검수(#28) 전까지 보류 |
+
+`hold_reason` 코드는 보류 사유가 늘면 추가된다 (코드 목록: `src/models/diagnose.py` `HOLD_REASONS`).
+
+### `missing_reason` 코드
+| 코드 | 사유 (explanation 괄호 안 문구) | 대상 요인 |
+|---|---|---|
+| `out_of_trdar` | 상권 경계 밖 | 상권 요인 4개 (trdar_population·trdar_vitality·peer_competition·peer_sales) |
+| `sales_unpublished` | 해당 상권에 이 업종 매출 공개 자료 없음 | peer_sales (상권 안) |
+| `industry_unpublished` | 해당 상권에 이 업종 자료 없음 | peer_competition (상권 안) |
+| `trdar_quarter_unavailable` | 해당 분기 상권 자료 없음 | trdar_population·trdar_vitality (상권 안) |
+| `online_unobservable` | 관측 불가 | online_attention |
+| `trdar_unknown` | 상권 데이터 없음 (입력에 상권 코드가 없어 상권 밖인지 판단 불가) | 상권 요인 |
+| `unknown` | 데이터 없음 (예비값) | 그 밖의 요인 |
 
 ### 기타 규칙
 - `unavailable_categories`에 있는 유형(현재 "비용")은 **0이 아니라 "판단 불가"**로 표시. 0%p로 그리지 않는다.
 - 요인 기여는 예측모형의 변수 기여도이며 원인이 아님 → `disclaimer` 문구를 진단 화면 하단에 항상 표시.
-- 기여 크기가 0.1%p 미만인 요인은 설명문이 "거의 영향을 주지 않았습니다"로 나온다. 목록에서 접어도 됨.
+- 기여 크기가 0.1%p 미만(기여 절댓값 < 0.001)인 요인은 `direction`이 "영향 미미", 설명문이 "거의 영향을 주지 않았습니다"로
+  나온다. 목록에서 접어도 됨. (샘플 경우 `no_standout`의 1%p 기준과는 다른, 요인 하나의 방향 표시 기준이다.)
 
 ## 샘플에 들어 있는 경우
 {case_table}

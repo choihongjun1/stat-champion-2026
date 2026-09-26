@@ -541,3 +541,9 @@ row 부재 패턴 실측. 상세 수치는 `outputs/master/qa_report.md` "업종
 - 점포를 식별할 수 있는 모형 출력(상호·주소·store_id와 위험도·진단이 함께 있는 것)은 공개 저장소에
   올리지 않는다. 저장소에는 가린 샘플만 두고, 실명 결과는 outputs/(gitignore)와 팀 드라이브로만 공유한다.
   GitHub 이슈·PR·코멘트에도 가게명·store_id를 위험도와 함께 쓰지 않는다.
+- **출력 스키마 0.2 (PR #36 리뷰 반영, 2026-09-26).** 레코드에 `score_origin`(예측 기준 분기)을 넣고, `factors[]`에 코드값
+  `hold_reason`(display=false 이유: `online_review` 검토 대기 / `data_missing` 데이터 없음, `HOLD_REASONS`로 확장)과
+  `missing_reason`(데이터 없음 세부 사유: `out_of_trdar` / `sales_unpublished` / `industry_unpublished` /
+  `trdar_quarter_unavailable` / `online_unobservable` / `trdar_unknown` / `unknown` — 사유 문구와 1:1)을 넣는다.
+  화면은 설명문을 파싱하지 않고 이 코드로 분기한다. `direction`은 기여 절댓값 < 0.001이면 "영향 미미"(설명문의
+  "거의 영향을 주지 않았습니다"와 같은 기준, 기여 원값은 그대로). store.`dong`은 인허가 데이터의 **법정동**이다.

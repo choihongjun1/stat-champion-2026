@@ -240,6 +240,31 @@ REASON_INSIDE = {"trdar_population": "해당 분기 상권 자료 없음", "trda
                  "peer_sales": "해당 상권에 이 업종 매출 공개 자료 없음"}
 REASON_ONLINE = "관측 불가"
 REASON_DEFAULT = "데이터 없음"
+# 화면이 설명문을 파싱하지 않고 분기하도록 내보내는 코드값 (factors[].missing_reason). 사유 문구와 1:1.
+MISSING_REASON_CODES = {
+    REASON_OUTSIDE: "out_of_trdar",                                   # 상권 경계 밖
+    REASON_INSIDE["peer_sales"]: "sales_unpublished",                 # 상권 안, 이 업종 매출 공개 자료 없음
+    REASON_INSIDE["peer_competition"]: "industry_unpublished",        # 상권 안, 이 업종 자료 없음
+    REASON_INSIDE["trdar_population"]: "trdar_quarter_unavailable",   # 상권 안, 해당 분기 상권 자료 없음
+    REASON_ONLINE: "online_unobservable",                             # 온라인 관측 불가
+    REASON_TRDAR_UNKNOWN: "trdar_unknown",                            # trdar_cd가 없어 상권 밖인지 판단 불가
+    REASON_DEFAULT: "unknown",                                        # 예비값
+}
+# display=false인 이유 (factors[].hold_reason). 새 보류 사유가 생기면 여기에 추가한다.
+HOLD_REASONS = {
+    "online_review": "온라인 언급이 많은 쪽에서 위험이 높게 나와 상호 오탐(#28)·유행 상권 효과 검토 전까지 보류",
+    "data_missing": "요인에 속한 값이 이 점포에서 전부 결측 — 세부 사유는 missing_reason",
+}
+# 개별 요인의 방향 표시 기준 (설명문의 "거의 영향을 주지 않았습니다"와 같은 기준). 샘플 추출의
+# no_standout(가장 큰 위험 기여 < 1%p)과는 다른 값이다.
+DIRECTION_EPS = 0.001
+DIRECTION_NEGLIGIBLE = "영향 미미"
+
+
+def direction_label(contribution: float) -> str:
+    if abs(contribution) < DIRECTION_EPS:
+        return DIRECTION_NEGLIGIBLE
+    return "위험 증가" if contribution > 0 else "위험 감소"
 
 
 def missing_reasons(factor_id: str, raw: pd.DataFrame) -> np.ndarray:
@@ -262,7 +287,7 @@ def explanation(row) -> str:
         return f"이 점포는 {row['factor']} 데이터가 없어({why}) 이 요인은 진단하지 않습니다."
     peer = {"biz_type·gu·age_band": "같은 업종·자치구·업력대", "biz_type·age_band": "같은 업종·업력대",
             "biz_type": "같은 업종"}.get(row["peer_level"], "비슷한 점포")
-    if abs(row["contribution"]) < 0.001:
+    if abs(row["contribution"]) < DIRECTION_EPS:
         return f"{_josa(row['factor'], '은', '는')} 이 점포의 예측 위험도에 거의 영향을 주지 않았습니다."
     way = "높이는" if row["contribution"] > 0 else "낮추는"
     s = f"{_josa(row['factor'], '이', '가')} 예측 위험도를 약 {pp:.1f}%p {way} 쪽으로 기여했습니다."
@@ -292,12 +317,14 @@ def factors_json(long: pd.DataFrame, store_id: str, origin: str, values: dict | 
     return [{
         "category": r["category"], "name": r["factor"], "factor_id": r["factor_id"],
         "contribution": round(float(r["contribution"]), 4),
-        "direction": "위험 증가" if r["contribution"] > 0 else "위험 감소",
+        "direction": direction_label(r["contribution"]),
         "peer_percentile": None if pd.isna(r["peer_percentile"]) else int(r["peer_percentile"]),
         "actionability": r["actionability"], "explanation": r["explanation"],
         "driver": r["driver_text"] or None,
         "display": bool(r["display"]), "display_note": r["display_note"] or None,
         "data_missing": bool(r.get("data_missing", False)),
+        "missing_reason": r.get("missing_reason_code") or None,
+        "hold_reason": r.get("hold_reason") or None,
         "values": {k: _plain(v) for k, v in values.get(r["factor_id"], {}).items()},
     } for _, r in g.iterrows()]
 
@@ -337,7 +364,7 @@ def explain(model: detect.DetectModel, Xt: pd.DataFrame, Xb: pd.DataFrame, meta:
         long.append(part)
     long = pd.concat(long, ignore_index=True)
     long["driver_feature"], long["driver_text"] = "", ""
-    long["display"], long["display_note"] = True, ""
+    long["display"], long["display_note"], long["hold_reason"] = True, "", ""
     on = next((k for k, f in enumerate(active) if f["id"] == "online_attention"), None)
     if on is not None:
         online_cols = factor_cols[on]
@@ -357,6 +384,7 @@ def explain(model: detect.DetectModel, Xt: pd.DataFrame, Xb: pd.DataFrame, meta:
         hold = presence & (phi[:, on] > 0)
         idx = np.flatnonzero(m)
         long.loc[idx[hold], "display"] = False
+        long.loc[idx[hold], "hold_reason"] = "online_review"
         long.loc[idx[hold], "display_note"] = "언급이 많은 쪽에서 위험이 높게 나온 경우 — 이름 오탐(#28)·유행 상권 효과 검토 전까지 표시 보류"
         train_detect.log(f"온라인 요인 표시 보류: {int(hold.sum()):,}점포 (위험을 올리고 주된 근거가 언급 있음/많음)")
     # 데이터 없음 표시 보류: 요인에 속한 feature 값이 이 점포에서 전부 결측이면(예: 상권 경계 밖 점포의
@@ -364,7 +392,7 @@ def explain(model: detect.DetectModel, Xt: pd.DataFrame, Xb: pd.DataFrame, meta:
     # 위험을 낮췄다" 같은 문장은 사실과 다르므로 진단문으로 내보내지 않는다. 기여값·가법성은 그대로 둔다.
     # 이유는 점포별로 다르다 (상권 밖 / 상권 안이지만 해당 업종 자료·매출 공개 없음 / 온라인 관측 불가).
     long["data_missing"] = False
-    long["missing_reason"] = ""
+    long["missing_reason"], long["missing_reason_code"] = "", ""
     n = len(meta)
     for k, f in enumerate(active):
         allna = Xt[factor_cols[k]].isna().all(axis=1).to_numpy()
@@ -375,8 +403,13 @@ def explain(model: detect.DetectModel, Xt: pd.DataFrame, Xb: pd.DataFrame, meta:
         long.loc[idx, ["data_missing", "display"]] = [True, False]
         long.loc[idx, "display_note"] = MISSING_NOTE
         long.loc[idx, "missing_reason"] = why
+        long.loc[idx, "missing_reason_code"] = [MISSING_REASON_CODES[w] for w in why]
+        long.loc[idx, "hold_reason"] = "data_missing"
         by_reason = pd.Series(why).value_counts().to_dict()
         train_detect.log(f"데이터 없음 표시 보류 [{f['id']}]: {int(allna.sum()):,} / {n:,}점포 {by_reason}")
+    unknown_hold = set(long["hold_reason"]) - set(HOLD_REASONS) - {""}
+    if unknown_hold or ((~long["display"]) != (long["hold_reason"] != "")).any():
+        raise RuntimeError(f"display=false ⇔ hold_reason 규칙이 깨졌다 (미등록 사유: {unknown_hold or '없음'})")
     long = add_peer_percentiles(long)
     long["rank_in_store"] = long.groupby(["store_id", "origin"])["contribution"].rank(ascending=False, method="first").astype(int)
     long["explanation"] = long.apply(explanation, axis=1)
