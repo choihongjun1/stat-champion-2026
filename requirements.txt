@@ -14,3 +14,5 @@ geopandas==1.1.4
 shapely==2.1.2
 # Kaplan-Meier curves for the closure label QA (src/data/labels.py)
 lifelines==0.30.3
+# JSON Schema validation of the W2-5 report contract (src/serving/report_validation.py)
+jsonschema==4.26.0
