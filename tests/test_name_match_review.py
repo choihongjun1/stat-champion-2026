@@ -44,31 +44,37 @@ def _targets(n_pri=3, n_rnd=5, seed=7):
     d, p = _diagnosis()
     pool = nm.review_pool(d)
     prob = p.set_index("store_id")["probability_12m"]
-    t = nm.select_targets(pool, prob, _licenses(sorted(d["store_id"].unique())),
-                          n_priority=n_pri, n_random=n_rnd, seed=seed)
-    return t, pool, p
+    t, key = nm.select_targets(pool, prob, _licenses(sorted(d["store_id"].unique())),
+                               n_priority=n_pri, n_random=n_rnd, seed=seed)
+    return t, pool, p, key
 
 
 def test_targets_pool_and_counts():
-    t, pool, p = _targets()
+    t, pool, p, key = _targets()
     assert set(pool["store_id"]) == {f"GR_{i:04d}" for i in range(0, 60, 4)}  # 검토 대기만
-    assert (t["group"] == "priority").sum() == 3 and (t["group"] == "random").sum() == 5
+    assert (key["group"] == "priority").sum() == 3 and (key["group"] == "random").sum() == 5
     assert set(t["store_id"]) <= set(pool["store_id"]) and t["store_id"].is_unique
     top3 = p[p["store_id"].isin(pool["store_id"])].nlargest(3, "probability_12m")["store_id"]
-    assert set(t.loc[t["group"] == "priority", "store_id"]) == set(top3)
+    assert set(key.loc[key["group"] == "priority", "store_id"]) == set(top3)
     assert t["review_id"].tolist() == [f"R{i:02d}" for i in range(1, 9)]
-    assert list(t.columns) == nm.TARGET_COLS
+    # 전달용 대상 목록: 선정 그룹·확률·폐업 관련 열 없음
+    assert list(t.columns) == nm.TARGET_COLS and "group" not in t.columns
     nm.assert_blind(t.columns)
-    assert not any(w in c for c in t.columns for w in ("prob", "band", "close", "폐업"))
+    assert not any(w in c for c in t.columns for w in ("prob", "band", "close", "폐업", "group"))
+    # 보관용 키: review_id·store_id·group, 대상 목록과 같은 점포·같은 순서
+    assert list(key.columns) == nm.KEY_COLS
+    assert key[["review_id", "store_id"]].equals(t[["review_id", "store_id"]])
+    assert set(key["group"]) == {"priority", "random"}
 
 
 def test_targets_seed_reproducible_and_shuffled():
-    a, _, _ = _targets(seed=11)
-    b, _, _ = _targets(seed=11)
-    c, _, _ = _targets(seed=12)
+    a, _, _, ka = _targets(seed=11)
+    b, _, _, kb = _targets(seed=11)
+    c, _, _, _ = _targets(seed=12)
+    pd.testing.assert_frame_equal(ka, kb)
     pd.testing.assert_frame_equal(a, b)
     assert a["store_id"].tolist() != c["store_id"].tolist()
-    heads = [_targets(seed=s)[0]["group"].head(3).tolist() for s in range(10)]
+    heads = [_targets(seed=s)[3]["group"].head(3).tolist() for s in range(10)]
     assert any(g != ["priority"] * 3 for g in heads)  # priority가 항상 위에 몰리지 않는다
 
 
@@ -99,7 +105,7 @@ def _items(tmp_path, targets, per=8):
 
 
 def test_sheet_shape_and_blind(tmp_path):
-    t, _, _ = _targets()
+    t, _, _, _ = _targets()
     items = nm.read_items([_items(tmp_path, t)], set(t["store_id"]))
     assert not items.duplicated(["store_id", "link"]).any() and items["matched"].all()
     sheet = nm.build_sheet(t, items, per_store=5, seed=1)
@@ -122,7 +128,7 @@ def test_sheet_shape_and_blind(tmp_path):
 
 
 def test_sheet_seed_reproducible(tmp_path):
-    t, _, _ = _targets()
+    t, _, _, _ = _targets()
     items = nm.read_items([_items(tmp_path, t)], set(t["store_id"]))
     a = nm.build_sheet(t, items, 3, seed=5)
     b = nm.build_sheet(t, items.sample(frac=1, random_state=0), 3, seed=5)
@@ -137,8 +143,8 @@ def test_wilson_interval():
 
 
 def test_summarize_rules(tmp_path):
-    targets = pd.DataFrame({"review_id": ["R01", "R02", "R03", "R04"], "store_id": ["A", "B", "C", "D"],
-                            "group": ["priority", "random", "random", "random"]})
+    targets = pd.DataFrame({"review_id": ["R01", "R02", "R03", "R04"], "store_id": ["A", "B", "C", "D"]})
+    key = targets.assign(group=["priority", "random", "random", "random"])
     v = {"R01": ["다른가게", "다른가게", "해당가게"],  # 2/3 ≥ 0.5 → 오탐
          "R02": ["해당가게", "다른가게", "판단불가"],  # 1/2 = 0.5 → 오탐 (경계 포함)
          "R03": ["해당가게", "해당가게", ""],         # 빈 verdict 제외 → 정상
@@ -146,7 +152,7 @@ def test_summarize_rules(tmp_path):
     rows = [{"review_id": r, "item_no": i + 1, "verdict": x} for r, xs in v.items() for i, x in enumerate(xs)]
     rows.append({"review_id": "R04", "item_no": 0, "verdict": ""})
     sheet = pd.DataFrame(rows)
-    items, stores, n_blank = nm.judge(sheet, targets)
+    items, stores, n_blank = nm.judge(sheet, targets, key)
     assert n_blank == 1
     sv = dict(zip(stores["review_id"], stores["store_verdict"]))
     assert sv == {"R01": "오탐", "R02": "오탐", "R03": "정상", "R04": "판정불가"}
@@ -155,16 +161,56 @@ def test_summarize_rules(tmp_path):
     assert tab.at["random", "stores_fp"] == 1 and tab.at["random", "stores_decided"] == 2
     assert not math.isnan(tab.at["random", "store_ci_low"]) and math.isnan(tab.at["priority", "store_ci_low"])
 
-    tp, sp = tmp_path / "t.csv", tmp_path / "s.csv"
+    tp, sp, kp = tmp_path / "t.csv", tmp_path / "s.csv", tmp_path / "k.csv"
     targets.to_csv(tp, index=False, encoding="utf-8-sig")
     sheet.to_csv(sp, index=False, encoding="utf-8-sig")
-    nm.main(["summarize", "--targets", str(tp), "--sheet", str(sp), "--out", str(tmp_path / "out")])
+    key.to_csv(kp, index=False, encoding="utf-8-sig")
+    nm.main(["summarize", "--targets", str(tp), "--key", str(kp), "--sheet", str(sp), "--out", str(tmp_path / "out")])
+    assert set(pd.read_csv(tmp_path / "out" / "name_match_rates.csv")["group"]) == {"priority", "random", "전체"}
     fp = pd.read_csv(tmp_path / "out" / "false_positive_stores.csv")
     assert list(fp.columns) == ["store_id"] and set(fp["store_id"]) == {"A", "B"}
     assert "store_id" not in pd.read_csv(tmp_path / "out" / "name_match_store_verdicts.csv").columns
 
 
 def test_summarize_rejects_unknown_verdict():
-    targets = pd.DataFrame({"review_id": ["R01"], "store_id": ["A"], "group": ["random"]})
+    targets = pd.DataFrame({"review_id": ["R01"], "store_id": ["A"]})
     with pytest.raises(ValueError):
         nm.judge(pd.DataFrame({"review_id": ["R01"], "item_no": [1], "verdict": ["모름"]}), targets)
+
+
+def test_summarize_without_key_reports_total_only(tmp_path, capsys):
+    targets = pd.DataFrame({"review_id": ["R01", "R02"], "store_id": ["A", "B"]})
+    sheet = pd.DataFrame({"review_id": ["R01", "R02"], "item_no": [1, 1], "verdict": ["다른가게", "해당가게"]})
+    tp, sp = tmp_path / "t.csv", tmp_path / "s.csv"
+    targets.to_csv(tp, index=False, encoding="utf-8-sig")
+    sheet.to_csv(sp, index=False, encoding="utf-8-sig")
+    nm.main(["summarize", "--targets", str(tp), "--sheet", str(sp), "--out", str(tmp_path / "out")])
+    assert "--key" in capsys.readouterr().out  # 경고
+    tab = pd.read_csv(tmp_path / "out" / "name_match_rates.csv")
+    assert tab["group"].tolist() == ["전체"] and tab["store_ci_low"].isna().all()
+
+
+def test_sheet_rejects_targets_with_group(tmp_path):
+    t, _, _, key = _targets()
+    items = _items(tmp_path, t)
+    bad = tmp_path / "with_group.csv"
+    t.merge(key[["review_id", "group"]], on="review_id").to_csv(bad, index=False, encoding="utf-8-sig")
+    with pytest.raises(ValueError, match="group"):
+        nm.main(["sheet", "--targets", str(bad), "--items", str(items), "--out", str(tmp_path / "sheet.csv")])
+    good = tmp_path / "targets.csv"
+    t.to_csv(good, index=False, encoding="utf-8-sig")
+    nm.main(["sheet", "--targets", str(good), "--items", str(items), "--out", str(tmp_path / "sheet.csv")])
+    assert (tmp_path / "sheet.csv").exists() and (tmp_path / "sheet_README.md").exists()
+
+
+def test_targets_cli_writes_two_files(tmp_path):
+    d, p = _diagnosis()
+    d.to_parquet(tmp_path / "diagnosis.parquet", index=False)
+    p.to_parquet(tmp_path / "risk_scores.parquet", index=False)
+    _licenses(sorted(d["store_id"].unique())).to_parquet(tmp_path / "lic.parquet", index=False)
+    out = tmp_path / "review" / "name_match_targets.csv"
+    nm.main(["targets", "--diagnosis", str(tmp_path / "diagnosis.parquet"), "--licenses", str(tmp_path / "lic.parquet"),
+             "--n-priority", "2", "--n-random", "4", "--out", str(out)])
+    t = pd.read_csv(out, encoding="utf-8-sig")
+    k = pd.read_csv(out.parent / "name_match_key.csv", encoding="utf-8-sig")
+    assert "group" not in t.columns and list(k.columns) == nm.KEY_COLS and len(t) == len(k) == 6

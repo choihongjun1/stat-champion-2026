@@ -8,8 +8,9 @@ blind 원칙: 대상 목록·판정표 어디에도 위험도·등급·폐업 �
 판정표에는 store_id와 선정 그룹(priority/random)도 넣지 않는다 (review_id로만 연결).
 
 하위 명령
-- targets   (분석 쪽) 검토 대기 점포에서 priority n곳(예측 확률 상위) + random n곳을 뽑아 대상 목록을 만든다.
-            확률은 선정 기준으로만 쓰고 파일에 넣지 않는다. 행 순서는 섞는다.
+- targets   (분석 쪽) 검토 대기 점포에서 priority n곳(예측 확률 상위) + random n곳을 뽑는다. 파일 2개:
+            대상 목록(전달용, 선정 그룹 없음)과 선정 그룹 키(분석 쪽 보관). 확률은 선정에만 쓰고 파일에 넣지 않는다.
+            행 순서는 섞는다.
 - sheet     (수집 쪽, 원본 blog_items.jsonl.gz가 있는 컴퓨터) 대상 점포별로 매칭된 글을 최대 N건 뽑아 판정표를 만든다.
 - summarize (분석 쪽) 채워진 판정표로 글·점포 단위 오탐률을 집계한다.
 
@@ -23,7 +24,7 @@ blind 원칙: 대상 목록·판정표 어디에도 위험도·등급·폐업 �
     python -m src.analysis.name_match_review sheet --targets name_match_targets.csv \\
         --items data/raw/online/blog_items.jsonl.gz --out name_match_sheet.csv
     python -m src.analysis.name_match_review summarize --targets outputs/review/name_match_targets.csv \\
-        --sheet name_match_sheet.csv --out outputs/review/
+        --key outputs/review/name_match_key.csv --sheet name_match_sheet.csv --out outputs/review/
 """
 from __future__ import annotations
 
@@ -47,7 +48,8 @@ RECENT_MONTHS = 12
 NO_POSTS = "매칭 글 없음"
 # blind: 대상 목록·판정표에 절대 들어가면 안 되는 열 (이름 일부로 검사)
 FORBIDDEN_WORDS = ("prob", "risk", "band", "percentile", "event", "close", "폐업", "위험", "등급", "status", "contribution")
-TARGET_COLS = ["review_id", "store_id", "name_raw", "name_norm", "gu", "dong", "biz_type", "group"]
+TARGET_COLS = ["review_id", "store_id", "name_raw", "name_norm", "gu", "dong", "biz_type"]  # 전달용 (선정 그룹 없음)
+KEY_COLS = ["review_id", "store_id", "group"]                                             # 분석 쪽 보관
 SHEET_COLS = ["review_id", "name_raw", "gu", "dong", "biz_type", "item_no", "post_date", "blog_name", "title",
               "description", "link", "verdict", "note"]
 
@@ -77,8 +79,11 @@ def _probabilities(diagnosis_path: Path, risk_path: Path | None) -> pd.Series:
 
 
 def select_targets(pool: pd.DataFrame, prob: pd.Series, licenses: pd.DataFrame, *,
-                   n_priority: int, n_random: int, seed: int) -> pd.DataFrame:
-    """priority(확률 상위) + random(나머지에서 무작위). 확률은 반환 표에 넣지 않는다."""
+                   n_priority: int, n_random: int, seed: int) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """priority(확률 상위) + random(나머지에서 무작위). 반환: (대상 목록, 선정 그룹 키).
+
+    확률은 어느 표에도 넣지 않는다. 대상 목록에는 선정 그룹도 없다 (판정하는 쪽이 선정 이유를 모르게).
+    """
     if pool.empty:
         raise ValueError("검토 대기 점포가 없다")
     p = prob.reindex(pool["store_id"])
@@ -101,9 +106,10 @@ def select_targets(pool: pd.DataFrame, prob: pd.Series, licenses: pd.DataFrame, 
     sel = sel.iloc[rng.permutation(len(sel))].reset_index(drop=True)
     width = max(2, len(str(len(sel))))
     sel["review_id"] = [f"R{i:0{width}d}" for i in range(1, len(sel) + 1)]
-    out = sel[TARGET_COLS]
-    assert_blind(out.columns)
-    return out
+    targets, key = sel[TARGET_COLS].copy(), sel[KEY_COLS].copy()
+    assert_blind(targets.columns)
+    assert "group" not in targets.columns
+    return targets, key
 
 
 def cmd_targets(a) -> pd.DataFrame:
@@ -112,11 +118,16 @@ def cmd_targets(a) -> pd.DataFrame:
     pool = review_pool(diagnosis)
     prob = _probabilities(Path(a.diagnosis), a.risk)
     lic = pd.read_parquet(a.licenses, columns=["store_id", "name_raw", "name_norm", "dong"])
-    out = select_targets(pool, prob, lic, n_priority=a.n_priority, n_random=a.n_random, seed=a.seed)
+    out, key = select_targets(pool, prob, lic, n_priority=a.n_priority, n_random=a.n_random, seed=a.seed)
+    key_out = a.key_out or Path(a.out).parent / "name_match_key.csv"
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+    Path(key_out).parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(a.out, index=False, encoding="utf-8-sig")
-    print(f"검토 대기 {len(pool):,}점포 → 대상 {len(out)}곳 (priority {int((out['group'] == 'priority').sum())}, "
-          f"random {int((out['group'] == 'random').sum())}) → {a.out}")
+    key.to_csv(key_out, index=False, encoding="utf-8-sig")
+    print(f"검토 대기 {len(pool):,}점포 → 대상 {len(out)}곳 (priority {int((key['group'] == 'priority').sum())}, "
+          f"random {int((key['group'] == 'random').sum())})")
+    print(f"  대상 목록(전달용, 선정 그룹 없음) → {a.out}")
+    print(f"  선정 그룹 키(보관, 전달하지 않음) → {key_out}")
     return out
 
 
@@ -218,6 +229,10 @@ SHEET_README = """# 상호 매칭 판정표 안내 (#28)
 
 def cmd_sheet(a) -> pd.DataFrame:
     targets = pd.read_csv(a.targets, dtype=str, encoding="utf-8-sig")
+    if "group" in targets.columns:
+        raise ValueError("대상 목록에 선정 그룹(group) 열이 있다 — blind 판정이 깨진다. "
+                         "targets가 만든 name_match_targets.csv(그룹 없음)를 쓴다 (name_match_key.csv 아님)")
+    assert_blind(targets.columns)
     items = read_items(a.items, set(targets["store_id"]))
     sheet = build_sheet(targets, items, a.per_store, a.seed)
     out = Path(a.out)
@@ -241,8 +256,19 @@ def wilson(k: int, n: int, z: float = 1.959964) -> tuple[float, float]:
     return (max(0.0, mid - half), min(1.0, mid + half))
 
 
-def judge(sheet: pd.DataFrame, targets: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, int]:
-    """글 표(판정 가능·불가 포함)와 점포 판정 표. 반환: (items, stores, 빈 verdict 수)."""
+NO_GROUP = "미구분"
+
+
+def judge(sheet: pd.DataFrame, targets: pd.DataFrame, key: pd.DataFrame | None = None
+          ) -> tuple[pd.DataFrame, pd.DataFrame, int]:
+    """글 표와 점포 판정 표. key(review_id, group)가 없으면 그룹은 "미구분". 반환: (items, stores, 빈 verdict 수)."""
+    targets = targets[["review_id", "store_id"]].copy()
+    if key is not None:
+        targets = targets.merge(key[["review_id", "group"]], on="review_id", how="left")
+        if targets["group"].isna().any():
+            raise ValueError(f"선정 그룹 키에 없는 review_id {int(targets['group'].isna().sum())}건")
+    else:
+        targets["group"] = NO_GROUP
     s = sheet.copy()
     s["item_no"] = pd.to_numeric(s["item_no"], errors="coerce").fillna(0).astype(int)
     s = s[s["item_no"] > 0]
@@ -268,7 +294,8 @@ def judge(sheet: pd.DataFrame, targets: pd.DataFrame) -> tuple[pd.DataFrame, pd.
 
 def rates(items: pd.DataFrame, stores: pd.DataFrame) -> pd.DataFrame:
     out = []
-    for grp in ("priority", "random", "전체"):
+    groups = [g for g in ("priority", "random") if (stores["group"] == g).any()] + ["전체"]
+    for grp in groups:
         it = items if grp == "전체" else items[items["group"] == grp]
         st = stores if grp == "전체" else stores[stores["group"] == grp]
         ki, ni = int((it["verdict"] == OTHER).sum()), int(it["verdict"].isin([SAME, OTHER]).sum())
@@ -290,7 +317,10 @@ def _pct(x) -> str:
 def cmd_summarize(a) -> pd.DataFrame:
     targets = pd.read_csv(a.targets, dtype=str, encoding="utf-8-sig")
     sheet = pd.read_csv(a.sheet, dtype=str, encoding="utf-8-sig", keep_default_na=False)
-    items, stores, n_blank = judge(sheet, targets)
+    key = pd.read_csv(a.key, dtype=str, encoding="utf-8-sig") if a.key else None
+    if key is None:
+        print("경고: --key(선정 그룹 키)가 없어 priority/random 구분 없이 전체만 집계한다 (신뢰구간 없음)")
+    items, stores, n_blank = judge(sheet, targets, key)
     if n_blank:
         print(f"경고: verdict가 빈 글 {n_blank}건은 집계에서 뺐다")
     tab = rates(items, stores)
@@ -327,7 +357,8 @@ def main(argv=None) -> None:
     t.add_argument("--n-random", type=int, default=20)
     t.add_argument("--n-priority", type=int, default=3)
     t.add_argument("--seed", type=int, default=20260927)
-    t.add_argument("--out", type=Path, required=True)
+    t.add_argument("--out", type=Path, required=True, help="대상 목록 (전달용)")
+    t.add_argument("--key-out", type=Path, default=None, help="선정 그룹 키 (기본: --out과 같은 폴더 name_match_key.csv)")
     s = sub.add_parser("sheet", help="판정표 (원본 블로그 글이 있는 컴퓨터)")
     s.add_argument("--targets", type=Path, required=True)
     s.add_argument("--items", type=Path, nargs="+", required=True, help="blog_items*.jsonl.gz (여러 개 가능)")
@@ -337,6 +368,7 @@ def main(argv=None) -> None:
     m = sub.add_parser("summarize", help="판정 결과 집계 (분석 쪽)")
     m.add_argument("--targets", type=Path, required=True)
     m.add_argument("--sheet", type=Path, required=True)
+    m.add_argument("--key", type=Path, default=None, help="선정 그룹 키 (targets가 만든 name_match_key.csv)")
     m.add_argument("--out", type=Path, required=True)
     a = ap.parse_args(argv)
     {"targets": cmd_targets, "sheet": cmd_sheet, "summarize": cmd_summarize}[a.cmd](a)
