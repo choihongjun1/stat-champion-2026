@@ -430,3 +430,100 @@ row 부재 패턴 실측. 상세 수치는 `outputs/master/qa_report.md` "업종
   - 범주형 처리 기준: `biz_type`, `gu`, `trdar_change_index` 등 범주형 predictor의 인코딩 방식.
 - **온라인 존재감은 Base에서 제외한다.** Enriched에서 별도로 검증한 뒤 `(store_id, origin)` 단위로 결합한다
   (2026-09-13 온라인 변수 사용 범위, 2026-09-23 W2-0 결정 유지).
+
+## 2026-09-26 — W2-5 결과 스키마·서빙 구조
+근거: W2-5 현황 분석(PR #32~#38, Issue #29·#35)과 인허가 실측. 계약 문서 `docs/REPORT_SCHEMA.md`,
+기계 판독 정의 `src/serving/report_schema.json`, 교차 규칙 `src/serving/report_validation.py`. 결과 스키마 버전 0.2.
+
+- **(D1) `dong`은 인허가 원천의 법정동이다.** 지번주소에서 파싱한 값이며 `bjd_code`와 1:1이다. 3구 법정동 70개 중
+  두 구에 걸친 동 이름은 0건(2026-09-26 실측)이라 동 목록·동 요약의 키는 `(gu, dong)`이다.
+  PR #36 `README_W2-6.md`가 이 필드를 "행정동"으로 적은 것은 수정 대상이다(REPORT_SCHEMA R5).
+- **(D2) 실명·주소·store_id와 위험도가 연결된 실제 결과는 저장소에 커밋하지 않는다.** 문서에는 가린 샘플만 둔다.
+  실제 데이터의 웹 공개 범위는 별도로 결정하고, 정적 배포 전에 검증 게이트를 둔다(REPORT_SCHEMA §9).
+- **(D3) 프론트는 서버 없이 정적 JSON을 읽는다.** SQLite는 로컬 정본이고 브라우저용 JSON은 SQLite에서만 생성한다.
+- **(D4) 정책 매칭은 W2-5 빌드에서 계산한다.** 입력은 W2-7 정책 원천(`policy_source`), 연결 키는 `factor_id`
+  (PR #38 `FACTOR_POLICY_LINKS.md`). 정책은 표시되고(`display=true`) 기여가 양수인 요인에만 연결하며, 인과 주장이 아니다.
+- **(D5) `peer_group`·위험도 백분위는 PR #36 서빙 출력 정의를 따른다** (같은 score_origin·자치구·업종, 업력 조건 없음).
+  업력대 비교는 `factors[].peer_percentile`에만 쓴다. 설명문은 계산 결과에 근거한 비인과 표현만 쓴다.
+- **(D6) score_origin은 2026Q2를 우선 대상으로 설계한다.** 리포트 대상은 as_of 당시 영업 점포이고,
+  현재 상태(인허가 스냅샷 기준)는 `store.status`로 따로 둔다. 영업 점포 수(예: 28,832)를 하드코딩하지 않고
+  score 패널(Issue #35)에서 센다. 참고: 폐업일자 결측 28,832 / 상태명 영업 28,826 — 상태명이 폐업인데 폐업일자가
+  없는 6건은 `status.current = unknown`으로 둔다.
+- **(D7) 동 요약 소표본 숨김 하한값은 실제 분포를 확인한 뒤 정한다.** 그 전에는 확정값을 쓰지 않는다.
+- **(D8) W2-5 코드는 `src/serving/`에 둔다.**
+- **(D9) W2-5는 PR #36 모델 코드를 import하지 않고 `reports.jsonl` 형식에만 의존한다.** 추론·진단 계산은 중복 구현하지 않는다.
+  요인 표는 계약 사본(`report_validation.FACTOR_CONTRACT`)으로 두고 진단 쪽 표가 바뀌면 같은 PR에서 함께 바꾼다.
+- **표시 상태 네 가지를 구분한다.** 표시 / 데이터 없음(`data_missing`, `missing_reason`) / 검토 대기(`hold_reason`) /
+  판단 불가(`unavailable_categories`, 유형 단위). 화면 분기는 코드 필드로만 하고 설명문을 파싱하지 않는다.
+  `missing_reason`·`hold_reason`은 PR #36 출력에 아직 없으므로 서빙 출력 변경(R1·R2)이 반영되기 전까지 최종 리포트를 만들지 않는다.
+- **기여 방향 `영향 미미`**: |기여| < 0.001이면 `direction = 영향 미미`로 둔다. 진단문이 "거의 영향을 주지 않았습니다"를
+  쓰는 기준과 같다. 반올림된 0.0에 "위험 증가"가 붙는 문제(R3)를 막는다.
+- **처방은 W3 DML 전까지 효과 수치를 만들지 않는다.** `prescriptions`는 빈 배열 또는 `status = unavailable` 항목만 허용하고
+  `evidence_level`·`effect_value`·`effect_summary`는 null이다. 근거 등급 척도는 W3에서 이 문서에 기록한 뒤 스키마 버전을 올린다.
+- **`risk.ci_low`/`ci_high`는 부트스트랩 재학습 예측의 5–95 백분위다.** 신뢰구간으로 부르거나 해석하지 않는다
+  (2026-09-25 W2-2 불확실성 구간 결정 유지). 필드명은 PR #36 호환을 위해 0.2에서 유지한다.
+- **`online_presence`는 현재 스냅샷 표시 전용**(`basis = current_snapshot`)이며 수집 결과가 없으면 null이다 (2026-09-13 결정 유지).
+
+## 2026-09-26 — W2-5 SQLite 정본 빌드 규칙
+구현: `src/serving/build_db.py`, 절차·테이블: `docs/REPORT_SCHEMA.md` §11. 위 "W2-5 결과 스키마·서빙 구조" 항목의 후속.
+
+- **입력 검증과 최종 0.2 검증을 분리한다.** serve 입력은 `serve_record_v0_1`(PR #36 현재) 또는 `serve_record_v0_1_1`
+  (R1~R3 반영 요청 형식)로 검증하고, 최종 검증은 정본에서 다시 조립한 레코드로 한다.
+  0.1 입력은 정본 구조까지만 만들고 `runs.final_contract = not_ready`로 기록한다(정적 배포 불가). 0.1.1 입력은 최종 검증에서
+  한 건이라도 실패하면 빌드를 멈춘다.
+- **store 정보의 단일 출처는 인허가 표준화 테이블이다.** reports.jsonl의 store 필드(serve `--licenses`)는 있으면 일치 검사만 한다.
+  reports 점포는 인허가에 1:1로 있어야 하고, as_of 당시 영업(인허가일 ≤ as_of < 폐업일)이 아니면 빌드를 멈춘다.
+- **정책 매칭 여부를 레코드에 명시한다** (`policy_matching`: `performed`/`not_performed`). 정책 원천이 없으면 매칭하지 않고
+  `policies = []`로 두며, 화면은 이를 "해당 정책 없음"으로 표시하지 않는다.
+- **없는 자격정보는 추정하지 않는다.** 정책에 업력 조건이 있는데 점포 인허가일이 없으면 `check_required`로 두고
+  `unverifiable_conditions`에 "업력 조건 (인허가일 정보 없음)"을 넣는다. 업력은 as_of 기준 연·월 차이(`age_months`와 같은 식), 경계 포함.
+- **원자적 빌드·재현성:** 임시 파일에 한 트랜잭션으로 쓰고 모든 검증 통과 후에만 정본 경로로 교체한다. `run_id`는 입력 sha256과
+  builder·스키마 버전으로 정하며 빌드 시각을 저장하지 않아, 같은 입력이면 DB 내용이 같다.
+- **실제 결과 커밋 방지:** 정본 출력이 저장소 안이면 git 무시 경로여야 하고 `docs/` 아래는 금지한다. `.gitignore`에
+  `*.sqlite`·`*.db`(및 journal/wal/shm)를 추가했다.
+
+## 2026-09-26 — W2-5 검색 인덱스·동 요약 규칙과 정본 배포 조건
+구현: `src/serving/search_index.py`, `src/serving/dong_summary.py`, `build_db.py` 보강. 상세·실측은 `docs/REPORT_SCHEMA.md` §9·§11·§12.
+
+- **검색 인덱스는 정본 `stores`에서만 만들고 인허가 공개 정보만 담는다.** 위험도·확률·등급·기여·정책은 넣지 않는다.
+  인덱스 store_id 집합은 상세 리포트(`risk`)와 같아야 한다. 상호 검색은 인허가 표준화와 같은 `normalize_name`을 쓰며
+  같은 상호의 점포는 임의 선택 없이 모두 돌려주고, 결과 순서는 (일치 단계, 구, 법정동, 정규화 상호, store_id)로 고정한다.
+- **동 요약의 동은 법정동, 식별자는 `(gu, dong)`, 표시명은 "{동} ({구})"이다.** 법정동이 없는 점포는 동 요약에서 빼고 수를 남긴다.
+  행정동 표기가 보이면 멈춘다. 한 정본(run_id·score_origin)만 집계한다.
+- **위험 업종 순위는 high 등급 비율 기준이다** (high 1곳 이상인 공개 업종 칸, high 비율 → mid+high 비율 → 점포 수 → 업종 순).
+  평균 예측 확률로 정렬하지 않으며, 등급은 모형 예측이지 실제 폐업률이 아니다. 숨긴 업종은 순위에 넣지 않는다.
+- **소표본 숨김은 small_cell + complementary(역산 방지)로 한다.** 동 전체가 공개되는데 숨긴 업종 칸이 1개뿐이면 가장 작은 공개 칸을
+  추가로 숨기고, 공개 행만으로 역산되는 칸이 남으면 멈춘다. **하한값 `min_cell_n`은 아직 정하지 않았다** — 2026-09-26 실측
+  (as_of 2026-06-30 근사 모집단: 동×업종 칸 194개, 최소 1·5백분위 3·10백분위 6·중앙값 55.5·최대 1,783, 후보별 영향은 REPORT_SCHEMA §12)을
+  근거로 팀이 정하고 #35 score 패널로 재확인한 뒤 이 문서에 기록한다. 그 전까지 코드는 기본값 없이 값을 받으며 공개 배포용으로 만들 수 없다.
+- **공개 배포용 정본(`--purpose release`) 조건**: 최종 0.2 검증 통과, 인허가 기준일 입력, 그 날짜가 원천 `데이터갱신일자` 최댓값 이후.
+  기준일은 "입력함"(`license_snapshot_date_basis`)과 "원천과 모순 없음 확인"(`license_snapshot_check`)을 따로 기록한다 —
+  원천 파일의 실제 수령일은 데이터에 없어 검증할 수 없다. 기본 `dev` 정본은 개발용이며 검색·동 요약도 `release_ready=false`로 표시한다.
+- **`final_contract=passed` 정본은 통과하지 못한 재빌드로 덮어쓰지 않는다** (`--allow-downgrade`로만 허용).
+
+## 2026-09-26 — W2-5 정적 JSON 번들과 공개 승인 구분
+구현: `src/serving/export_static.py`, `src/serving/synthetic_samples.py`. 구조·조건은 `docs/REPORT_SCHEMA.md` §9·§13.
+
+- **기술적 계약 통과(A)와 공개 승인(B)을 구분한다.** A = 정본 `release_blockers` 없음(최종 0.2 통과·배포용 빌드·인허가 기준일 대조) +
+  번들 스키마·불변식 검증. B = 실명·주소·store_id·개별 위험도 결합 데이터의 공개 승인이며 **아직 결정되지 않았다**.
+  번들의 `publication_approved`는 항상 false이고, A 통과를 B로 간주하지 않는다. 실명 점포 번들의 공개 웹 배포는 하지 않는다.
+- **A를 통과하지 못한 정본(`not_ready`, 개발용 빌드)은 정적 번들로 내보내지 않는다.**
+- **번들 구조**: `meta.json`(작은 진입 파일), `search_index.json`, `dongs.json`, `dong_summary.json`,
+  `reports/{store_id}.json`(점포별 1개, 파일명에 상호·주소 없음), `manifest.json`(파일별 sha256·bytes·rows·schema_version·run_id).
+  검색 인덱스와 상세 리포트를 분리해 브라우저가 전체 리포트를 한 번에 받지 않게 한다.
+- **출력 위치**: 기본 로컬 비공개 `outputs/serving/static_private/`. git 작업 트리 안이면 `docs`·`app`·`public`·`dist`·`site`·`www`
+  경로를 거부하고 git 무시 경로만 허용한다. 예외는 전부 합성(`SAMPLE-NNN`, `(샘플)` 상호)인 번들을 `docs/samples/`에 쓰는 경우뿐이다.
+- **동 요약 공개 가능 여부는 따로 표시한다**: 하한값 provisional, 역산 가능 칸, 한 등급 100% 공개 칸(속성 노출) 중 하나라도 있으면
+  `dong_summary_public_ready=false`. 소표본 하한값은 이번에도 정하지 않았다(실측 후보 10은 검토 후보일 뿐).
+- **샘플은 완전 합성으로 만든다** (`docs/samples/w2-5/`, 10건). 실제 결과를 가리는 방식은 쓰지 않는다. 리포트 계약에 `_dummy`를
+  추가하지 않고 합성 표시는 meta/manifest의 `data_kind=synthetic_sample`과 README·`sample_cases.json`·설명문 `[합성 예시]`에 둔다.
+  정책 매칭 여부가 실행 단위라 번들을 `bundle/`(performed)과 `bundle_no_policy/`(not_performed)로 나눈다.
+
+## 2026-09-26 — W2-5 PR 제출 범위
+- **W2-5는 하나의 PR로 제출한다**: 결과 스키마 0.2·검증, SQLite 정본 빌더, 검색 인덱스, 동 요약, 정적 JSON 내보내기, 합성 샘플 10건,
+  테스트·문서. Issue #35 `master_score`와 탐지·진단 계산(PR #32~#36 코드)은 포함하지 않는다.
+- **실명 점포 리포트의 실제 공개는 별도 승인 전 금지**한다 (위 "정적 JSON 번들과 공개 승인 구분"의 B).
+- **소표본 하한값 `min_cell_n`은 미확정**으로 둔다 (위 "검색 인덱스·동 요약 규칙" 항목의 실측이 근거 자료).
+- **리포트 파일 분할·정적 호스팅 방식은 실제 배포 환경(파일 수·용량 제한)을 확인한 뒤 확정**한다.
+  현재 구조는 점포당 파일 1개(합성 28,832점포 기준 186 MB·파일 28,832개)다.
+- **내보내기 성능 최적화는 이 PR의 필수 완료 조건이 아니다** (28,832점포 기준 약 10분, 대부분 리포트별 0.2 재검증).

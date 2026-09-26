@@ -13,9 +13,9 @@
 
 ## Repository Structure
 - `src/data/` : 데이터 수집·전처리·패널 구축
-- `src/detect/` : 폐업 위험 탐지 모델
-- `src/diagnose/` : 위험요인 진단
-- `src/prescribe/` : 개선방향 검증 및 추천
+- `src/models/` : 폐업 위험 탐지(Detect)·위험요인 진단(Diagnose)·서빙 출력 — W2-2/W2-3 PR(#32~#36)로 추가 예정 (미병합)
+- `src/serving/` : 결과 스키마 검증, SQLite 정본, 검색 인덱스, 동 요약, 정적 JSON 번들 (`docs/REPORT_SCHEMA.md`)
+- 개선방향 검증(Prescribe, W3)은 아직 코드가 없다
 - `app/` : 웹 프로토타입
 - `notebooks/` : 탐색적 분석 및 실험
 - `tests/` : 테스트 코드
