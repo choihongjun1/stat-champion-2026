@@ -326,12 +326,39 @@ def test_tenure_bounds_are_inclusive():
 
 
 def test_output_guard_blocks_tracked_paths():
-    with pytest.raises(bd.BuildError, match="docs/"):
+    with pytest.raises(bd.BuildError, match="docs"):
         bd.guard_output_path(config.REPO_ROOT / "docs" / "report.sqlite")
-    with pytest.raises(bd.BuildError, match="git 무시 대상이 아니다"):
+    with pytest.raises(bd.BuildError, match="git 무시 대상이 아닌"):
         bd.guard_output_path(config.REPO_ROOT / "src" / "serving" / "report_out.json")
     bd.guard_output_path(bd.DEFAULT_OUT)  # outputs/는 무시 대상
     bd.guard_output_path(config.REPO_ROOT / "src" / "serving" / "report.sqlite")  # *.sqlite도 무시 대상
+
+
+def test_output_guard_covers_other_git_worktrees(tmp_path, inputs):
+    """정본이 다른 git 작업 트리(프론트 저장소 등)의 추적 가능 경로에 생기지 않는다."""
+    import subprocess
+    front = tmp_path / "frontend"
+    front.mkdir()
+    subprocess.run(["git", "init", "-q", str(front)], check=True)
+    (front / ".gitignore").write_text("private/\n", encoding="utf-8", newline="\n")
+    plain = tmp_path / "plain" / "report.sqlite"                          # git 작업 트리 밖
+
+    with pytest.raises(bd.BuildError, match="git 무시 대상이 아닌"):
+        bd.guard_output_path(front / "data" / "report.sqlite")            # 다른 저장소, 추적 가능
+    with pytest.raises(bd.BuildError, match="public"):
+        bd.guard_output_path(front / "private" / "public" / "report.sqlite")  # 무시 경로라도 공개 디렉터리
+    bd.guard_output_path(front / "private" / "report.sqlite")             # 다른 저장소, gitignore 적용
+    bd.guard_output_path(plain)
+
+    # 실제 빌드도 같은 규칙: 추적 가능 경로는 아무 파일도 남기지 않고 멈춘다
+    reports, meta, kw = inputs(version="0.2")
+    lic = kw.pop("licenses_path")
+    with pytest.raises(bd.BuildError):
+        bd.build(reports, meta, lic, front / "data" / "report.sqlite")
+    assert not (front / "data").exists()
+    bd.build(reports, meta, lic, front / "private" / "report.sqlite")
+    bd.build(reports, meta, lic, plain)
+    assert (front / "private" / "report.sqlite").exists() and plain.exists()
 
 
 # ---------------------------------------------------------------------------

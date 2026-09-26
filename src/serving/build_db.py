@@ -28,12 +28,12 @@ import json
 import os
 import re
 import sqlite3
-import subprocess
 from pathlib import Path
 
 import pandas as pd
 
 from src.data import config
+from src.serving import paths
 from src.serving import report_validation as rv
 
 BUILDER_VERSION = "w2-5-build-0.1"
@@ -502,18 +502,13 @@ def iter_reports(conn):
 
 # ---------------------------------------------------------------------------
 def guard_output_path(out: Path) -> None:
-    """저장소 안 출력은 git이 무시하는 경로만 허용한다 (실제 점포 결과 커밋 방지)."""
-    out = Path(out).resolve()
+    """정본(및 search_index·dong_summary JSON) 출력 경로 방어 (실제 점포 결과 커밋 방지).
+    이 저장소든 다른 git 작업 트리든: 공개·문서 디렉터리(docs·app·public·dist·site·www) 거부, git 무시 경로만 허용.
+    git 작업 트리 밖은 허용 (`src/serving/paths.py`)."""
     try:
-        rel = out.relative_to(config.REPO_ROOT.resolve())
-    except ValueError:
-        return
-    if rel.parts and rel.parts[0] == "docs":
-        raise BuildError(f"docs/ 아래에는 정본을 만들지 않는다: {out}")
-    r = subprocess.run(["git", "check-ignore", "-q", rel.as_posix()], cwd=config.REPO_ROOT,
-                       capture_output=True)
-    if r.returncode != 0:
-        raise BuildError(f"출력 경로가 git 무시 대상이 아니다 — 실제 점포 결과가 커밋될 수 있다: {rel.as_posix()}")
+        paths.check_private_output(out)
+    except paths.UnsafeOutputPath as e:
+        raise BuildError(str(e)) from e
 
 
 def release_blockers(run: dict) -> list[str]:

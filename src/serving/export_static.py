@@ -29,18 +29,17 @@ import os
 import re
 import shutil
 import sqlite3
-import subprocess
 from pathlib import Path
 
 from src.data import config
 from src.serving import build_db as bd
 from src.serving import dong_summary as ds
+from src.serving import paths
 from src.serving import report_validation as rv
 from src.serving import search_index as si
 
 EXPORT_VERSION = "w2-5-export-0.1"
 DEFAULT_OUT = config.REPO_ROOT / "outputs" / "serving" / "static_private"
-PUBLIC_DIR_NAMES = {"docs", "app", "public", "dist", "site", "www"}
 SAMPLE_ID_RE = re.compile(r"^SAMPLE-\d{3}$")
 SAMPLE_NAME_PREFIX = "(샘플)"
 SYNTHETIC_MODEL = "sample_synthetic"  # synthetic_samples가 만든 합성 입력의 모형 이름
@@ -67,16 +66,6 @@ def data_kind(conn: sqlite3.Connection) -> str:
     return "synthetic_sample" if synthetic else "real"
 
 
-def _git_root(path: Path) -> Path | None:
-    """path가 속한 git 작업 트리의 루트 (이 저장소든 프론트 저장소든). 없으면 None."""
-    anc = path
-    while not anc.exists():
-        anc = anc.parent
-    r = subprocess.run(["git", "-C", str(anc), "rev-parse", "--show-toplevel"], capture_output=True,
-                       encoding="utf-8", errors="strict")
-    return Path(r.stdout.strip()).resolve() if r.returncode == 0 and r.stdout.strip() else None
-
-
 def guard_export_path(out: Path, kind: str, allow_tracked_synthetic: bool = False) -> None:
     """git 작업 트리 안이면: 공개·문서 디렉터리 이름(docs·app·public·dist·site·www)이 경로에 있으면 거부, 이 저장소에서는
     outputs/ 아래만, 그리고 git 무시 경로만 허용. 합성 샘플만 docs/samples/ 아래 예외."""
@@ -86,19 +75,12 @@ def guard_export_path(out: Path, kind: str, allow_tracked_synthetic: bool = Fals
     if kind == "synthetic_sample" and allow_tracked_synthetic and out.is_relative_to(samples_root) \
             and out != samples_root:
         return
-    root = _git_root(out)
-    if root is None:
-        return  # git 작업 트리 밖 (로컬 비공개 경로)
-    rel = out.relative_to(root)
-    public = PUBLIC_DIR_NAMES & {p.lower() for p in rel.parts}
-    if public:
-        raise ExportError(f"공개·추적 디렉터리({sorted(public)})에는 정적 번들을 쓰지 않는다: {out}")
-    if root == repo and not out.is_relative_to(repo / "outputs"):
+    if out.is_relative_to(repo) and not out.is_relative_to(repo / "outputs"):
         raise ExportError(f"저장소 안에서는 outputs/ 아래에만 쓴다: {out}")
-    probe = (rel / "manifest.json").as_posix()
-    r = subprocess.run(["git", "check-ignore", "-q", probe], cwd=root, capture_output=True)
-    if r.returncode != 0:
-        raise ExportError(f"git 무시 대상이 아닌 경로 — 실제 점포 데이터가 커밋될 수 있다: {root} / {probe}")
+    try:
+        paths.check_private_output(out, probe_name="manifest.json")  # 다른 git 작업 트리 포함
+    except paths.UnsafeOutputPath as e:
+        raise ExportError(str(e)) from e
 
 
 # ---------------------------------------------------------------------------
