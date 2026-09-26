@@ -194,10 +194,25 @@ W2-7 정책 원천(`$defs/policy_source`, FACTOR_POLICY_LINKS.md §3)을 입력�
 | `match_status` | `matched`/`check_required` | 아니오 | 데이터로 확인할 수 없는 조건이 하나라도 있으면 `check_required` |
 | `matched_by` | (`gu`/`biz_type`/`tenure`)[] | 아니오 | 자격 매칭에 쓴 조건 |
 | `unverifiable_conditions` | string[] | 아니오 | `check_required`면 1개 이상, `matched`면 빈 배열 (스키마) |
-| `linked_factor_ids` | factor_id[] | 아니오 (빈 배열 가능) | 정책 `related_factor_ids` ∩ 이 점포에서 `display=true`이고 `contribution > 0`인 요인 (검증). 검토 대기·데이터 없음·위험을 낮춘 요인·비활성 요인에는 연결하지 않는다 |
+| `linked_factor_ids` | factor_id[] | 아니오 (빈 배열 가능) | 정책 `related_factor_ids` ∩ 이 점포에서 `display=true`이고 `contribution > 0`인 요인. 온라인 요인은 driver가 노출 부족일 때만(아래). 검토 대기·데이터 없음·위험을 낮춘 요인·비활성 요인에는 연결하지 않는다 (검증: `report_validation.policy_linkable_factors`) |
 | `check_note` | string | 예 | 확인 필요 안내 문구 |
 
 - 요인 연결은 인과 주장이 아니다. 화면 문구는 "이 요인과 관련된 지원사업"이며 효과를 약속하지 않는다.
+- **온라인 요인(`online_attention`) 추가 조건** (FACTOR_POLICY_LINKS.md §2, PR #38 초안): driver가 온라인 노출 부족일 때만 연결한다.
+  driver는 PR #36 `diagnose.online_driver_text`가 (feature, 값)으로 만드는 **고정 템플릿 문구**라서, 템플릿 전체 일치로 분류한다
+  (`report_validation.classify_online_driver`, 부분 문자열 검색 아님). 템플릿에 없는 문구는 serve 입력·최종 리포트 검증 오류다.
+
+  | driver 템플릿 (N은 정수) | 분류 | 연결 |
+  |---|---|---|
+  | 최근 6개월 블로그 언급이 그 전 6개월보다 N건 줄어듦 | decline | 연결 |
+  | 마지막 블로그 언급 이후 N개월 (N > 3) | lapse | 연결 |
+  | 블로그 언급 이력 없음 / 최근 12개월 블로그 언급 없음 / 최근 12개월·3개월 블로그 언급 0건 | absent | 연결 |
+  | 관측 불가(검색 결과 상한) | unobservable | 연결 안 함 |
+  | 최근 1년 블로그 언급 수 변화 없음 | no_change | 연결 안 함 |
+  | 최근 12개월·3개월 블로그 언급 N건 (N > 0) / …있음 / 과거 블로그 언급 이력 있음 / 이번 달에도 블로그 언급 있음 / 마지막 블로그 언급 이후 N개월 (N ≤ 3) / …N건 늘어남 | presence | 연결 안 함 |
+
+  N ≤ 3개월 경계는 #36 `online_signal_is_presence`와 같다. 문구가 바뀌면 이 표와 `_ONLINE_DRIVER_PATTERNS`를 같이 바꿔야 하므로,
+  #36에 구조화된 driver 코드(예: `driver_code`)를 두는 편이 안정적이다 — 계약 변경 제안으로 남긴다(§14).
 - 업력 조건은 `store.license_date`와 `as_of`로 계산한다 (진단 업력대와 같은 경계, FACTOR_POLICY_LINKS.md §3).
   업력(개월) = as_of와 인허가일의 연·월 차이(라벨·master `age_months`와 같은 식), `tenure_months_min`·`max`는 경계 포함.
   인허가일이 없으면 업력을 추정하지 않고 `check_required`로 두며 `unverifiable_conditions`에 "업력 조건 (인허가일 정보 없음)"을 넣는다.
@@ -348,7 +363,7 @@ python -m src.serving.build_db --serve-dir outputs/serve/<run> --license-snapsho
 | `--license-snapshot-date` | 없음 | 인허가 원천 파일 기준일. 주지 않으면 `store.status.license_snapshot_date = null` |
 | `--purpose` | `dev` | `release`면 기준일 필수, 기준일이 원천 데이터갱신일자 최댓값 이후인지 대조 가능해야 하며, 최종 0.2 검증 통과가 필수 |
 | `--allow-downgrade` | 꺼짐 | 기존 정본이 `final_contract=passed`면 통과하지 못한 결과로 덮어쓰지 않는다. 의도한 경우에만 켠다 |
-| `--out` | `outputs/serving/report.sqlite` | 정본 경로. 저장소 안이면 git 무시 대상이어야 하며 `docs/` 아래는 금지 |
+| `--out` | `outputs/serving/report.sqlite` | 정본 경로. git 작업 트리(이 저장소·다른 저장소) 안이면 그 저장소에서 git 무시 대상이어야 하고 `docs`·`app`·`public`·`dist`·`site`·`www` 경로는 금지. git 작업 트리 밖은 허용 (`src/serving/paths.py`) |
 
 인허가 기준일 provenance (`runs`): `license_snapshot_date_basis`(`not_provided`/`user_supplied` — 입력했다는 사실)와
 `license_snapshot_check`(`not_checked`/`consistent` — 입력일 ≥ 원천 `데이터갱신일자` 최댓값 `license_max_updated_date`)를 따로 둔다.
@@ -540,6 +555,9 @@ python -m src.serving.synthetic_samples
 - 공개된 작은 칸의 등급 쏠림(속성 노출) 처리 방식 — 현재는 한 등급 100% 칸이 있으면 동 요약을 공개 불가로 표시만 한다.
 - 실명 점포 데이터의 공개 범위(B)와 승인 절차.
 - 약 2.9만 개 리포트 파일을 그대로 올릴지, 묶음 파일로 나눌지 — 정적 호스팅 서비스의 파일 수 제한 확인 후.
+- 정책(PR #38 초안, 팀 합의 전): 매칭 계산 위치(현재 W2-5 빌드), 온라인 driver 조건의 최종 문구, `policy_source.conditions` 항목 추가 여부
+  (현재 `gu`·`biz_type`·`tenure_months_min/max`만, 추가 키 금지), 인허가일이 없을 때 업력 조건을 `check_required`로 두는 처리.
+- 온라인 driver를 문구 템플릿 대신 구조화된 코드로 받을지 (PR #36 계약 변경 필요).
 - band 표시명(낮음/주의/높음)과 컷오프 문구 — 화면 결정.
 - `ci_low`/`ci_high` 필드명 변경(`interval_low/high`) 여부 — 이름이 신뢰구간으로 읽힐 수 있으나 PR #36 호환을 위해 0.2에서는 유지.
 - 실제 데이터 웹 공개 범위 (§9).

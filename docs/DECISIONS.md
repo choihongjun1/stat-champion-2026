@@ -545,3 +545,14 @@ row 부재 패턴 실측. 상세 수치는 `outputs/master/qa_report.md` "업종
   (인허가는 가린 store 블록으로 만든 합성 입력 — 실제 인허가 결합 검증은 아님).
 - **합성 샘플 판정 강화**: `data_kind=synthetic_sample`은 store_id `SAMPLE-NNN`·`(샘플)` 상호에 더해 모형 이름이 합성 생성기의 것
   (`sample_synthetic`)일 때만이다. `SAMPLE-NNN`으로 가린 실제 모형 출력은 `real`이며 `docs/samples/`에 번들로 쓸 수 없다.
+
+## 2026-09-26 — W2-5 온라인 요인 정책 연결 조건 구현과 출력 경로 방어 확장
+근거: PR #41 리뷰(head `7234015`) 후속, PR #36 `d6cfeb9` `diagnose.online_driver_text`·`online_signal_is_presence`,
+PR #38 `FACTOR_POLICY_LINKS.md` §2(**미병합 초안**). 상세 표는 `docs/REPORT_SCHEMA.md` §5·§11.
+
+- **온라인 요인은 driver가 온라인 노출 부족(감소·끊김·없음)일 때만 정책에 연결한다** — PR #38 초안 §2를 그대로 구현한 것이며
+  PR #38이 바뀌면 함께 바꾼다(팀 합의로 확정된 규칙이 아니다). 관측 불가(검색 결과 상한)·변화 없음·언급 있음은 연결하지 않는다.
+- **driver는 PR #36의 고정 템플릿 문구를 전체 일치로 분류한다** (부분 문자열 검색 금지). 템플릿에 없는 문구는 추측하지 않고
+  serve 입력 검증에서 멈춘다. 끊김 경계(마지막 언급 후 3개월 이하 = 언급 있음)는 #36 `online_signal_is_presence`와 같다.
+- **정본·JSON 출력 경로 방어를 다른 git 작업 트리까지 넓힌다**: 이 저장소 밖이어도 git 작업 트리 안이면 그 저장소에서 git 무시 경로여야 하고
+  `docs`·`app`·`public`·`dist`·`site`·`www` 경로는 거부한다. git 작업 트리 밖은 허용한다. `build_db`·`export_static`이 같은 규칙(`paths.py`)을 쓴다.
