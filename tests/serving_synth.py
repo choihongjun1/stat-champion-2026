@@ -68,7 +68,7 @@ def write_inputs(d, stores, version="0.2", updated="2026-09-10 12:00:00", extra_
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     (d / "serve_meta.json").write_text(json.dumps(
         {"score_origin": "2026Q2", "as_of": AS_OF, "n_stores": len(stores), "detect_run": "detect_v0_enriched",
-         "band_cutoffs": {"mid": 0.1493, "high": 0.2142}}), encoding="utf-8")
+         "band_cutoffs": {"cut_mid": 0.1493, "cut_high": 0.2142}}), encoding="utf-8")
     return d
 
 

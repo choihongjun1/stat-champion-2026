@@ -269,3 +269,72 @@ def test_reexport_over_existing_bundle(tmp_path, rel_db):
     second = ex.export(rel_db, out, min_cell_n=5)
     assert first == second and ex.verify_bundle(out, _run_of(out)) == []
     assert sorted(p.name for p in tmp_path.iterdir() if p.name.startswith(".static")) == []
+
+
+# ---------------------------------------------------------------------------
+# serve_meta.band_cutoffs — PR #36 실제 출력 형태 (d6cfeb9)
+def _serve_meta_like_pr36(tmp_path, n_stores):
+    """PR #36과 같은 경로로 만든 serve_meta: train_detect가 bands.suggest_cutoffs 결과를 band_cutoffs.csv로 쓰고,
+    serve가 read_csv().iloc[0].to_dict()로 읽어 serve_meta.json에 json.dumps(default=str)로 넣는다."""
+    import pandas as pd
+    cut = {"cut_mid": 0.1493378246, "cut_high": 0.2142019871, "base_rate": 0.1244481612}  # suggest_cutoffs 키 (값은 합성)
+    pd.DataFrame([cut]).to_csv(tmp_path / "band_cutoffs.csv", index=False)
+    cut_read = pd.read_csv(tmp_path / "band_cutoffs.csv").iloc[0].to_dict()           # numpy.float64 값
+    meta = {"score_origin": "2026Q2", "as_of": "2026-06-30", "n_stores": n_stores, "primary_feature_set": "enriched",
+            "train_origins": ["2021Q1", "2025Q1"], "n_train_rows": 1000, "band_cutoffs": cut_read, "n_boot": 20,
+            "n_background": 16, "detect_run": "outputs/models/detect_v0_enriched", "detect_master_sha256": "0" * 64,
+            "master": "outputs/master/master_base.parquet", "master_sha256": "0" * 64,
+            "score": "outputs/master/master_score.parquet", "score_sha256": "0" * 64, "online_score": None,
+            "licenses": None, "licenses_sha256": None, "n_stores_without_name": None, "calibrated": False,
+            "features_used": ["age_months"], "excluded_unvalidated": ["land_price"],
+            "diagnosis_scale": "risk 확률과 같음", "band_share": {"low": 0.78, "mid": 0.15, "high": 0.07},
+            "display_held_online": 0, "display_held_missing": {}, "seconds": 1.0}
+    return json.dumps(meta, ensure_ascii=False, indent=2, default=str), cut
+
+
+def _build_with_meta(tmp_path, meta_text, name="rel.sqlite"):
+    from src.serving import build_db as bd
+    from tests.serving_synth import write_inputs
+    d = write_inputs(tmp_path / f"in_{name}", STORES)
+    (d / "serve_meta.json").write_text(meta_text, encoding="utf-8")
+    out = tmp_path / name
+    bd.build(d / "reports.jsonl", d / "serve_meta.json", d / "licenses.parquet", out,
+             license_snapshot_date="2026-09-11", purpose="release")
+    return out
+
+
+def test_pr36_serve_meta_band_cutoffs_flow_to_static_meta(tmp_path):
+    import sqlite3
+    from src.serving import build_db as bd
+    text, cut = _serve_meta_like_pr36(tmp_path, len(STORES))
+    db = _build_with_meta(tmp_path, text)
+    conn = sqlite3.connect(db)
+    try:
+        stored = json.loads(bd.read_run(conn)["band_cutoffs_json"])
+    finally:
+        conn.close()
+    assert stored == cut                                   # serve 원문 그대로 (base_rate 포함)
+    ex.export(db, tmp_path / "static", min_cell_n=5)
+    meta = json.loads((tmp_path / "static" / "meta.json").read_text(encoding="utf-8"))
+    assert meta["band_cutoffs"] == {"cut_mid": cut["cut_mid"], "cut_high": cut["cut_high"]}   # base_rate는 내보내지 않음
+    assert rv.validate_def("static_meta", meta) == []
+
+
+@pytest.mark.parametrize("bad, msg", [
+    ({"mid": 0.1493, "high": 0.2142}, "band_cutoffs"),                 # 예전 합성 fixture 이름 — 호환하지 않는다
+    ({"cut_mid": 0.1493}, "band_cutoffs"),
+    ({"cut_mid": 0.25, "cut_high": 0.2142}, "cut_mid < cut_high"),
+    ({"cut_mid": 0.1493, "cut_high": 0.2142, "cut_low": 0.05}, "band_cutoffs"),
+    (None, "band_cutoffs가 없다"),
+])
+def test_band_cutoffs_contract_violations_stop_build(tmp_path, bad, msg):
+    from src.serving import build_db as bd
+    text, _ = _serve_meta_like_pr36(tmp_path, len(STORES))
+    meta = json.loads(text)
+    if bad is None:
+        meta.pop("band_cutoffs")
+    else:
+        meta["band_cutoffs"] = bad
+    with pytest.raises(bd.BuildError, match=msg):
+        _build_with_meta(tmp_path, json.dumps(meta))
+    assert not (tmp_path / "rel.sqlite").exists()

@@ -556,3 +556,14 @@ PR #38 `FACTOR_POLICY_LINKS.md` §2(**미병합 초안**). 상세 표는 `docs/R
   serve 입력 검증에서 멈춘다. 끊김 경계(마지막 언급 후 3개월 이하 = 언급 있음)는 #36 `online_signal_is_presence`와 같다.
 - **정본·JSON 출력 경로 방어를 다른 git 작업 트리까지 넓힌다**: 이 저장소 밖이어도 git 작업 트리 안이면 그 저장소에서 git 무시 경로여야 하고
   `docs`·`app`·`public`·`dist`·`site`·`www` 경로는 거부한다. git 작업 트리 밖은 허용한다. `build_db`·`export_static`이 같은 규칙(`paths.py`)을 쓴다.
+
+## 2026-09-27 — W2-5 band 컷오프 계약을 PR #36 serve_meta에 맞춤
+근거: 최초 신청서 정합성 감사, PR #36 `d6cfeb9` serve.py(`band_cutoffs.csv` → `serve_meta.band_cutoffs`)와
+PR #32 `bands.suggest_cutoffs`(반환 `{cut_mid, cut_high, base_rate}`). 위 W2-5 항목들의 다른 결정은 그대로다.
+
+- **등급 컷오프의 정본 이름은 `cut_mid`·`cut_high`**(생산자인 #32·#36의 이름)다. W2-5가 합성 fixture에서 쓰던 `mid`·`high`는
+  실제 생산자가 없어 호환 처리 없이 폐기한다 — 그 형태의 serve_meta는 빌드를 멈춘다.
+- `serve_meta.band_cutoffs`는 빌드 필수 입력이며 `0 < cut_mid < cut_high < 1`을 검사한다. 정본(`runs`)에는 원문(base_rate 포함)을
+  저장하고, 정적 번들 `meta.json`에는 `cut_mid`·`cut_high`만 내보낸다(base_rate는 내보내지 않는다).
+- #32 확률 보정 방식에 의존하는 규칙(`risk.calibrated`, `serve_meta.diagnosis_scale`, 요인 기여 합산 척도)은 이번에 바꾸지 않는다.
+  등급을 확률에서 다시 매기거나 대조하는 검사도 넣지 않는다(어느 확률 척도로 등급을 매기는지가 보정 결정에 달려 있다).

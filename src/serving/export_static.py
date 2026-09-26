@@ -151,9 +151,9 @@ def render(conn: sqlite3.Connection, *, min_cell_n: int, min_cell_n_status: str,
             "dong_summary_public_ready": not dong_blockers, "dong_summary_blockers": dong_blockers,
             "publication_approved": False,
             "publication_note": SYNTHETIC_NOTE if kind == "synthetic_sample" else PUBLICATION_NOTE}
-    band_cutoffs = json.loads(run["band_cutoffs_json"]) if run["band_cutoffs_json"] else None
+    band_cutoffs = json.loads(run["band_cutoffs_json"])
     meta = {**head, "data_kind": kind, "n_stores": run["n_stores"],
-            "band_cutoffs": {k: band_cutoffs[k] for k in ("mid", "high")} if band_cutoffs else None,
+            "band_cutoffs": {k: band_cutoffs[k] for k in ("cut_mid", "cut_high")},  # base_rate는 내보내지 않는다
             "policy_matching": run["policy_matching"], "report_path_template": REPORT_PATH_TEMPLATE,
             "files": dict(FILES), **gate}
     files["meta.json"] = _dump(meta, indent)

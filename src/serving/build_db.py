@@ -263,9 +263,10 @@ def validate_serve_input(records: list[dict], serve_meta: dict) -> str:
     errs = [f"{r['store_id']}: {e}" for r in records for e in rv.online_driver_errors(r["factors"])]
     _fail("serve 입력의 온라인 driver 문구가 알려진 템플릿이 아니다 — 정책 연결 조건을 판정할 수 없다", errs)
 
-    for key in ("score_origin", "as_of", "n_stores"):
+    for key in ("score_origin", "as_of", "n_stores", "band_cutoffs"):
         if key not in serve_meta:
             raise BuildError(f"serve_meta.json에 {key}가 없다")
+    validate_band_cutoffs(serve_meta["band_cutoffs"])
     s, as_of = serve_meta["score_origin"], serve_meta["as_of"]
     if as_of != rv.quarter_end(s):
         raise BuildError(f"serve_meta as_of {as_of}가 score_origin {s}의 분기 말일이 아니다")
@@ -280,6 +281,15 @@ def validate_serve_input(records: list[dict], serve_meta: dict) -> str:
              for r in records if "score_origin" in r and r["score_origin"] != s]
     _fail("기준 시점 불일치", errs)
     return version
+
+
+def validate_band_cutoffs(cut) -> None:
+    """serve_meta.band_cutoffs = PR #36 train_detect의 `bands.suggest_cutoffs` 결과 ({cut_mid, cut_high, base_rate}).
+    정본 이름은 cut_mid·cut_high다. 예전 합성 fixture의 {mid, high} 같은 다른 이름은 받지 않는다 (실제 생산자가 없다)."""
+    errs = rv.validate_def("serve_band_cutoffs", cut)
+    if not errs and not 0 < cut["cut_mid"] < cut["cut_high"] < 1:
+        errs = [f"0 < cut_mid < cut_high < 1 위반: {cut['cut_mid']}, {cut['cut_high']}"]
+    _fail("serve_meta.band_cutoffs 계약 위반 (PR #36 형식 {cut_mid, cut_high, base_rate})", errs)
 
 
 def load_licenses(path: Path, store_ids: list[str]) -> tuple[pd.DataFrame, str | None]:
@@ -634,7 +644,7 @@ def build(reports_path: Path, serve_meta_path: Path, licenses_path: Path, out_pa
                 "reports_sha256": input_hashes["reports"], "serve_meta_sha256": input_hashes["serve_meta"],
                 "serve_meta_json": _j(serve_meta), "model": records[0]["risk"]["model"],
                 "detect_run": serve_meta.get("detect_run"),
-                "band_cutoffs_json": _j(serve_meta["band_cutoffs"]) if "band_cutoffs" in serve_meta else None,
+                "band_cutoffs_json": _j(serve_meta["band_cutoffs"]),  # serve 원문 그대로 (base_rate 포함)
                 "licenses_sha256": input_hashes["licenses"],
                 "licenses_sha256_in_serve_meta": serve_meta.get("licenses_sha256"),
                 "license_snapshot_date": license_snapshot_date, "license_snapshot_date_basis": basis,

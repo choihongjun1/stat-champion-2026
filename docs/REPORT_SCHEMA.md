@@ -104,7 +104,7 @@
 | `probability_12m` | 0~1 | 아니오 | as_of 이후 12개월 안 폐업 예측 확률 |
 | `ci_low`, `ci_high` | 0~1 | 아니오 | **점포 단위 부트스트랩 재학습 예측의 5·95 백분위**. 신뢰구간이 아니다. `ci_low ≤ p ≤ ci_high` (검증) |
 | `interval_note` | string | 아니오 | 구간 설명 고정 문구. "신뢰구간·신뢰수준" 표현 금지 (검증) |
-| `band` | `low`/`mid`/`high` | 아니오 | 절대 확률 컷오프 (컷오프 값은 실행 메타에 둔다). 표시명은 화면이 정한다 |
+| `band` | `low`/`mid`/`high` | 아니오 | 절대 확률 컷오프로 serve가 정한 값 그대로. 컷오프는 실행 메타(`serve_meta.band_cutoffs` → `runs.band_cutoffs_json` → 정적 `meta.json`의 `band_cutoffs`)에 `cut_mid`·`cut_high` 이름으로 둔다(§11). 표시명은 화면이 정한다 |
 | `percentile` | 0~100 정수 | 예 | 같은 score_origin·자치구·업종 안 위험도 백분위, 높을수록 위험 |
 | `peer_group` | string | 아니오 | `"{gu} {biz_type}"`와 같아야 한다 (검증). **업력 조건 없음** |
 | `peer_median` | 0~1 | 아니오 | peer_group 위험도 중앙값 |
@@ -372,6 +372,10 @@ python -m src.serving.build_db --serve-dir outputs/serve/<run> --license-snapsho
 
 ### 검증 순서 (하나라도 실패하면 정본을 만들지 않는다)
 
+1. `serve_meta.band_cutoffs`: PR #36 train_detect `band_cutoffs.csv` 1행(`bands.suggest_cutoffs`) 그대로인
+   `{cut_mid, cut_high, base_rate}` — `$defs/serve_band_cutoffs`, `0 < cut_mid < cut_high < 1`. **정본 이름은 `cut_mid`·`cut_high`**이며
+   다른 이름(`mid`·`high` 등)은 받지 않는다(실제 생산자가 없다). `runs.band_cutoffs_json`에는 원문 그대로(base_rate 포함) 저장하고,
+   정적 `meta.json`에는 `cut_mid`·`cut_high`만 내보낸다. serve 등급 자체는 다시 매기지 않는다.
 1. serve 입력: 모든 줄이 같은 `_schema_version`이고 `serve_record_v0_2`(또는 구버전 `serve_record_v0_1`)를 통과, store_id 중복 없음,
    줄 수 = `serve_meta.n_stores`(누락 검출), 모든 `as_of` = `serve_meta.as_of` = `score_origin` 분기 말일, 줄의 `score_origin` = `serve_meta.score_origin`.
 2. 인허가 결합: 인허가 테이블 store_id 유일, reports의 모든 점포가 인허가에 있음(1:1), serve가 붙인 store 필드가 있으면 인허가 값과 일치,

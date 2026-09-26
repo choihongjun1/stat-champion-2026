@@ -1680,27 +1680,21 @@
           "minimum": 0
         },
         "band_cutoffs": {
-          "oneOf": [
-            {
-              "type": "null"
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "cut_mid",
+            "cut_high"
+          ],
+          "description": "등급 절대 확률 컷오프 (serve_meta.band_cutoffs의 cut_mid·cut_high 그대로): p ≥ cut_high → high, p ≥ cut_mid → mid",
+          "properties": {
+            "cut_mid": {
+              "$ref": "#/$defs/prob"
             },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "mid",
-                "high"
-              ],
-              "properties": {
-                "mid": {
-                  "$ref": "#/$defs/prob"
-                },
-                "high": {
-                  "$ref": "#/$defs/prob"
-                }
-              }
+            "cut_high": {
+              "$ref": "#/$defs/prob"
             }
-          ]
+          }
         },
         "policy_matching": {
           "enum": [
@@ -1964,6 +1958,26 @@
           }
         }
       ]
+    },
+    "serve_band_cutoffs": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "PR #36 serve_meta.json의 band_cutoffs (= train_detect band_cutoffs.csv 1행 = bands.suggest_cutoffs 결과). 등급 컷오프의 정본 이름은 cut_mid·cut_high다. base_rate는 컷오프를 정한 보정 구간의 평균 폐업률(참고값)이며 정적 번들로 내보내지 않는다. 0 < cut_mid < cut_high < 1은 build_db가 따로 검사한다",
+      "required": [
+        "cut_mid",
+        "cut_high"
+      ],
+      "properties": {
+        "cut_mid": {
+          "$ref": "#/$defs/prob"
+        },
+        "cut_high": {
+          "$ref": "#/$defs/prob"
+        },
+        "base_rate": {
+          "$ref": "#/$defs/prob"
+        }
+      }
     }
   }
 }

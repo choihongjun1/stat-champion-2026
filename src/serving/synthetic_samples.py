@@ -161,7 +161,7 @@ def write_inputs(d: Path, samples: list, with_policies: bool) -> dict:
                                      encoding="utf-8", newline="\n")
     (d / "serve_meta.json").write_text(json.dumps({
         "score_origin": SCORE_ORIGIN, "as_of": AS_OF, "n_stores": len(samples), "detect_run": "sample_synthetic",
-        "band_cutoffs": {"mid": 0.1493, "high": 0.2142}}), encoding="utf-8", newline="\n")
+        "band_cutoffs": {"cut_mid": 0.1493, "cut_high": 0.2142}}), encoding="utf-8", newline="\n")
     online = [{"store_id": f"SAMPLE-{s[0]:03d}", "online_presence": _online(s[12])} for s in samples if s[12]]
     (d / "online.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in online),
                                     encoding="utf-8", newline="\n")

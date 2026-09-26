@@ -122,7 +122,7 @@ def inputs(tmp_path):
         (d / "reports.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in recs),
                                          encoding="utf-8")
         meta = {"score_origin": "2026Q2", "as_of": AS_OF, "n_stores": len(recs), "detect_run": "detect_v0_enriched",
-                "band_cutoffs": {"mid": 0.1493, "high": 0.2142}, "licenses_sha256": "0" * 64,
+                "band_cutoffs": {"cut_mid": 0.1493, "cut_high": 0.2142}, "licenses_sha256": "0" * 64,
                 **(meta_update or {})}
         (d / "serve_meta.json").write_text(json.dumps(meta), encoding="utf-8")
         kw = {"licenses_path": _licenses(d / "licenses.parquet")}
@@ -181,7 +181,7 @@ def test_v0_2_input_passes_final_contract(inputs, tmp_path):
     assert run["policy_matching"] == "performed" and run["n_policies"] == 4
     assert run["n_online_presence"] == 1 and run["n_online_presence_ignored"] == 1
     assert run["score_origin"] == "2026Q2" and run["license_snapshot_date"] == "2026-09-11"
-    assert json.loads(run["band_cutoffs_json"]) == {"mid": 0.1493, "high": 0.2142}
+    assert json.loads(run["band_cutoffs_json"]) == {"cut_mid": 0.1493, "cut_high": 0.2142}
     reps = _reports(out)
     for r in reps.values():
         assert rv.validate_report(r) == []
