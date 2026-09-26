@@ -43,6 +43,7 @@ DEFAULT_OUT = config.REPO_ROOT / "outputs" / "serving" / "static_private"
 PUBLIC_DIR_NAMES = {"docs", "app", "public", "dist", "site", "www"}
 SAMPLE_ID_RE = re.compile(r"^SAMPLE-\d{3}$")
 SAMPLE_NAME_PREFIX = "(샘플)"
+SYNTHETIC_MODEL = "sample_synthetic"  # synthetic_samples가 만든 합성 입력의 모형 이름
 REPORT_PATH_TEMPLATE = "reports/{store_id}.json"
 FILES = {"search_index": "search_index.json", "dongs": "dongs.json", "dong_summary": "dong_summary.json"}
 PUBLICATION_NOTE = ("공개 승인 아님: 실명·주소·store_id와 개별 위험도가 결합된 데이터의 공개 범위는 아직 정해지지 않았다. "
@@ -58,9 +59,11 @@ class ExportError(RuntimeError):
 # ---------------------------------------------------------------------------
 # 데이터 종류·출력 경로
 def data_kind(conn: sqlite3.Connection) -> str:
-    rows = conn.execute("SELECT store_id, name FROM stores").fetchall()
+    """전부 합성일 때만 synthetic_sample: store_id가 SAMPLE-NNN, 상호가 '(샘플)'로 시작, 모형 이름이 합성 생성기의 것.
+    가린 실제 모형 출력(PR #36 serve 샘플처럼 SAMPLE-NNN·'(샘플)'로 가렸지만 위험도·기여는 실제 추정치)은 real이다."""
+    rows = conn.execute("SELECT s.store_id, s.name, r.model FROM stores s JOIN risk r USING (store_id)").fetchall()
     synthetic = bool(rows) and all(SAMPLE_ID_RE.match(sid) and name and name.startswith(SAMPLE_NAME_PREFIX)
-                                   for sid, name in rows)
+                                   and model == SYNTHETIC_MODEL for sid, name, model in rows)
     return "synthetic_sample" if synthetic else "real"
 
 

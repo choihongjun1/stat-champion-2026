@@ -63,7 +63,7 @@ def test_not_ready_or_dev_db_is_refused(tmp_path):
     not_ready = make_db(tmp_path, STORES, version="0.1", name="a.sqlite")
     with pytest.raises(ex.ExportError, match="기술적 계약 미통과"):
         ex.export(not_ready, tmp_path / "s1", min_cell_n=5)
-    dev = make_db(tmp_path, STORES, name="b.sqlite")  # 0.1.1 통과지만 개발용 빌드
+    dev = make_db(tmp_path, STORES, name="b.sqlite")  # serve 0.2 입력이 통과했지만 개발용 빌드
     with pytest.raises(ex.ExportError, match="개발용 빌드"):
         ex.export(dev, tmp_path / "s2", min_cell_n=5)
     assert not (tmp_path / "s1").exists() and not (tmp_path / "s2").exists()
@@ -158,6 +158,22 @@ def test_real_data_cannot_go_to_tracked_or_public_paths(tmp_path):
     ex.guard_export_path(root / "docs" / "samples" / "w2-5" / "bundle", "synthetic_sample", allow_tracked_synthetic=True)
     with pytest.raises(ex.ExportError):  # 합성이라도 명시적으로 허용하지 않으면 docs/ 금지
         ex.guard_export_path(root / "docs" / "samples" / "w2-5" / "bundle", "synthetic_sample")
+
+
+def test_masked_real_outputs_are_not_synthetic(tmp_path):
+    """SAMPLE-NNN·'(샘플)'로 가렸어도 실제 모형 출력이면 real — docs/samples에 쓸 수 없다."""
+    import sqlite3
+    masked = [store(i, "마포구", "망원동", "미용업", name=f"(샘플) 미용업 {i}") for i in range(1, 4)]
+    for s in masked:
+        s["store_id"] = f"SAMPLE-{int(s['store_id'][-5:]):03d}"
+    db = make_db(tmp_path, masked, purpose="release")
+    conn = sqlite3.connect(db)
+    try:
+        assert ex.data_kind(conn) == "real"
+    finally:
+        conn.close()
+    with pytest.raises(ex.ExportError):
+        ex.guard_export_path(SAMPLES_DIR / "masked", "real", allow_tracked_synthetic=True)
 
 
 def test_existing_non_bundle_directory_is_not_overwritten(tmp_path, rel_db):
