@@ -430,3 +430,40 @@ row 부재 패턴 실측. 상세 수치는 `outputs/master/qa_report.md` "업종
   - 범주형 처리 기준: `biz_type`, `gu`, `trdar_change_index` 등 범주형 predictor의 인코딩 방식.
 - **온라인 존재감은 Base에서 제외한다.** Enriched에서 별도로 검증한 뒤 `(store_id, origin)` 단위로 결합한다
   (2026-09-13 온라인 변수 사용 범위, 2026-09-23 W2-0 결정 유지).
+
+## 2026-09-26 — W2 경쟁지표 6종 정의 (인허가 기반, Base 확장 후보)
+근거: PR #31 후속 요청, 2026-09-25 "W2 경쟁지표 개발과 모델링 병렬 진행" 결정의 구체화.
+구현 `src/data/competition_features.py`, 산출물 `outputs/competition/`(커밋하지 않음), 원천·결측은 `DATA_CATALOG.md` §1-1.
+
+- **별도 테이블로 만든다.** master_base·master_score와 Base predictor 19개(`master_schema.COLUMN_ROLES`)는 바꾸지 않는다.
+  모델 단계가 `(store_id, origin)` m:1로 붙인다(`master.attach_enriched_table`과 같은 방식). 모델 비교는 별도 PR.
+- **기준일 t = origin_end, 영업 판정은 `labels.build_long_panel`과 같다**: 인허가일 ≤ t 이고 (폐업일 없음 또는 폐업일 > t).
+  현재 영업상태명은 쓰지 않는다. 기준일 당일 개업은 영업 중, 당일 폐업은 영업 아님(폐업 집계에는 포함).
+  `event_12m`은 읽지 않는다. 실측: 이 판정으로 만든 영업 모집단 = master_base 18개 origin·master_score 2026Q2의 키 집합.
+- **경쟁 모집단은 3개 구 × 3개 업종(일반음식점·휴게음식점·미용업) 인허가 점포뿐이다.** "같은 필지의 모든 사업체"가 아니다.
+- **모든 점포 수는 자기 점포를 제외한다.** 개업 건수도 자기 개업을 제외한다(자기 개업 여부는 업력 12개월 미만과 같아
+  업력과 기계적으로 연결되기 때문).
+- **정의** (창 = (t−12개월, t])
+  - `comp_pnu_cnt`: 같은 PNU의 t 당시 영업 점포 수
+  - `comp_pnu_same_type_cnt`: 같은 PNU·같은 `biz_type`
+  - `comp_dong_same_type_cnt`: 같은 법정동·같은 `biz_type`
+  - `comp_dong_open_4q`: 같은 법정동·업종에서 인허가일이 창 안인 점포 수
+  - `comp_dong_close_4q`: 같은 법정동·업종에서 폐업일이 창 안인 점포 수 (t 이후 폐업은 쓰지 않는다)
+  - `comp_dong_density_yoy`: 같은 법정동·업종 **전체** 영업 점포 수(자기 포함)의 전년 대비 증감률
+    (N_t − N_{t−12개월}) / N_{t−12개월}, 분모 0이면 NA. **이름과 달리 면적당 밀도가 아니라 점포 수 증감률이다**
+    (PR #31 계약의 이름을 유지). 법정동 면적 원천은 쓰지 않는다.
+- **N_t − N_{t−12개월} = 창 안 개업 전체 − 창 안 폐업 전체는 항등식이다**(실측 위반 0행). 따라서 `density_yoy`는
+  open·close와 정보가 겹치고, 동·업종 규모로 나눈 부분만 새로 더해진다. 모델 비교에서 이 중복을 감안한다.
+- **동 키는 10자리 법정동 코드 `bjd_code`** (= PNU 앞 10자리). 동 이름으로 집계하지 않는다. 행정동과 섞지 않는다.
+- **위치 키가 없으면 0이 아니라 NA다.** PNU 없음 → PNU 지표 NA, `bjd_code` 없음 → 동 지표 NA. 위치 없는 점포(195곳)는
+  다른 점포의 경쟁 점포로도 세지 않는다(경쟁 점포 수는 그만큼 하한).
+- **자치구(개방자치단체코드 기준)와 `bjd_code` 시군구가 다른 점포는 PNU·동 지표를 모두 NA로 두고 집계에서 뺀다**
+  (`comp_location_status="gu_bjd_mismatch"`). 다른 자치구로 옮기지 않는다. 실측 4곳 = 표준화 단계 `gu_mismatch` 4곳.
+- **시점 한계 (provenance로 남긴다)**
+  - 위치(PNU·법정동)는 인허가 파일의 현재 스냅샷 주소를 과거 origin에 소급한 것이다(`comp_location_basis`).
+    이전(移轉)은 식별할 수 없다(`DATA_CATALOG.md` §1 한계와 같음).
+  - `comp_feature_asof = origin_end`는 논리적 관측 기준일일 뿐이다. 인허가·폐업 기록이 그날 실제로 공개돼 있었는지
+    (사후 신고·정정 포함)는 확인되지 않았으므로 `comp_available_at`은 NA, `comp_available_at_basis="unverified"`로 둔다.
+    원천 최종 관측일(`comp_raw_last_observed`)은 raw 추출 시점의 하한이다.
+  - 날짜 기반 부분은 미래 원천 행에 불변이다(t 이후 인허가 행 삭제·t 이후 폐업일 제거 후 재계산 결과 동일, 실측·테스트).
+    원천 스냅샷에서 사라진 과거 레코드(말소 등)는 확인할 수 없다.
