@@ -10,9 +10,10 @@
 ## 0. 현재 상태와 의존성 (2026-09-26)
 
 - **정본과 파생본**: SQLite(`outputs/serving/report.sqlite`)가 로컬 정본이고, 정적 JSON 번들은 정본에서만 만드는 파생본이다(§1·§11·§13).
-- **입력·출력 버전**: PR #36 serve 출력 0.1은 입력 검증과 정본 구조까지만 된다(`final_contract = not_ready`).
-  R1~R3(`missing_reason`·`hold_reason`·`영향 미미`)을 반영한 0.1.1 입력만 최종 0.2 리포트가 되고 정적 번들로 내보낼 수 있다(§8·§10·§11).
-  **2026-09-26 현재 PR #36에는 R1~R3이 반영되지 않았다.**
+- **입력·출력 버전**: PR #36 serve 출력 **0.2**(커밋 `d6cfeb9`, R1~R5 반영)가 W2-5 빌드 입력(`serve_record_v0_2`)이다.
+  최종 리포트도 0.2지만 **버전 번호만 같고 다른 구조**다(serve 0.2에는 prescriptions·policies·online_presence·policy_matching이 없다) —
+  입력과 최종 계약은 별도 정의로 검증한다. 구버전 serve 0.1은 개발용 호환만 남고 정본이 `final_contract = not_ready`가 된다(§8·§10·§11).
+  PR #36 가린 샘플 23건(0.2)은 입력 검증·정본 빌드·최종 0.2 검증을 모두 통과했다(인허가는 가린 store 블록으로 만든 합성 입력, §11).
 - **실제 2026Q2 점포 리포트는 Issue #35(예측용 `master_score`)에 의존한다.** 이 PR은 실제 serve 실행·실제 전체 파이프라인을 돌리지 않았다.
   테스트는 합성 데이터, PR #36 가린 샘플(0.1 입력 검증, 저장소 밖에서 수동 확인), 인허가 기반 점포 수 실측으로만 했다.
 - **정책 연결 규칙은 PR #38 `FACTOR_POLICY_LINKS.md` 초안을 따른다. PR #38은 아직 병합되지 않았다** — 규칙이 바뀌면 `build_db.match_policies`를 함께 고친다.
@@ -120,15 +121,15 @@
 | `factor_id` | enum (§5) | 아니오 | serve | 레코드 안에서 유일 (검증) |
 | `name`, `category`, `actionability` | string / enum | 아니오 | serve | `factor_id`별 고정값과 같아야 한다 (§5, 검증) |
 | `contribution` | −1~1 | 아니오 | serve | 요인 단위 Shapley 기여 (확률 단위). 예측 분해이지 인과효과가 아니다. 배열은 이 값 내림차순 (검증) |
-| `direction` | `위험 증가`/`위험 감소`/`영향 미미` | 아니오 | serve | \|기여\| < 0.001이면 `영향 미미`, 아니면 부호 (검증). **0.1에는 `영향 미미`가 없다 — 변경 요청 R3** |
+| `direction` | `위험 증가`/`위험 감소`/`영향 미미` | 아니오 | serve | \|기여\| < 0.001이면 `영향 미미`, 아니면 부호 (검증). 서빙은 반올림 전 값으로 정하므로 반올림 후 정확히 ±0.0010인 값만 두 방향 모두 허용한다. serve 0.1에는 `영향 미미`가 없다 (R3, 0.2에서 반영) |
 | `peer_percentile` | 0~100 정수 | 예 | serve | 같은 업종·자치구·업력대 안 이 요인 기여의 백분위. 높을수록 위험 기여가 큼. 업력대 비교는 여기에만 쓴다 |
 | `explanation` | string | 아니오 | serve | 계산 결과 서술형 문장. "때문에·원인·고치면·개선하면·줄어듭니다" 금지 (검증) |
 | `driver` | string | 예 | serve | 온라인 요인의 주된 근거. 다른 요인은 null (검증) |
 | `values` | object | 아니오 (빈 객체 가능) | serve | 판단에 쓴 원래 feature 값 (number/string/bool/null) |
 | `display` | bool | 아니오 | serve | 아래 §4 |
 | `data_missing` | bool | 아니오 | serve | 아래 §4 |
-| `missing_reason` | enum | 예 | serve | 아래 §4. **0.1에 없음 — 변경 요청 R1** |
-| `hold_reason` | enum | 예 | serve | 아래 §4. **0.1에 없음 — 변경 요청 R2** |
+| `missing_reason` | enum | 예 | serve | 아래 §4. serve 0.2 코드값을 그대로 보존 (0.1에는 없음, R1) |
+| `hold_reason` | enum | 예 | serve | 아래 §4. serve 0.2 코드값을 그대로 보존 (0.1에는 없음, R2) |
 | `display_note` | string | 예 | serve | 내부용 문장. 화면 분기·문구에 쓰지 않는다 |
 
 ## 4. 표시 상태 구분
@@ -138,26 +139,29 @@
 
 | 상태 | 단위 | 조건 | 뜻 | 권장 화면 |
 |---|---|---|---|---|
-| 표시 | 점포×요인 | `display=true` (이때 `data_missing=false`, `missing_reason=null`, `hold_reason=null`) | 진단문을 그대로 보여준다 | 기여 순 목록. `영향 미미`는 접기 |
-| 데이터 없음 | 점포×요인 | `display=false`, `data_missing=true`, `missing_reason` ≠ null, `hold_reason=null` | 요인 feature가 이 점포에서 전부 결측. 기여는 값이 아니라 결측 자체에서 나오므로 요인 진단으로 읽으면 안 된다 | 회색 "데이터 없음" 배지 + `missing_reason` 문구 |
-| 검토 대기 | 점포×요인 | `display=false`, `data_missing=false`, `hold_reason` ≠ null | 계산은 됐지만 표시를 보류 (현재 `online_review` = 언급이 많은 쪽에서 위험이 높게 나온 온라인 요인, 오탐 검수 #28 전) | 숨김 |
+| 표시 | 점포×요인 | `display=true`, `hold_reason=null` (이때 `data_missing=false`, `missing_reason=null`) | 진단문을 그대로 보여준다 | 기여 순 목록. `영향 미미`는 접기 |
+| 데이터 없음 | 점포×요인 | `display=false`, `hold_reason="data_missing"`, `data_missing=true`, `missing_reason` = 세부 코드 | 요인 feature가 이 점포에서 전부 결측. 기여는 값이 아니라 결측 자체에서 나오므로 요인 진단으로 읽으면 안 된다 | 회색 "데이터 없음" 배지 + `missing_reason` 문구 |
+| 검토 대기 | 점포×요인 | `display=false`, `hold_reason="online_review"`, `data_missing=false`, `missing_reason=null` | 계산은 됐지만 표시를 보류 (언급이 많은 쪽에서 위험이 높게 나온 온라인 요인, 오탐 검수 #28 전) | 숨김 |
 | 판단 불가 | 레코드(유형) | `unavailable_categories`에 유형이 있음 | 모형에 그 유형의 활성 요인이 없음 (현재 "비용" — 공시지가가 학습 구간에 없음) | 유형 자리에 "판단 불가". 0%p로 그리지 않는다 |
 
+- 규칙(스키마 `factor_display_state`, serve 0.2 입력·최종 리포트 공통): `display=false` ⇔ `hold_reason` ≠ null.
+  `data_missing=true` ⇒ `hold_reason="data_missing"`·`missing_reason` 필수. `data_missing=false` ⇒ `missing_reason=null`이고
+  `hold_reason`은 null 또는 `online_review`. PR #36 `diagnose.py`의 같은 규칙(`display=false ⇔ hold_reason`)을 그대로 따른다.
 - 표시 보류된 요인의 `contribution`도 합계에 포함된다 (Σ기여 + 기준값 = 예측 확률).
-- `missing_reason` 코드 (serve `diagnose.missing_reasons`의 문구와 1:1):
+- `missing_reason` 코드 = PR #36 `diagnose.MISSING_REASON_CODES` (사유 문구와 1:1). 다른 코드명은 허용하지 않는다:
 
-| 코드 | serve 0.1 문구 | 해당 요인 |
+| 코드 | serve 사유 문구 | 해당 요인 |
 |---|---|---|
-| `outside_trdar` | 상권 경계 밖 | 상권 요인 4개 |
-| `trdar_quarter_missing` | 해당 분기 상권 자료 없음 | `trdar_population`, `trdar_vitality` |
-| `no_biz_data` | 해당 상권에 이 업종 자료 없음 | `peer_competition` |
-| `no_sales_disclosed` | 해당 상권에 이 업종 매출 공개 자료 없음 | `peer_sales` |
+| `out_of_trdar` | 상권 경계 밖 | 상권 요인 4개 |
+| `trdar_quarter_unavailable` | 해당 분기 상권 자료 없음 | `trdar_population`, `trdar_vitality` |
+| `industry_unpublished` | 해당 상권에 이 업종 자료 없음 | `peer_competition` |
+| `sales_unpublished` | 해당 상권에 이 업종 매출 공개 자료 없음 | `peer_sales` |
 | `trdar_unknown` | 상권 데이터 없음 (trdar_cd를 알 수 없음) | 상권 요인 4개 |
-| `online_unobserved` | 관측 불가 | `online_attention` |
-| `unknown` | 데이터 없음 | 그 밖 |
+| `online_unobservable` | 관측 불가 | `online_attention` |
+| `unknown` | 데이터 없음 (예비값) | 그 밖 |
 
-W2-5 빌드는 이 코드를 **serve 출력의 원천 값으로만** 받는다. 0.1 출력에는 이 필드가 없으므로 `explanation`에서 역추출하지 않고,
-R1이 반영된 serve 출력이 나오기 전까지 최종 리포트를 만들지 않는다(검증 실패).
+W2-5 빌드는 이 코드를 **serve 출력의 원천 값으로만** 받아 SQLite `factors`에 그대로 저장한다. 구버전 0.1 출력에는 이 필드가 없으므로
+`explanation`에서 역추출하지 않고 NULL로 두며 그 정본은 최종 리포트가 되지 못한다(`not_ready`).
 
 ## 5. 요인과 정책 연결
 
@@ -248,9 +252,11 @@ W3 DML 분석 전에는 효과 수치를 만들지 않는다. schema 0.2는 **�
   risk_ranking_rule, n_stores_total, n_stores_without_dong, duplicate_dong_names, dongs, rows`.
 - 점포 리포트와 **같은 정본(run_id)·같은 band 컷오프**로 집계한다. store_id·점포별 확률은 담지 않는다.
 
-### 빌드 입력 `serve_record_v0_1` / `serve_record_v0_1_1`
-- `serve_record_v0_1`: PR #36이 현재 내보내는 0.1 레코드. 입력 검증·정본 구조 확인용이며 최종 리포트가 되지 못한다.
-- `serve_record_v0_1_1`: R1~R3(필수)과 R4(선택)를 반영하도록 요청한 형식. 이 입력만 최종 0.2 검증 대상이다.
+### 빌드 입력 `serve_record_v0_2` / `serve_record_v0_1`
+- `serve_record_v0_2`: PR #36 serve 출력 0.2 (`d6cfeb9`). `score_origin`·`missing_reason`·`hold_reason` 필수, `영향 미미` 허용,
+  표시 상태 규칙(`factor_display_state`) 적용. 최상위 키를 닫아 최종 리포트(같은 0.2)를 입력으로 넣으면 거부한다. 이 입력만 최종 0.2 대상이다.
+- `serve_record_v0_1`: 구버전 0.1. 개발용 호환만 유지하며 정본은 `not_ready`가 된다.
+- (이전 초안의 `serve_record_v0_1_1`은 PR #36이 실제로 0.2를 내보내면서 이 정의로 바꿨다 — DECISIONS 2026-09-26 "W2-5 입력 계약을 PR #36 serve 0.2에 맞춤".)
 
 ### 빌드 입력 `online_presence_source`
 `online_presence.jsonl` 1줄 = `{"store_id": …, "online_presence": {…§7…}}`. PR #21 수집 결과를 이 형식으로 바꿔 넣는다.
@@ -307,7 +313,9 @@ B는 아직 없으며 코드에 승인 수단도 없다 — 정적 번들의 `pu
 | R4 | 각 줄에 `score_origin` 출력 | 권장 | 지금은 `serve_meta.json`에서 가져온다. 줄 단위로 있으면 입력 섞임을 막는다 |
 | R5 | `README_W2-6.md`의 `dong` 설명 "행정동" → "법정동" | **필수** (문서) | 인허가 `dong`은 지번주소 기준 법정동이다 (D1) |
 
-R1~R3 반영 후 serve 출력의 `_schema_version`은 0.1에서 올린다(예: 0.1.1). W2-5 빌드는 그 버전만 최종 리포트 입력으로 받는다.
+**반영 상태 (2026-09-26)**: PR #36 `d6cfeb9`에서 R1~R5가 모두 반영됐고 serve 출력 버전은 **0.2**다.
+R1의 코드명은 위 초안(`outside_trdar` 등) 대신 서빙 쪽 `MISSING_REASON_CODES`(`out_of_trdar` 등)로 정해졌고, R2의 `hold_reason`은
+데이터 없음에도 `data_missing` 코드를 준다. W2-5 계약은 서빙 실제 출력에 맞췄다(§4·§8).
 
 ### PR #37 화면 변경 사항
 
@@ -349,14 +357,24 @@ python -m src.serving.build_db --serve-dir outputs/serve/<run> --license-snapsho
 
 ### 검증 순서 (하나라도 실패하면 정본을 만들지 않는다)
 
-1. serve 입력: 모든 줄이 같은 `_schema_version`이고 `serve_record_v0_1`/`_v0_1_1`을 통과, store_id 중복 없음,
-   줄 수 = `serve_meta.n_stores`(누락 검출), 모든 `as_of` = `serve_meta.as_of` = `score_origin` 분기 말일, 줄에 `score_origin`이 있으면 일치.
+1. serve 입력: 모든 줄이 같은 `_schema_version`이고 `serve_record_v0_2`(또는 구버전 `serve_record_v0_1`)를 통과, store_id 중복 없음,
+   줄 수 = `serve_meta.n_stores`(누락 검출), 모든 `as_of` = `serve_meta.as_of` = `score_origin` 분기 말일, 줄의 `score_origin` = `serve_meta.score_origin`.
 2. 인허가 결합: 인허가 테이블 store_id 유일, reports의 모든 점포가 인허가에 있음(1:1), serve가 붙인 store 필드가 있으면 인허가 값과 일치,
    인허가일 ≤ as_of, 폐업일이 있으면 > as_of (as_of 당시 영업 점포).
 3. 정책 원천·온라인 입력: 각 스키마 통과, id·store_id 중복 없음, 업력 min ≤ max.
 4. 최종 0.2: 정본에서 다시 조립한 레코드(`assemble_report`)를 `validate_report`로 검사.
-   - 입력 0.1.1 → 한 건이라도 실패하면 빌드 실패, 통과하면 `runs.final_contract = passed`.
-   - 입력 0.1 → R1~R3 값이 없으므로(NULL, 추측하지 않음) `runs.final_contract = not_ready`, 실패 건수만 기록. **정적 배포 대상이 아니다.**
+   - serve 0.2 입력 → 한 건이라도 실패하면 빌드 실패, 통과하면 `runs.final_contract = passed`.
+   - 구버전 0.1 입력 → R1~R3 값이 없으므로(NULL, 추측하지 않음) `runs.final_contract = not_ready`, 실패 건수만 기록. **정적 배포 대상이 아니다.**
+   - 위험도·기여·등급·설명문은 serve 값을 그대로 옮기며 다시 계산하거나 고치지 않는다.
+
+### PR #36 가린 샘플 통합 확인 (2026-09-26, `d6cfeb9`, 저장소 밖 수동 실행)
+`docs/samples/serve_2025Q2_trial/sample_reports.jsonl` 23건(serve 0.2, score_origin 2025Q2). 가린 샘플은 실제 인허가와 결합할 수 없어
+**인허가 입력은 가린 store 블록을 그대로 옮긴 합성 테이블**을 썼다 — 실제 인허가 결합 검증이 아니다.
+입력 스키마 23/23 통과 → `--purpose release` 정본 빌드 성공(`final_contract=passed`, 최종 검증 실패 0) → 최종 0.2 검증 오류 0 →
+serve와 정본 리포트의 risk·factors(기여·방향·설명문·코드)·unavailable_categories·disclaimer 차이 0건. 보존된 보류 코드:
+`data_missing`+`out_of_trdar`/`sales_unpublished`/`online_unobservable`, `online_review`. 정적 번들 내보내기도 통과했고
+`data_kind=real`로 분류됐다(가린 실제 모형 출력은 합성 샘플이 아니다). 테스트 `test_pr36_masked_samples_match_input_contract`는
+이 파일이 main에 들어오면 자동으로 돈다(지금은 skip).
 
 빌드는 같은 폴더의 임시 파일에 한 트랜잭션으로 쓰고 모든 검증을 통과한 뒤에만 정본 경로로 교체한다. 실패하면 임시 파일을 지우고 기존 정본은 그대로 둔다.
 같은 입력이면 `run_id`(입력 해시 기반)와 DB 내용(`iterdump`)이 같다 — 빌드 시각 같은 비결정 값은 저장하지 않는다.
@@ -445,7 +463,8 @@ python -m src.serving.export_static --db outputs/serving/report.sqlite --min-cel
 - 입력은 SQLite 정본뿐이다. 검색 인덱스·동 요약은 `search_index`·`dong_summary` 모듈을 그대로 쓴다.
 - 기본 출력은 로컬 비공개 `outputs/serving/static_private/`. git 작업 트리(이 저장소, 별도 프론트 저장소 등) 안이면
   저장소 기준 경로에 `docs`·`app`·`public`·`dist`·`site`·`www`가 있으면 거부하고, git 무시 경로만 허용한다(이 저장소는 `outputs/` 아래만).
-  예외는 모든 점포가 합성 샘플(`SAMPLE-NNN`, `(샘플)` 상호)인 번들을 `docs/samples/` 아래에 쓸 때뿐이다.
+  예외는 모든 점포가 합성 샘플(`SAMPLE-NNN`, `(샘플)` 상호, 모형 이름 `sample_synthetic`)인 번들을 `docs/samples/` 아래에 쓸 때뿐이다.
+  `SAMPLE-NNN`·`(샘플)`로 가린 실제 모형 출력(PR #36 가린 샘플 등)은 `real`로 분류한다.
 - 실명 점포 번들의 공개 웹 배포는 구현하지 않았다 (B 미결정).
 
 ### 파일 구조

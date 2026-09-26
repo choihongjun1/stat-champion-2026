@@ -527,3 +527,21 @@ row 부재 패턴 실측. 상세 수치는 `outputs/master/qa_report.md` "업종
 - **리포트 파일 분할·정적 호스팅 방식은 실제 배포 환경(파일 수·용량 제한)을 확인한 뒤 확정**한다.
   현재 구조는 점포당 파일 1개(합성 28,832점포 기준 186 MB·파일 28,832개)다.
 - **내보내기 성능 최적화는 이 PR의 필수 완료 조건이 아니다** (28,832점포 기준 약 10분, 대부분 리포트별 0.2 재검증).
+
+## 2026-09-26 — W2-5 입력 계약을 PR #36 serve 0.2에 맞춤
+근거: PR #36 `d6cfeb9`(R1~R5 반영) `serve.py`·`diagnose.py`와 재생성 가린 샘플 23건. 상세는 `docs/REPORT_SCHEMA.md` §0·§4·§8·§10·§11.
+위 "W2-5 SQLite 정본 빌드 규칙"의 `serve_record_v0_1_1`(요청 초안 형식)을 이 항목으로 대체한다. 그 밖의 결정은 그대로다.
+
+- **W2-5 빌드 입력은 serve 출력 0.2(`serve_record_v0_2`)다.** 최종 리포트도 0.2지만 버전 번호만 같고 다른 구조라 별도 정의로 검증하며,
+  입력 정의는 최상위 키를 닫아 최종 리포트를 입력으로 받지 않는다. 구버전 serve 0.1은 개발용 호환만 남기고 정본을 `not_ready`로 둔다.
+- **결측 사유 코드는 서빙의 `diagnose.MISSING_REASON_CODES`를 그대로 쓴다**: `out_of_trdar`, `sales_unpublished`,
+  `industry_unpublished`, `online_unobservable`, `trdar_quarter_unavailable`, `trdar_unknown`, `unknown`.
+  W2-5 초안의 코드명(`outside_trdar` 등)은 폐기하며 섞어 허용하지 않는다. 코드는 SQLite `factors`에 원천 값 그대로 저장한다.
+- **표시 보류 규칙은 서빙과 같다**: `display=false` ⇔ `hold_reason` 있음. `data_missing=true` ⇒ `hold_reason=data_missing` + 세부
+  `missing_reason`. `data_missing=false`이고 표시 보류면 `hold_reason=online_review`, `missing_reason=null`. 설명문에서 사유를 복원하지 않는다.
+- **`영향 미미` 경계**: |기여| < 0.001 규칙을 유지한다. 서빙은 반올림 전 값으로 방향을 정하고 소수 4자리로 내보내므로,
+  반올림 후 정확히 ±0.0010인 값에 한해 `영향 미미`와 부호 방향을 모두 허용한다(그 밖은 엄격).
+- **위험도·기여·등급·설명문은 serve 값을 그대로 옮긴다** (재계산·수정 없음). 가린 샘플 23건에서 입력과 정본 리포트의 차이 0건을 확인했다
+  (인허가는 가린 store 블록으로 만든 합성 입력 — 실제 인허가 결합 검증은 아님).
+- **합성 샘플 판정 강화**: `data_kind=synthetic_sample`은 store_id `SAMPLE-NNN`·`(샘플)` 상호에 더해 모형 이름이 합성 생성기의 것
+  (`sample_synthetic`)일 때만이다. `SAMPLE-NNN`으로 가린 실제 모형 출력은 `real`이며 `docs/samples/`에 번들로 쓸 수 없다.
