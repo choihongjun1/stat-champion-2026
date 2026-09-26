@@ -31,7 +31,7 @@ def _factor(fid, contribution, *, pp=50, display=True, data_missing=False, missi
         "contribution": contribution, "direction": rv.direction_of(contribution),
         "peer_percentile": pp, "explanation": explanation, "driver": driver, "values": values or {},
         "display": display, "data_missing": data_missing, "missing_reason": missing_reason,
-        "hold_reason": hold_reason,
+        "hold_reason": hold_reason or ("data_missing" if data_missing else None),
         "display_note": None if display else "내부 메모",
     }
 
@@ -98,9 +98,9 @@ def _report_missing_and_hold():
         _factor("online_attention", 0.05, display=False, hold_reason="online_review",
                 driver="최근 12개월 블로그 언급 90건"),
         _factor("tenure", 0.02),
-        _factor("trdar_population", 0.006, display=False, data_missing=True, missing_reason="outside_trdar",
+        _factor("trdar_population", 0.006, display=False, data_missing=True, missing_reason="out_of_trdar",
                 pp=None),
-        _factor("peer_sales", 0.001, display=False, data_missing=True, missing_reason="outside_trdar"),
+        _factor("peer_sales", 0.001, display=False, data_missing=True, missing_reason="out_of_trdar"),
         _factor("store_profile", -0.004),
     ]
     rec["prescriptions"] = [{
@@ -149,9 +149,18 @@ BROKEN = {
                                lambda r: _set_factor(r, "trdar_population", missing_reason=None)),
     "missing_but_displayed": (_report_missing_and_hold,
                               lambda r: _set_factor(r, "trdar_population", display=True)),
-    "reason_without_missing": (_report_basic, lambda r: _set_factor(r, "tenure", missing_reason="outside_trdar")),
+    "reason_without_missing": (_report_basic, lambda r: _set_factor(r, "tenure", missing_reason="out_of_trdar")),
     "hold_without_reason": (_report_missing_and_hold,
                             lambda r: _set_factor(r, "online_attention", hold_reason=None)),
+    "missing_with_online_hold": (_report_missing_and_hold,
+                                 lambda r: _set_factor(r, "trdar_population", hold_reason="online_review")),
+    "online_hold_marked_missing": (_report_missing_and_hold,
+                                   lambda r: _set_factor(r, "online_attention", hold_reason="data_missing")),
+    "old_w2_5_missing_code": (_report_missing_and_hold,
+                              lambda r: _set_factor(r, "trdar_population", missing_reason="outside_trdar")),
+    "display_true_with_missing_hold": (_report_basic, lambda r: _set_factor(r, "tenure", hold_reason="data_missing")),
+    "rounded_below_boundary_increase": (_report_basic,
+                                        lambda r: _set_factor(r, "district", contribution=0.0009, direction="위험 증가")),
     "hold_reason_on_displayed": (_report_basic,
                                  lambda r: _set_factor(r, "tenure", hold_reason="online_review")),
     "free_text_missing_reason": (_report_missing_and_hold,
@@ -208,7 +217,58 @@ def test_broken_records_fail(case):
 
 
 # ---------------------------------------------------------------------------
-# PR #36 현재 출력(schema 0.1)
+# PR #36 serve 출력 — 구버전 0.1과 현재 0.2 (최종 리포트 0.2와 다른 구조)
+def _serve_v0_2():
+    rec = _report_basic()
+    out = {k: rec[k] for k in ("store_id", "score_origin", "as_of", "risk", "factors", "unavailable_categories",
+                               "disclaimer")}
+    out["_schema_version"] = "0.2"
+    out["store"] = {k: rec["store"][k] for k in ("biz_type", "gu", "name", "address_road", "address_jibun",
+                                                 "dong", "license_date")}
+    return out
+
+
+def test_serve_v0_2_is_the_build_input():
+    assert rv.validate_def("serve_record_v0_2", _serve_v0_2()) == []
+    hold = _report_missing_and_hold()
+    serve = {k: hold[k] for k in _serve_v0_2()}
+    serve["_schema_version"] = "0.2"
+    serve["store"] = {k: hold["store"][k] for k in _serve_v0_2()["store"]}
+    assert rv.validate_def("serve_record_v0_2", serve) == []
+
+
+def test_final_report_is_not_accepted_as_serve_input():
+    """버전 번호는 같아도 구조가 다르다 — 최종 리포트를 serve 입력으로 넣으면 거부한다."""
+    errs = " ".join(rv.validate_def("serve_record_v0_2", _report_basic()))
+    assert "policies" in errs and "prescriptions" in errs
+
+
+@pytest.mark.parametrize("change", [
+    {"missing_reason": "outside_trdar"},                       # 이전 W2-5 코드명
+    {"hold_reason": None},                                     # data_missing인데 보류 사유 없음
+    {"hold_reason": "online_review"},
+])
+def test_serve_v0_2_missing_factor_rules(change):
+    serve = _serve_v0_2()
+    serve["factors"][2].update(display=False, data_missing=True, missing_reason="out_of_trdar",
+                               hold_reason="data_missing")
+    assert rv.validate_def("serve_record_v0_2", serve) == []
+    serve["factors"][2].update(change)
+    assert rv.validate_def("serve_record_v0_2", serve)
+
+
+def test_rounding_boundary_direction():
+    """서빙은 반올림 전 값으로 방향을 정한다 — 반올림 후 정확히 ±0.0010이면 두 방향 모두 허용, 그 밖은 엄격."""
+    rec = _report_basic()
+    f = next(x for x in rec["factors"] if x["factor_id"] == "district")
+    for c, d, ok in [(0.001, "영향 미미", True), (0.001, "위험 증가", True), (-0.001, "영향 미미", True),
+                     (0.0009, "위험 증가", False), (0.0011, "영향 미미", False), (0.0, "영향 미미", True)]:
+        f.update(contribution=c, direction=d)
+        rec["factors"].sort(key=lambda x: -x["contribution"])
+        errs = [e for e in rv.validate_report(rec) if "direction" in e]
+        assert (errs == []) == ok, (c, d, errs)
+
+
 def _serve_v0_1():
     rec = _report_basic()
     out = {k: rec[k] for k in ("store_id", "as_of", "risk", "unavailable_categories", "disclaimer")}
@@ -238,10 +298,12 @@ def test_serve_v0_1_is_not_a_final_report():
 PR36_SAMPLE = Path(__file__).resolve().parents[1] / "docs" / "samples" / "serve_2025Q2_trial" / "sample_reports.jsonl"
 
 
-@pytest.mark.skipif(not PR36_SAMPLE.exists(), reason="PR #36 가린 샘플이 아직 main에 없다")
+@pytest.mark.skipif(not PR36_SAMPLE.exists(), reason="PR #36 가린 샘플(docs/samples/serve_2025Q2_trial)이 아직 main에 없다")
 def test_pr36_masked_samples_match_input_contract():
+    from src.serving.build_db import INPUT_DEFS
     for line in PR36_SAMPLE.read_text(encoding="utf-8").splitlines():
-        assert rv.validate_def("serve_record_v0_1", json.loads(line)) == []
+        rec = json.loads(line)
+        assert rv.validate_def(INPUT_DEFS[rec["_schema_version"]], rec) == []
 
 
 # ---------------------------------------------------------------------------

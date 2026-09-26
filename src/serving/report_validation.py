@@ -62,7 +62,7 @@ def _schema_errors(validator: Draft202012Validator, obj) -> list[str]:
 
 
 def validate_def(def_name: str, obj) -> list[str]:
-    """`$defs`의 한 정의(search_index_entry, dong_summary_row, policy_source, serve_record_v0_1 등)로 검증한다."""
+    """`$defs`의 한 정의(search_index_entry, dong_summary_row, policy_source, serve_record_v0_2 등)로 검증한다."""
     return _schema_errors(_validator(def_name), obj)
 
 
@@ -72,6 +72,15 @@ def direction_of(contribution: float) -> str:
     if abs(contribution) < NEGLIGIBLE:
         return "영향 미미"
     return "위험 증가" if contribution > 0 else "위험 감소"
+
+
+def allowed_directions(contribution: float) -> set[str]:
+    """반올림된(소수 4자리) 기여값에 허용되는 방향. 서빙은 반올림 전 값으로 '영향 미미'를 정하므로(PR #36
+    `diagnose.direction_label`), 반올림 후 정확히 ±0.0010인 값은 원래 0.00095~0.00105라 두 방향 모두 가능하다.
+    그 밖에서는 `direction_of`와 같아야 한다."""
+    if abs(abs(contribution) - NEGLIGIBLE) < 1e-9:
+        return {"영향 미미", "위험 증가" if contribution > 0 else "위험 감소"}
+    return {direction_of(contribution)}
 
 
 def quarter_end(quarter: str) -> str:
@@ -108,7 +117,7 @@ def semantic_errors(rec: dict) -> list[str]:
         name, cat, act = FACTOR_CONTRACT[f["factor_id"]]
         if (f["name"], f["category"], f["actionability"]) != (name, cat, act):
             errs.append(f"{f['factor_id']}: 이름·유형·조치 가능성이 요인 계약과 다르다")
-        if f["direction"] != direction_of(f["contribution"]):
+        if f["direction"] not in allowed_directions(f["contribution"]):
             errs.append(f"{f['factor_id']}: direction이 기여 부호와 다르다")
         if any(w in f["explanation"] for w in CAUSAL_WORDS):
             errs.append(f"{f['factor_id']}: 진단문에 인과 표현")

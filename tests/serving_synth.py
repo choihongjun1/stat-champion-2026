@@ -39,7 +39,7 @@ def _factor(fid, c, version):
     return f
 
 
-def write_inputs(d, stores, version="0.1.1", updated="2026-09-10 12:00:00", extra_licenses=()):
+def write_inputs(d, stores, version="0.2", updated="2026-09-10 12:00:00", extra_licenses=()):
     d.mkdir(parents=True, exist_ok=True)
     lic = pd.DataFrame([{
         "store_id": s["store_id"], "business_type": s["biz"], "gu": s["gu"], "dong": s["dong"],
@@ -72,7 +72,7 @@ def write_inputs(d, stores, version="0.1.1", updated="2026-09-10 12:00:00", extr
     return d
 
 
-def make_db(tmp_path, stores, *, version="0.1.1", purpose="dev", snapshot="2026-09-11", name="report.sqlite",
+def make_db(tmp_path, stores, *, version="0.2", purpose="dev", snapshot="2026-09-11", name="report.sqlite",
             **kw):
     d = write_inputs(tmp_path / f"in_{name}", stores, version=version, **kw)
     out = tmp_path / name

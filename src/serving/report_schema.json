@@ -181,21 +181,22 @@
       ]
     },
     "missing_reason": {
-      "description": "data_missing=true일 때 요인 feature가 전부 결측인 이유 코드. 서빙(PR #36)이 원천 값으로 내보내야 하며 explanation 문장에서 역추출하지 않는다",
+      "description": "data_missing=true인 요인의 세부 사유 코드. PR #36 serve 0.2 `diagnose.MISSING_REASON_CODES`의 값을 그대로 쓴다 (서빙이 원천 값으로 내보내며 explanation 문장에서 역추출하지 않는다)",
       "enum": [
-        "outside_trdar",
-        "trdar_quarter_missing",
-        "no_biz_data",
-        "no_sales_disclosed",
+        "out_of_trdar",
+        "sales_unpublished",
+        "industry_unpublished",
+        "online_unobservable",
+        "trdar_quarter_unavailable",
         "trdar_unknown",
-        "online_unobserved",
         "unknown"
       ]
     },
     "hold_reason": {
-      "description": "display=false이고 data_missing=false인 표시 보류의 이유 코드. 현재 규칙은 온라인 검수 대기 하나",
+      "description": "display=false인 이유 코드 (PR #36 `diagnose.HOLD_REASONS`). data_missing = 요인 값이 전부 결측(세부는 missing_reason), online_review = 온라인 언급 쪽 위험 상승의 오탐 검수 대기",
       "enum": [
-        "online_review"
+        "online_review",
+        "data_missing"
       ]
     },
     "store": {
@@ -509,68 +510,7 @@
       },
       "allOf": [
         {
-          "if": {
-            "properties": {
-              "data_missing": {
-                "const": true
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "display": {
-                "const": false
-              },
-              "missing_reason": {
-                "$ref": "#/$defs/missing_reason"
-              },
-              "hold_reason": {
-                "type": "null"
-              }
-            }
-          },
-          "else": {
-            "properties": {
-              "missing_reason": {
-                "type": "null"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "display": {
-                "const": true
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "hold_reason": {
-                "type": "null"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "display": {
-                "const": false
-              },
-              "data_missing": {
-                "const": false
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "hold_reason": {
-                "$ref": "#/$defs/hold_reason"
-              }
-            }
-          }
+          "$ref": "#/$defs/factor_display_state"
         }
       ]
     },
@@ -1158,7 +1098,7 @@
     },
     "serve_record_v0_1": {
       "type": "object",
-      "description": "PR #36 serve.py가 현재 내보내는 reports.jsonl 1줄 (빌드 입력). 변경 감지용이며 최종 계약이 아니다",
+      "description": "PR #36 serve 출력 0.1 (구버전). 개발용 호환만 유지한다 — missing_reason·hold_reason·'영향 미미'가 없어 정본은 final_contract=not_ready가 되고 최종 리포트·정적 번들이 되지 못한다",
       "required": [
         "_schema_version",
         "store_id",
@@ -1313,12 +1253,13 @@
         }
       }
     },
-    "serve_record_v0_1_1": {
+    "serve_record_v0_2": {
       "type": "object",
-      "description": "PR #36에 요청한 R1~R3(missing_reason·hold_reason·영향 미미)과 R4(score_origin, 선택)를 반영한 serve 출력. 이 형식만 최종 0.2 리포트 입력이 된다",
+      "description": "PR #36 serve 출력 0.2 (d6cfeb9, R1~R5 반영) — W2-5 빌드 입력. 최종 리포트 0.2와 버전 번호만 같고 구조가 다르다 (최종 리포트의 prescriptions·policies·online_presence·policy_matching이 없다). 최종 리포트를 입력으로 넣지 못하도록 최상위 키를 닫는다",
       "required": [
         "_schema_version",
         "store_id",
+        "score_origin",
         "as_of",
         "store",
         "risk",
@@ -1328,7 +1269,7 @@
       ],
       "properties": {
         "_schema_version": {
-          "const": "0.1.1"
+          "const": "0.2"
         },
         "store_id": {
           "$ref": "#/$defs/store_id"
@@ -1459,7 +1400,12 @@
                   }
                 ]
               }
-            }
+            },
+            "allOf": [
+              {
+                "$ref": "#/$defs/factor_display_state"
+              }
+            ]
           }
         },
         "unavailable_categories": {
@@ -1474,7 +1420,8 @@
         "score_origin": {
           "$ref": "#/$defs/quarter"
         }
-      }
+      },
+      "additionalProperties": false
     },
     "online_presence_source": {
       "type": "object",
@@ -1945,6 +1892,78 @@
           }
         }
       }
+    },
+    "factor_display_state": {
+      "description": "표시 상태 규칙 (PR #36 serve 0.2와 같음): display=true ⇔ hold_reason=null. data_missing=true ⇒ display=false, hold_reason=data_missing, missing_reason=세부 코드. data_missing=false ⇒ missing_reason=null, hold_reason ∈ {null, online_review}",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "display": {
+                "const": true
+              }
+            },
+            "required": [
+              "display"
+            ]
+          },
+          "then": {
+            "properties": {
+              "hold_reason": {
+                "type": "null"
+              },
+              "data_missing": {
+                "const": false
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "hold_reason": {
+                "$ref": "#/$defs/hold_reason"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "data_missing": {
+                "const": true
+              }
+            },
+            "required": [
+              "data_missing"
+            ]
+          },
+          "then": {
+            "properties": {
+              "display": {
+                "const": false
+              },
+              "hold_reason": {
+                "const": "data_missing"
+              },
+              "missing_reason": {
+                "$ref": "#/$defs/missing_reason"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "missing_reason": {
+                "type": "null"
+              },
+              "hold_reason": {
+                "enum": [
+                  null,
+                  "online_review"
+                ]
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }

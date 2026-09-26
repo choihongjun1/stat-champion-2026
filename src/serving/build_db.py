@@ -4,8 +4,9 @@
 온라인 존재감 스냅샷)을 합쳐 로컬 정본 SQLite를 만든다. 계약: `docs/REPORT_SCHEMA.md`.
 
 - 모델 코드(`src/models/`)는 import하지 않는다. 입력은 `reports.jsonl` 형식에만 의존한다 (DECISIONS 2026-09-26 D9).
-- 입력 검증(`serve_record_v0_1` / `serve_record_v0_1_1`)과 최종 0.2 검증을 분리한다.
-  0.1 입력에는 missing_reason·hold_reason·'영향 미미'(R1~R3)가 없다. 이 값을 설명문에서 추측하지 않고 NULL로 두며,
+- 입력 검증(serve 출력 0.2 = `serve_record_v0_2`, 구버전 0.1 = `serve_record_v0_1`)과 최종 리포트 0.2 검증을 분리한다.
+  serve 0.2와 최종 리포트 0.2는 버전 번호만 같고 다른 구조다. serve 0.2의 missing_reason·hold_reason 코드는 그대로 보존한다.
+  구버전 0.1 입력에는 이 값들과 '영향 미미'가 없다 — 설명문에서 추측하지 않고 NULL로 두며
   그 실행은 `runs.final_contract = 'not_ready'`로 기록한다 (정적 배포 불가).
 - 임시 파일에 한 트랜잭션으로 쓰고 모든 검증을 통과한 뒤에만 정본 경로로 교체한다. 실패하면 기존 정본은 그대로다.
 - 출력 경로가 저장소 안이면 git이 무시하는 경로여야 한다 (실제 점포 결과를 커밋하지 않는다, D2).
@@ -36,9 +37,10 @@ from src.data import config
 from src.serving import report_validation as rv
 
 BUILDER_VERSION = "w2-5-build-0.1"
-INPUT_DEFS = {"0.1": "serve_record_v0_1", "0.1.1": "serve_record_v0_1_1"}
-FINAL_READY_INPUTS = {"0.1.1"}  # R1~R3이 반영된 serve 출력만 최종 0.2 리포트가 된다
-NOT_READY_NOTE = ("serve 입력 0.1에는 missing_reason·hold_reason·'영향 미미'가 없다 (REPORT_SCHEMA R1~R3). "
+# serve 출력 버전 → 입력 정의. serve 0.2 (PR #36 d6cfeb9, R1~R5 반영)만 최종 리포트 0.2가 된다
+INPUT_DEFS = {"0.1": "serve_record_v0_1", "0.2": "serve_record_v0_2"}
+FINAL_READY_INPUTS = {"0.2"}
+NOT_READY_NOTE = ("구버전 serve 입력 0.1에는 missing_reason·hold_reason·'영향 미미'가 없다 (REPORT_SCHEMA R1~R3). "
                   "설명문에서 추측하지 않고 NULL로 두었으므로 최종 0.2 검증을 통과할 수 없다")
 DEFAULT_OUT = config.REPO_ROOT / "outputs" / "serving" / "report.sqlite"
 DEFAULT_LICENSES = config.OUTPUT_DIR / "licenses_3gu.parquet"

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """W2-5 SQLite 정본 빌더 테스트 (합성 데이터).
 
-점포·정책은 모두 지어낸 값이다. serve 입력은 PR #36 reports.jsonl 형식(0.1)과 R1~R3 반영 요청 형식(0.1.1)을 흉내 낸다.
+점포·정책은 모두 지어낸 값이다. serve 입력은 PR #36 reports.jsonl 구버전 형식(0.1)과 현재 serve 출력 0.2(PR #36 d6cfeb9)를 흉내 낸다.
 """
 import contextlib
 import copy
@@ -54,7 +54,8 @@ def _f(fid, c, version, *, display=True, data_missing=False, missing_reason=None
          "driver": driver, "display": display, "display_note": None if display else "내부 메모",
          "data_missing": data_missing, "values": {"x": 1.0}}
     if version != "0.1":
-        f["missing_reason"], f["hold_reason"] = missing_reason, hold_reason
+        f["missing_reason"] = missing_reason
+        f["hold_reason"] = hold_reason or ("data_missing" if data_missing else None)
     return f
 
 
@@ -82,7 +83,7 @@ def _records(version):
         _record(B, "마포구", "휴게음식점", 0.22, "high", [
             _f("online_attention", 0.05, v, display=False, hold_reason="online_review",
                driver="최근 12개월 블로그 언급 90건"),
-            _f("trdar_population", 0.006, v, display=False, data_missing=True, missing_reason="outside_trdar"),
+            _f("trdar_population", 0.006, v, display=False, data_missing=True, missing_reason="out_of_trdar"),
             _f("tenure", 0.002, v), _f("store_profile", -0.01, v)], v,
             store_extra={"name": None, "address_road": None}),
         _record(C, "영등포구", "미용업", 0.09, "low", [
@@ -173,9 +174,9 @@ def test_v0_1_input_builds_structure_but_final_not_ready(inputs, tmp_path):
     assert all(r["policy_matching"] == "not_performed" and r["policies"] == [] for r in reps.values())
 
 
-def test_v0_1_1_input_passes_final_contract(inputs, tmp_path):
+def test_v0_2_input_passes_final_contract(inputs, tmp_path):
     out = tmp_path / "report.sqlite"
-    run = _build(inputs, out, version="0.1.1", policies=True, online=True)
+    run = _build(inputs, out, version="0.2", policies=True, online=True)
     assert run["final_contract"] == "passed" and run["n_final_invalid"] == 0
     assert run["policy_matching"] == "performed" and run["n_policies"] == 4
     assert run["n_online_presence"] == 1 and run["n_online_presence_ignored"] == 1
@@ -194,7 +195,11 @@ def test_v0_1_1_input_passes_final_contract(inputs, tmp_path):
     assert a["online_presence"]["naver_local_registered"] is True and b["online_presence"] is None
     assert a["prescriptions"] == []
     assert [f["factor_id"] for f in a["factors"]] == ["online_attention", "tenure", "district", "store_profile"]
-    assert next(f for f in b["factors"] if f["factor_id"] == "trdar_population")["missing_reason"] == "outside_trdar"
+    assert next(f for f in b["factors"] if f["factor_id"] == "trdar_population")["missing_reason"] == "out_of_trdar"
+    # 원천(serve 0.2) 코드값을 그대로 보존한다
+    assert _q(out, "SELECT factor_id, display, data_missing, missing_reason, hold_reason FROM factors "
+                   f"WHERE store_id = '{B}' AND display = 0 ORDER BY factor_id") == [
+        ("online_attention", 0, 0, None, "online_review"), ("trdar_population", 0, 1, "out_of_trdar", "data_missing")]
 
     # 정책 (FACTOR_POLICY_LINKS.md §4): A 업력 41개월
     assert [(p["id"], p["match_status"], p["linked_factor_ids"]) for p in a["policies"]] == [
@@ -214,7 +219,7 @@ def test_v0_1_1_input_passes_final_contract(inputs, tmp_path):
 
 
 def test_rebuild_is_reproducible(inputs, tmp_path):
-    reports, meta, kw = inputs(version="0.1.1", policies=True, online=True)
+    reports, meta, kw = inputs(version="0.2", policies=True, online=True)
     lic = kw.pop("licenses_path")
     dumps, runs = [], []
     for name in ("one.sqlite", "two.sqlite"):
@@ -227,12 +232,12 @@ def test_rebuild_is_reproducible(inputs, tmp_path):
 
 def test_failed_build_keeps_previous_canonical(inputs, tmp_path):
     out = tmp_path / "report.sqlite"
-    _build(inputs, out, version="0.1.1")
+    _build(inputs, out, version="0.2")
     before = hashlib.sha256(out.read_bytes()).hexdigest()
-    bad = _records("0.1.1")
+    bad = _records("0.2")
     bad[0]["factors"][2]["direction"] = "위험 증가"  # 0.0004 → '영향 미미'여야 한다 (최종 검증에서 실패)
     with pytest.raises(bd.BuildError, match="최종 0.2"):
-        _build(inputs, out, version="0.1.1", records=bad)
+        _build(inputs, out, version="0.2", records=bad)
     assert hashlib.sha256(out.read_bytes()).hexdigest() == before
     assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".report.sqlite.tmp")] == []
 
@@ -269,24 +274,24 @@ FAILURES = {
 @pytest.mark.parametrize("case", sorted(FAILURES))
 def test_input_failures(inputs, tmp_path, case):
     mutate, meta_update, msg = FAILURES[case]
-    recs = mutate(_records("0.1.1"))
+    recs = mutate(_records("0.2"))
     out = tmp_path / "report.sqlite"
     with pytest.raises(bd.BuildError, match=msg):
-        _build(inputs, out, version="0.1.1", records=recs, meta_update=meta_update)
+        _build(inputs, out, version="0.2", records=recs, meta_update=meta_update)
     assert not out.exists()
 
 
 def test_store_not_open_at_as_of(inputs, tmp_path):
     """reports에 as_of 이전 폐업 점포가 들어오면 멈춘다 (리포트 모집단 = as_of 당시 영업 점포)."""
-    recs = _records("0.1.1")
+    recs = _records("0.2")
     recs[0]["store_id"] = X
     recs[0]["store"] = {"biz_type": "일반음식점", "gu": "광진구"}
     with pytest.raises(bd.BuildError, match="as_of 당시 영업 점포가 아니다"):
-        _build(inputs, tmp_path / "r.sqlite", version="0.1.1", records=recs)
+        _build(inputs, tmp_path / "r.sqlite", version="0.2", records=recs)
 
 
 def test_license_table_duplicate_store(inputs, tmp_path):
-    reports, meta, kw = inputs(version="0.1.1")
+    reports, meta, kw = inputs(version="0.2")
     lic = pd.read_parquet(kw["licenses_path"])
     pd.concat([lic, lic.iloc[[0]]]).to_parquet(kw["licenses_path"], index=False)
     with pytest.raises(bd.BuildError, match="1:1 결합 불가"):
@@ -294,7 +299,7 @@ def test_license_table_duplicate_store(inputs, tmp_path):
 
 
 def test_invalid_policy_source(inputs, tmp_path):
-    reports, meta, kw = inputs(version="0.1.1", policies=True)
+    reports, meta, kw = inputs(version="0.2", policies=True)
     pols = _policies()
     pols[0]["related_factor_ids"] = ["온라인 노출 채널 수"]  # 이름 문자열은 연결 키가 아니다
     kw["policies_path"].write_text(json.dumps(pols, ensure_ascii=False), encoding="utf-8")
@@ -303,7 +308,7 @@ def test_invalid_policy_source(inputs, tmp_path):
 
 
 def test_duplicate_online_presence(inputs, tmp_path):
-    reports, meta, kw = inputs(version="0.1.1", online=True)
+    reports, meta, kw = inputs(version="0.2", online=True)
     rows = _online() + [_online()[0]]
     kw["online_presence_path"].write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows),
                                           encoding="utf-8")
@@ -370,7 +375,7 @@ def test_release_build_requirements(tmp_path):
 
 
 def test_passed_canonical_is_not_downgraded(tmp_path):
-    out = make_db(tmp_path, SYNTH)  # 0.1.1 → passed
+    out = make_db(tmp_path, SYNTH)  # serve 0.2 → passed
     before = hashlib.sha256(out.read_bytes()).hexdigest()
     d = write_inputs(tmp_path / "v01", SYNTH, version="0.1")
     with pytest.raises(bd.BuildError, match="덮어쓰지 않는다"):
