@@ -1,6 +1,6 @@
 {
   "_schema_version": "0.2",
-  "run_id": "db9e23bd00bcb35d",
+  "run_id": "9eab768fcec5990b",
   "score_origin": "2026Q2",
   "as_of": "2026-06-30",
   "export_version": "w2-5-export-0.1",
@@ -19,27 +19,27 @@
   "files": [
     {
       "path": "dong_summary.json",
-      "sha256": "a52725f2f567b6fe02a35b08d25e7ba6122eb059bd896f4cb9c09e0fd60dc4b2",
+      "sha256": "3712631ddadde9148feb8f344eac764c0965db7c70ec2153a775bbb531b5f7aa",
       "bytes": 9802,
       "rows": 16,
       "schema_version": "0.2",
-      "run_id": "db9e23bd00bcb35d"
+      "run_id": "9eab768fcec5990b"
     },
     {
       "path": "dongs.json",
-      "sha256": "143518cb7a8d7730efa29cb5aa9aeef1b5fef4681769d32dbc86cfc57a485c7e",
+      "sha256": "6aa8a07710ba0398d86bb2f0ac38c2d66e8af7311f186daf2552f19b445d90d0",
       "bytes": 879,
       "rows": 7,
       "schema_version": "0.2",
-      "run_id": "db9e23bd00bcb35d"
+      "run_id": "9eab768fcec5990b"
     },
     {
       "path": "meta.json",
-      "sha256": "7d309b5d0cacf41d07b518d448598bc31a95759916da6c478d0b821d07c29f17",
+      "sha256": "0e2c1aae3873b6c646649303dde982e39d61c1392fe30a7cbfdaab7b99974ec0",
       "bytes": 916,
       "rows": 1,
       "schema_version": "0.2",
-      "run_id": "db9e23bd00bcb35d"
+      "run_id": "9eab768fcec5990b"
     },
     {
       "path": "reports/SAMPLE-001.json",
@@ -47,7 +47,7 @@
       "bytes": 7958,
       "rows": 1,
       "schema_version": "0.2",
-      "run_id": "db9e23bd00bcb35d"
+      "run_id": "9eab768fcec5990b"
     },
     {
       "path": "reports/SAMPLE-002.json",
@@ -55,7 +55,7 @@
       "bytes": 7958,
       "rows": 1,
       "schema_version": "0.2",
-      "run_id": "db9e23bd00bcb35d"
+      "run_id": "9eab768fcec5990b"
     },
     {
       "path": "reports/SAMPLE-003.json",
@@ -63,7 +63,7 @@
       "bytes": 7518,
       "rows": 1,
       "schema_version": "0.2",
-      "run_id": "db9e23bd00bcb35d"
+      "run_id": "9eab768fcec5990b"
     },
     {
       "path": "reports/SAMPLE-004.json",
@@ -71,7 +71,7 @@
       "bytes": 7475,
       "rows": 1,
       "schema_version": "0.2",
-      "run_id": "db9e23bd00bcb35d"
+      "run_id": "9eab768fcec5990b"
     },
     {
       "path": "reports/SAMPLE-005.json",
@@ -79,7 +79,7 @@
       "bytes": 7373,
       "rows": 1,
       "schema_version": "0.2",
-      "run_id": "db9e23bd00bcb35d"
+      "run_id": "9eab768fcec5990b"
     },
     {
       "path": "reports/SAMPLE-006.json",
@@ -87,7 +87,7 @@
       "bytes": 7997,
       "rows": 1,
       "schema_version": "0.2",
-      "run_id": "db9e23bd00bcb35d"
+      "run_id": "9eab768fcec5990b"
     },
     {
       "path": "reports/SAMPLE-007.json",
@@ -95,7 +95,7 @@
       "bytes": 7456,
       "rows": 1,
       "schema_version": "0.2",
-      "run_id": "db9e23bd00bcb35d"
+      "run_id": "9eab768fcec5990b"
     },
     {
       "path": "reports/SAMPLE-008.json",
@@ -103,7 +103,7 @@
       "bytes": 7606,
       "rows": 1,
       "schema_version": "0.2",
-      "run_id": "db9e23bd00bcb35d"
+      "run_id": "9eab768fcec5990b"
     },
     {
       "path": "reports/SAMPLE-009.json",
@@ -111,15 +111,15 @@
       "bytes": 7500,
       "rows": 1,
       "schema_version": "0.2",
-      "run_id": "db9e23bd00bcb35d"
+      "run_id": "9eab768fcec5990b"
     },
     {
       "path": "search_index.json",
-      "sha256": "055622461dd0af33704fefdb8790a5625adeca0e17d0fe19596d7211b3285f77",
+      "sha256": "4e189a5e75565c58b1b2ca091ee3de579a0cc00e5f0349e02d20a987e4ab4ca3",
       "bytes": 3149,
       "rows": 9,
       "schema_version": "0.2",
-      "run_id": "db9e23bd00bcb35d"
+      "run_id": "9eab768fcec5990b"
     }
   ]
 }

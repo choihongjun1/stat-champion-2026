@@ -156,16 +156,17 @@ def write_inputs(d: Path, samples: list, with_policies: bool) -> dict:
     lic["close_date"] = pd.to_datetime(lic["close_date"])
     lic.to_parquet(d / "licenses.parquet", index=False)
     (d / "reports.jsonl").write_text("".join(json.dumps(_record(s), ensure_ascii=False) + "\n" for s in samples),
-                                     encoding="utf-8")
+                                     encoding="utf-8", newline="\n")
     (d / "serve_meta.json").write_text(json.dumps({
         "score_origin": SCORE_ORIGIN, "as_of": AS_OF, "n_stores": len(samples), "detect_run": "sample_synthetic",
-        "band_cutoffs": {"mid": 0.1493, "high": 0.2142}}), encoding="utf-8")
+        "band_cutoffs": {"mid": 0.1493, "high": 0.2142}}), encoding="utf-8", newline="\n")
     online = [{"store_id": f"SAMPLE-{s[0]:03d}", "online_presence": _online(s[12])} for s in samples if s[12]]
     (d / "online.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in online),
-                                    encoding="utf-8")
+                                    encoding="utf-8", newline="\n")
     kw = {"online_presence_path": d / "online.jsonl"}
     if with_policies:
-        (d / "policies.json").write_text(json.dumps(POLICIES, ensure_ascii=False, indent=2), encoding="utf-8")
+        (d / "policies.json").write_text(json.dumps(POLICIES, ensure_ascii=False, indent=2), encoding="utf-8",
+                                         newline="\n")
         kw["policies_path"] = d / "policies.json"
     return kw
 
@@ -193,7 +194,7 @@ def generate(out_root: Path = DEFAULT_OUT) -> dict:
                  {"kind": "address", "query": "광진구 가상로 1", "expect_first": "SAMPLE-003"},
                  {"kind": "address", "query": "광진구 가상로 12", "expect_first": "SAMPLE-004"}]}
     (out_root / "sample_cases.json").write_text(json.dumps(cases, ensure_ascii=False, indent=2) + "\n",
-                                                encoding="utf-8")
+                                                encoding="utf-8", newline="\n")
     return manifests
 
 
