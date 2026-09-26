@@ -30,11 +30,11 @@
 | SAMPLE-002 | (샘플) 가상식당 합정점 | mid | 상호 중복 검색 |
 | SAMPLE-003 | (샘플) 가상카페 | high | 주소 구분 검색 ("광진구 가상로 1") · 온라인 요인 연결 정책 |
 | SAMPLE-004 | (샘플) 가상미용실 | low | 주소 구분 검색 ("광진구 가상로 12") · 온라인 존재감 없음 (미등록·언급 0) |
-| SAMPLE-005 | (샘플) 상권밖식당 | mid | 데이터 없음 요인 4개 (`outside_trdar`) · 온라인 존재감 미수집 (`null`) · 도로명 주소 없음 |
+| SAMPLE-005 | (샘플) 상권밖식당 | mid | 데이터 없음 요인 4개 (`hold_reason=data_missing`, `out_of_trdar`) · 온라인 존재감 미수집 (`null`) · 도로명 주소 없음 |
 | SAMPLE-006 | (샘플) 검토대기카페 | high | 검토 대기 요인 (`online_review`) — 정책 연결 안 함 |
 | SAMPLE-007 | (샘플) 기준일후폐업식당 | mid | 기준일 이후 폐업 (`status.current = closed`) |
 | SAMPLE-008 | (샘플) 인허가일미상미용실 | low | 정책 조건 확인 필요 (인허가일 없음 → 업력 조건 `check_required`) |
-| SAMPLE-009 | (샘플) 매출미공개카페 | high | 데이터 없음 (`no_sales_disclosed`, `online_unobserved`) |
+| SAMPLE-009 | (샘플) 매출미공개카페 | high | 데이터 없음 (`sales_unpublished`, `online_unobservable`) |
 | SAMPLE-010 | (샘플) 정책미실행식당 | low | 정책 매칭 미실행 |
 
 모든 샘플: 비용 유형 판단 불가(`unavailable_categories: ["비용"]`), 정책 `(예시) 임차료 부담 완화`는 매출 조건 때문에 `check_required`.

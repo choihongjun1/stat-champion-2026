@@ -34,8 +34,9 @@ SAMPLE_MIN_CELL_N = 2  # 합성 번들 시연용 (provisional). 실제 하한값
 TAG = " [합성 예시]"
 INTERVAL_NOTE = "학습 데이터가 달랐다면 예측이 얼마나 흔들렸을지의 범위이며, 폐업 확률 자체의 범위가 아닙니다."
 DISCLAIMER = "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다."
-REASON_TEXT = {"outside_trdar": "상권 경계 밖", "no_sales_disclosed": "해당 상권에 이 업종 매출 공개 자료 없음",
-               "online_unobserved": "관측 불가"}
+# PR #36 diagnose.MISSING_REASON_CODES의 코드 → 사유 문구 (합성 설명문용)
+REASON_TEXT = {"out_of_trdar": "상권 경계 밖", "sales_unpublished": "해당 상권에 이 업종 매출 공개 자료 없음",
+               "online_unobservable": "관측 불가"}
 BAND_P = {"low": (0.061, 0.045, 0.079), "mid": (0.172, 0.141, 0.205), "high": (0.284, 0.236, 0.331)}
 
 # 요인 기여 기본값 (합성). 시나리오별로 덮어쓴다.
@@ -56,8 +57,8 @@ SAMPLES = [
      ["band_low", "address_distinct", "online_presence_absent"]),
     (5, "bundle", "일반음식점", "영등포구", "여의도동", "(샘플) 상권밖식당", None, "서울특별시 영등포구 여의도동 가상번지 5",
      "2022-09-09", None, "mid",
-     {"trdar_population": ("missing", "outside_trdar", 0.007), "trdar_vitality": ("missing", "outside_trdar", 0.004),
-      "peer_competition": ("missing", "outside_trdar", -0.003), "peer_sales": ("missing", "outside_trdar", 0.002)},
+     {"trdar_population": ("missing", "out_of_trdar", 0.007), "trdar_vitality": ("missing", "out_of_trdar", 0.004),
+      "peer_competition": ("missing", "out_of_trdar", -0.003), "peer_sales": ("missing", "out_of_trdar", 0.002)},
      None, ["band_mid", "data_missing", "online_presence_not_collected"]),
     (6, "bundle", "휴게음식점", "마포구", "서교동", "(샘플) 검토대기카페", "서울특별시 마포구 가상로 606", None,
      "2021-11-11", None, "high", {"online_attention": ("hold", 0.063)}, "registered", ["band_high", "review_hold"]),
@@ -67,7 +68,7 @@ SAMPLES = [
      None, None, "low", {}, "registered", ["band_low", "policy_check_required"]),
     (9, "bundle", "휴게음식점", "영등포구", "여의도동", "(샘플) 매출미공개카페", "서울특별시 영등포구 가상로 909", None,
      "2020-01-06", None, "high",
-     {"peer_sales": ("missing", "no_sales_disclosed", 0.005), "online_attention": ("missing", "online_unobserved", 0.009),
+     {"peer_sales": ("missing", "sales_unpublished", 0.005), "online_attention": ("missing", "online_unobservable", 0.009),
       "tenure": 0.044}, "registered", ["band_high", "data_missing"]),
     (10, "bundle_no_policy", "일반음식점", "마포구", "망원동", "(샘플) 정책미실행식당", "서울특별시 마포구 가상로 1010", None,
      "2023-06-01", None, "low", {}, "registered", ["band_low", "policy_not_performed"]),
@@ -122,7 +123,7 @@ def _factor(fid: str, spec) -> dict:
             "driver": driver, "display": kind == "normal",
             "display_note": None if kind == "normal" else "합성 예시 — 표시 보류",
             "data_missing": kind == "missing", "missing_reason": reason,
-            "hold_reason": "online_review" if kind == "hold" else None, "values": {}}
+            "hold_reason": {"hold": "online_review", "missing": "data_missing"}.get(kind), "values": {}}
 
 
 def _record(s) -> dict:
@@ -130,11 +131,11 @@ def _record(s) -> dict:
     p, lo, hi = BAND_P[band]
     specs = {**BASE_FACTORS, **over}
     factors = sorted((_factor(fid, spec) for fid, spec in specs.items()), key=lambda f: -f["contribution"])
-    return {"_schema_version": "0.1.1", "store_id": f"SAMPLE-{n:03d}", "as_of": AS_OF, "score_origin": SCORE_ORIGIN,
+    return {"_schema_version": "0.2", "store_id": f"SAMPLE-{n:03d}", "as_of": AS_OF, "score_origin": SCORE_ORIGIN,
             "store": {"biz_type": biz, "gu": gu},
             "risk": {"probability_12m": p, "ci_low": lo, "ci_high": hi, "interval_note": INTERVAL_NOTE, "band": band,
                      "percentile": {"low": 30, "mid": 72, "high": 94}[band], "peer_group": f"{gu} {biz}",
-                     "peer_median": 0.118, "model": "sample_synthetic", "calibrated": False},
+                     "peer_median": 0.118, "model": ex.SYNTHETIC_MODEL, "calibrated": False},
             "factors": factors, "unavailable_categories": ["비용"], "disclaimer": DISCLAIMER}
 
 

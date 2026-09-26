@@ -62,8 +62,8 @@
       "values": {},
       "display": false,
       "data_missing": true,
-      "missing_reason": "online_unobserved",
-      "hold_reason": null,
+      "missing_reason": "online_unobservable",
+      "hold_reason": "data_missing",
       "display_note": "합성 예시 — 표시 보류"
     },
     {
@@ -96,8 +96,8 @@
       "values": {},
       "display": false,
       "data_missing": true,
-      "missing_reason": "no_sales_disclosed",
-      "hold_reason": null,
+      "missing_reason": "sales_unpublished",
+      "hold_reason": "data_missing",
       "display_note": "합성 예시 — 표시 보류"
     },
     {

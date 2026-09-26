@@ -62,8 +62,8 @@
       "values": {},
       "display": false,
       "data_missing": true,
-      "missing_reason": "outside_trdar",
-      "hold_reason": null,
+      "missing_reason": "out_of_trdar",
+      "hold_reason": "data_missing",
       "display_note": "합성 예시 — 표시 보류"
     },
     {
@@ -96,8 +96,8 @@
       "values": {},
       "display": false,
       "data_missing": true,
-      "missing_reason": "outside_trdar",
-      "hold_reason": null,
+      "missing_reason": "out_of_trdar",
+      "hold_reason": "data_missing",
       "display_note": "합성 예시 — 표시 보류"
     },
     {
@@ -113,8 +113,8 @@
       "values": {},
       "display": false,
       "data_missing": true,
-      "missing_reason": "outside_trdar",
-      "hold_reason": null,
+      "missing_reason": "out_of_trdar",
+      "hold_reason": "data_missing",
       "display_note": "합성 예시 — 표시 보류"
     },
     {
@@ -147,8 +147,8 @@
       "values": {},
       "display": false,
       "data_missing": true,
-      "missing_reason": "outside_trdar",
-      "hold_reason": null,
+      "missing_reason": "out_of_trdar",
+      "hold_reason": "data_missing",
       "display_note": "합성 예시 — 표시 보류"
     },
     {
