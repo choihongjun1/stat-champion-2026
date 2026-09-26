@@ -18,6 +18,10 @@
 - broad biz_type 매핑 한계: 휴게음식점 편의점(1,158개 점포)·일반음식점 '까페'·미용업 '메이크업업' 등은 실제 세부 업종과 다른 그룹 값을 받는다. 현재 시점 업태로 예외를 판정하면 시간 기준 불확실성이 생기므로 예외를 두지 않는다.
 - 상권분석 2021~22 CSV는 2023-10-30 재발행본이다(WARNING). 점포·추정매출 계열의 공표일은 계열별로 따로 확인하지 않았고 golmok 서비스 전체 업데이트 일정과 같다고 본다(WARNING).
 - 온라인 존재감은 Base에 없다. Enriched는 `(store_id, origin)` 유일 테이블을 `master.attach_enriched_table`로 m:1 결합한다.
+- **예측용 `master_score` (Issue #35)**: `python -m src.data.master_score --origin 2026Q2` → `outputs/master/master_score.parquet` + `score_meta.json` + `qa_report_score.md`. master_base와 같은 원본 인허가 로더·적격 판정(`labels.build_long_panel`: 인허가일 ≤ origin_end, 폐업일 없음 또는 > origin_end)과 같은 결합 함수(`master.attach_*`)를 쓰며, origin은 하나뿐이고 라벨·성숙 컬럼(`event_12m`, `maturity_cutoff_used_months`)이 없다. 나머지 컬럼·이름·dtype·결측 규칙은 master_base와 같다 (`SCORE_EXCLUDED_COLUMNS`).
+- master_score 시간 정합성: 인허가 feature는 origin_end 기준, 상권은 T-1(2026Q2 → 2026Q1, 2026Q2 값은 2026-08-18 공표라 사용 금지), 공시지가는 strict as-of(2026Q2 → 2026년 값, 공시 2026-04-30). 2026Q1 상권 공표일은 원천에서 확인되지 않아 `archive_inferred`(NaT)로 남는다 — 공식 일정(분기 후 약 2개월) 기준 추정이며 검증된 날짜가 아니다. 면적·좌표 유무는 인허가 현재 스냅샷 값이라 as_of 당시 값이라고 단정할 수 없다 (master_base와 같은 한계). 온라인 feature는 결합하지 않는다 — PR #33 `online_features --panel`로 따로 만들어 서빙 `--online-score`로 붙인다.
+- master_score 모집단 QA: 원천에서 매번 다시 센다(하드코딩 없음). 2026-09-26 실측 2026Q2 = 28,711점포 (현재 스냅샷 영업 28,832와의 차이 = as_of 이후 폐업 572곳 포함, as_of 이후 개업 693곳 제외). 영업상태명이 '폐업'인데 폐업일자가 없는 점포는 학습 패널과 같이 포함하고 QA에 건수만 기록한다(영업 확인 아님). 역검증: 같은 코드로 만든 2025Q2 score 패널은 master_base 2025Q2(라벨 제외)와 행·값·결측·dtype이 같아야 한다 (`--compare-master`). 2026-09-26 실측: 29,101행·store_id 집합·68개 컬럼의 값·결측 마스크·dtype 모두 동일 (저장된 parquet끼리 비교 — parquet은 datetime64[s]를 [ms]로 저장하므로 메모리 값과 비교하지 않는다). 같은 날 master_base 재생성 결과는 이전 파일과 sha256까지 같았다.
+- master_score = PR #36 serve `--score` 입력: origin 하나(`origin` 컬럼, 예 "2026Q2"), store_id 유일, `predictor_columns()` 전부(`land_price` 포함 — serve가 검증되지 않은 feature로 제외), 진단에 쓰는 `gu`·`biz_type`·`age_months`·`trdar_cd`. 서비스 검색 대상(현재 영업 점포 등) 정의는 이 패널이 아니라 후속 서빙 통합에서 정한다.
 
 ## 변수
 

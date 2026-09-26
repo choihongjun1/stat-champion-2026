@@ -430,3 +430,25 @@ row 부재 패턴 실측. 상세 수치는 `outputs/master/qa_report.md` "업종
   - 범주형 처리 기준: `biz_type`, `gu`, `trdar_change_index` 등 범주형 predictor의 인코딩 방식.
 - **온라인 존재감은 Base에서 제외한다.** Enriched에서 별도로 검증한 뒤 `(store_id, origin)` 단위로 결합한다
   (2026-09-13 온라인 변수 사용 범위, 2026-09-23 W2-0 결정 유지).
+
+## 2026-09-26 — W2-0 예측용 master_score (Issue #35)
+근거: Issue #35, 2026Q2 모집단 실측, 2025Q2 역검증(master_base와 동일). 구현 `src/data/master_score.py`,
+명세 `docs/MASTER_SPEC.md` 메모, 산출물 `outputs/master/master_score.parquet`·`score_meta.json`·`qa_report_score.md`(커밋하지 않음).
+
+- **예측용 master는 별도 모듈로 만든다** (`python -m src.data.master_score --origin 2026Q2`). master.py의 학습용 생성 경로와
+  master_base 산출물은 바꾸지 않는다 (재실행 결과 master_base.parquet 바이트 동일 확인).
+- **모집단·적격 판정은 labels_base와 같은 함수**(원본 인허가 로더 → `개방자치단체코드` 3구 필터 → `labels.build_long_panel`)를 쓴다:
+  인허가일 ≤ origin_end이고 폐업일이 없거나 > origin_end. 기준일 이후 폐업한 점포는 당시 영업이었으므로 보존하고, 기준일 이후 개업
+  점포는 제외한다. `build_long_panel`이 만드는 `event_12m`(기준일 이후 폐업 = 미래 정보)은 즉시 버린다. 점포 수는 하드코딩하지 않는다.
+- **영업상태명 '폐업'인데 폐업일자가 없는 점포는 포함한다** (학습 패널과 같은 날짜 규칙). QA에 건수를 따로 기록하며 실제 영업이
+  확인된 것으로 보지 않는다 (2026Q2 실측 6곳).
+- **as_of 판정에는 원천 관측 여유가 필요하다**: 원천 최종 관측일 ≥ as_of + 성숙 컷오프(1개월, 2026-09-18 결정). 부족하면 멈춘다.
+- **컬럼은 master_base에서 `event_12m`·`maturity_cutoff_used_months`만 뺀 것**이며 이름·dtype·결측 규칙이 같다
+  (`master_schema.SCORE_EXCLUDED_COLUMNS`). origin 값은 분기 문자열("2026Q2") — PR #36 serve 입력 계약.
+- **시간 정합성은 기존 규칙 그대로**: 상권 T-1(2026Q2 → 2026Q1, 2026Q2 원천은 2026-08-18 공표라 사용하지 않음),
+  2026Q1 공표일은 원천에서 확인되지 않아 `archive_inferred`(NaT)로 두며 검증된 날짜로 표기하지 않는다. 공시지가는 strict as-of로
+  2026년 값(공시 2026-04-30)을 붙이되, 탐지 모형은 검증되지 않은 feature라 쓰지 않는다(2026-09-25 W2-2 결정, 서빙이 제외).
+- **온라인 feature는 master_score에 결합하지 않는다.** PR #33 `online_features --panel <master_score>`로 별도 테이블을 만들어 서빙
+  `--online-score`로 붙인다. PR #21 현재 등록 스냅샷은 예측 feature로 쓰지 않는다. 온라인 원천의 DATA_CATALOG 등록은 PR #21 몫으로 남는다.
+- **역검증을 회귀 기준으로 둔다**: 같은 코드로 라벨이 있는 origin(2025Q2)을 만들면 master_base 같은 origin(라벨 제외)과
+  행·store_id·값·결측·dtype이 같아야 한다 (`--compare-master`, 2026-09-26 실측 동일).
