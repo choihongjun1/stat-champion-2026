@@ -1,0 +1,271 @@
+{
+  "_schema_version": "0.2",
+  "run_id": "db9e23bd00bcb35d",
+  "score_origin": "2026Q2",
+  "as_of": "2026-06-30",
+  "release_ready": false,
+  "release_blockers": [
+    "소표본 하한값 미확정 (min_cell_n=2, provisional)"
+  ],
+  "min_cell_n": 2,
+  "min_cell_n_status": "provisional",
+  "risk_ranking_rule": "동 전체 행의 top_risk_biz_types = 숨기지 않은 업종 칸 중 high 등급 점포가 1곳 이상인 업종을 high 비율(high 등급 점포 수 / 점포 수) 내림차순 → mid+high 비율 내림차순 → 점포 수 내림차순 → 업종 순으로 나열. 평균 예측 확률이 아니라 등급 비율이며, 숨긴 업종 칸은 순위에 넣지 않는다.",
+  "n_stores_total": 9,
+  "n_stores_without_dong": 0,
+  "duplicate_dong_names": [],
+  "dongs": [
+    {
+      "gu": "광진구",
+      "dong": "구의동",
+      "label": "구의동 (광진구)"
+    },
+    {
+      "gu": "광진구",
+      "dong": "화양동",
+      "label": "화양동 (광진구)"
+    },
+    {
+      "gu": "마포구",
+      "dong": "망원동",
+      "label": "망원동 (마포구)"
+    },
+    {
+      "gu": "마포구",
+      "dong": "서교동",
+      "label": "서교동 (마포구)"
+    },
+    {
+      "gu": "마포구",
+      "dong": "합정동",
+      "label": "합정동 (마포구)"
+    },
+    {
+      "gu": "영등포구",
+      "dong": "당산동",
+      "label": "당산동 (영등포구)"
+    },
+    {
+      "gu": "영등포구",
+      "dong": "여의도동",
+      "label": "여의도동 (영등포구)"
+    }
+  ],
+  "rows": [
+    {
+      "gu": "광진구",
+      "dong": "구의동",
+      "biz_type": null,
+      "score_origin": "2026Q2",
+      "as_of": "2026-06-30",
+      "n_stores": null,
+      "suppressed": true,
+      "suppression_reason": "small_cell",
+      "band_share": null,
+      "top_risk_biz_types": null,
+      "note": "구의동 (광진구) 전체 점포는 점포 수가 적어(또는 다른 칸의 역산을 막기 위해) 수치를 표시하지 않습니다. 개별 가게 진단이 아닙니다."
+    },
+    {
+      "gu": "광진구",
+      "dong": "구의동",
+      "biz_type": "일반음식점",
+      "score_origin": "2026Q2",
+      "as_of": "2026-06-30",
+      "n_stores": null,
+      "suppressed": true,
+      "suppression_reason": "small_cell",
+      "band_share": null,
+      "top_risk_biz_types": null,
+      "note": "구의동 (광진구) 일반음식점 점포는 점포 수가 적어(또는 다른 칸의 역산을 막기 위해) 수치를 표시하지 않습니다. 개별 가게 진단이 아닙니다."
+    },
+    {
+      "gu": "광진구",
+      "dong": "화양동",
+      "biz_type": null,
+      "score_origin": "2026Q2",
+      "as_of": "2026-06-30",
+      "n_stores": 2,
+      "suppressed": false,
+      "suppression_reason": null,
+      "band_share": {
+        "low": 0.5,
+        "mid": 0.0,
+        "high": 0.5
+      },
+      "top_risk_biz_types": [],
+      "note": "화양동 (광진구) 전체 점포의 예측 위험 등급 분포입니다. 모형 예측을 모은 값이며 개별 가게 진단이 아닙니다."
+    },
+    {
+      "gu": "광진구",
+      "dong": "화양동",
+      "biz_type": "휴게음식점",
+      "score_origin": "2026Q2",
+      "as_of": "2026-06-30",
+      "n_stores": null,
+      "suppressed": true,
+      "suppression_reason": "small_cell",
+      "band_share": null,
+      "top_risk_biz_types": null,
+      "note": "화양동 (광진구) 휴게음식점 점포는 점포 수가 적어(또는 다른 칸의 역산을 막기 위해) 수치를 표시하지 않습니다. 개별 가게 진단이 아닙니다."
+    },
+    {
+      "gu": "광진구",
+      "dong": "화양동",
+      "biz_type": "미용업",
+      "score_origin": "2026Q2",
+      "as_of": "2026-06-30",
+      "n_stores": null,
+      "suppressed": true,
+      "suppression_reason": "small_cell",
+      "band_share": null,
+      "top_risk_biz_types": null,
+      "note": "화양동 (광진구) 미용업 점포는 점포 수가 적어(또는 다른 칸의 역산을 막기 위해) 수치를 표시하지 않습니다. 개별 가게 진단이 아닙니다."
+    },
+    {
+      "gu": "마포구",
+      "dong": "망원동",
+      "biz_type": null,
+      "score_origin": "2026Q2",
+      "as_of": "2026-06-30",
+      "n_stores": null,
+      "suppressed": true,
+      "suppression_reason": "small_cell",
+      "band_share": null,
+      "top_risk_biz_types": null,
+      "note": "망원동 (마포구) 전체 점포는 점포 수가 적어(또는 다른 칸의 역산을 막기 위해) 수치를 표시하지 않습니다. 개별 가게 진단이 아닙니다."
+    },
+    {
+      "gu": "마포구",
+      "dong": "망원동",
+      "biz_type": "일반음식점",
+      "score_origin": "2026Q2",
+      "as_of": "2026-06-30",
+      "n_stores": null,
+      "suppressed": true,
+      "suppression_reason": "small_cell",
+      "band_share": null,
+      "top_risk_biz_types": null,
+      "note": "망원동 (마포구) 일반음식점 점포는 점포 수가 적어(또는 다른 칸의 역산을 막기 위해) 수치를 표시하지 않습니다. 개별 가게 진단이 아닙니다."
+    },
+    {
+      "gu": "마포구",
+      "dong": "서교동",
+      "biz_type": null,
+      "score_origin": "2026Q2",
+      "as_of": "2026-06-30",
+      "n_stores": null,
+      "suppressed": true,
+      "suppression_reason": "small_cell",
+      "band_share": null,
+      "top_risk_biz_types": null,
+      "note": "서교동 (마포구) 전체 점포는 점포 수가 적어(또는 다른 칸의 역산을 막기 위해) 수치를 표시하지 않습니다. 개별 가게 진단이 아닙니다."
+    },
+    {
+      "gu": "마포구",
+      "dong": "서교동",
+      "biz_type": "휴게음식점",
+      "score_origin": "2026Q2",
+      "as_of": "2026-06-30",
+      "n_stores": null,
+      "suppressed": true,
+      "suppression_reason": "small_cell",
+      "band_share": null,
+      "top_risk_biz_types": null,
+      "note": "서교동 (마포구) 휴게음식점 점포는 점포 수가 적어(또는 다른 칸의 역산을 막기 위해) 수치를 표시하지 않습니다. 개별 가게 진단이 아닙니다."
+    },
+    {
+      "gu": "마포구",
+      "dong": "합정동",
+      "biz_type": null,
+      "score_origin": "2026Q2",
+      "as_of": "2026-06-30",
+      "n_stores": null,
+      "suppressed": true,
+      "suppression_reason": "small_cell",
+      "band_share": null,
+      "top_risk_biz_types": null,
+      "note": "합정동 (마포구) 전체 점포는 점포 수가 적어(또는 다른 칸의 역산을 막기 위해) 수치를 표시하지 않습니다. 개별 가게 진단이 아닙니다."
+    },
+    {
+      "gu": "마포구",
+      "dong": "합정동",
+      "biz_type": "일반음식점",
+      "score_origin": "2026Q2",
+      "as_of": "2026-06-30",
+      "n_stores": null,
+      "suppressed": true,
+      "suppression_reason": "small_cell",
+      "band_share": null,
+      "top_risk_biz_types": null,
+      "note": "합정동 (마포구) 일반음식점 점포는 점포 수가 적어(또는 다른 칸의 역산을 막기 위해) 수치를 표시하지 않습니다. 개별 가게 진단이 아닙니다."
+    },
+    {
+      "gu": "영등포구",
+      "dong": "당산동",
+      "biz_type": null,
+      "score_origin": "2026Q2",
+      "as_of": "2026-06-30",
+      "n_stores": null,
+      "suppressed": true,
+      "suppression_reason": "small_cell",
+      "band_share": null,
+      "top_risk_biz_types": null,
+      "note": "당산동 (영등포구) 전체 점포는 점포 수가 적어(또는 다른 칸의 역산을 막기 위해) 수치를 표시하지 않습니다. 개별 가게 진단이 아닙니다."
+    },
+    {
+      "gu": "영등포구",
+      "dong": "당산동",
+      "biz_type": "미용업",
+      "score_origin": "2026Q2",
+      "as_of": "2026-06-30",
+      "n_stores": null,
+      "suppressed": true,
+      "suppression_reason": "small_cell",
+      "band_share": null,
+      "top_risk_biz_types": null,
+      "note": "당산동 (영등포구) 미용업 점포는 점포 수가 적어(또는 다른 칸의 역산을 막기 위해) 수치를 표시하지 않습니다. 개별 가게 진단이 아닙니다."
+    },
+    {
+      "gu": "영등포구",
+      "dong": "여의도동",
+      "biz_type": null,
+      "score_origin": "2026Q2",
+      "as_of": "2026-06-30",
+      "n_stores": 2,
+      "suppressed": false,
+      "suppression_reason": null,
+      "band_share": {
+        "low": 0.0,
+        "mid": 0.5,
+        "high": 0.5
+      },
+      "top_risk_biz_types": [],
+      "note": "여의도동 (영등포구) 전체 점포의 예측 위험 등급 분포입니다. 모형 예측을 모은 값이며 개별 가게 진단이 아닙니다."
+    },
+    {
+      "gu": "영등포구",
+      "dong": "여의도동",
+      "biz_type": "일반음식점",
+      "score_origin": "2026Q2",
+      "as_of": "2026-06-30",
+      "n_stores": null,
+      "suppressed": true,
+      "suppression_reason": "small_cell",
+      "band_share": null,
+      "top_risk_biz_types": null,
+      "note": "여의도동 (영등포구) 일반음식점 점포는 점포 수가 적어(또는 다른 칸의 역산을 막기 위해) 수치를 표시하지 않습니다. 개별 가게 진단이 아닙니다."
+    },
+    {
+      "gu": "영등포구",
+      "dong": "여의도동",
+      "biz_type": "휴게음식점",
+      "score_origin": "2026Q2",
+      "as_of": "2026-06-30",
+      "n_stores": null,
+      "suppressed": true,
+      "suppression_reason": "small_cell",
+      "band_share": null,
+      "top_risk_biz_types": null,
+      "note": "여의도동 (영등포구) 휴게음식점 점포는 점포 수가 적어(또는 다른 칸의 역산을 막기 위해) 수치를 표시하지 않습니다. 개별 가게 진단이 아닙니다."
+    }
+  ]
+}

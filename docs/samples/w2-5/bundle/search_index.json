@@ -1,0 +1,101 @@
+{
+  "_schema_version": "0.2",
+  "run_id": "db9e23bd00bcb35d",
+  "score_origin": "2026Q2",
+  "as_of": "2026-06-30",
+  "release_ready": true,
+  "release_blockers": [],
+  "n_entries": 9,
+  "entries": [
+    {
+      "store_id": "SAMPLE-007",
+      "name": "(샘플) 기준일후폐업식당",
+      "name_norm": "기준일후폐업식당",
+      "biz_type": "일반음식점",
+      "gu": "광진구",
+      "dong": "구의동",
+      "address_road": "서울특별시 광진구 가상로 707",
+      "address_jibun": null
+    },
+    {
+      "store_id": "SAMPLE-004",
+      "name": "(샘플) 가상미용실",
+      "name_norm": "가상미용실",
+      "biz_type": "미용업",
+      "gu": "광진구",
+      "dong": "화양동",
+      "address_road": "서울특별시 광진구 가상로 12",
+      "address_jibun": "서울특별시 광진구 화양동 가상번지 12"
+    },
+    {
+      "store_id": "SAMPLE-003",
+      "name": "(샘플) 가상카페",
+      "name_norm": "가상카페",
+      "biz_type": "휴게음식점",
+      "gu": "광진구",
+      "dong": "화양동",
+      "address_road": "서울특별시 광진구 가상로 1",
+      "address_jibun": "서울특별시 광진구 화양동 가상번지 1"
+    },
+    {
+      "store_id": "SAMPLE-001",
+      "name": "(샘플) 가상식당 망원점",
+      "name_norm": "가상식당",
+      "biz_type": "일반음식점",
+      "gu": "마포구",
+      "dong": "망원동",
+      "address_road": "서울특별시 마포구 가상로 101",
+      "address_jibun": null
+    },
+    {
+      "store_id": "SAMPLE-006",
+      "name": "(샘플) 검토대기카페",
+      "name_norm": "검토대기카페",
+      "biz_type": "휴게음식점",
+      "gu": "마포구",
+      "dong": "서교동",
+      "address_road": "서울특별시 마포구 가상로 606",
+      "address_jibun": null
+    },
+    {
+      "store_id": "SAMPLE-002",
+      "name": "(샘플) 가상식당 합정점",
+      "name_norm": "가상식당",
+      "biz_type": "일반음식점",
+      "gu": "마포구",
+      "dong": "합정동",
+      "address_road": "서울특별시 마포구 가상로 202",
+      "address_jibun": null
+    },
+    {
+      "store_id": "SAMPLE-008",
+      "name": "(샘플) 인허가일미상미용실",
+      "name_norm": "인허가일미상미용실",
+      "biz_type": "미용업",
+      "gu": "영등포구",
+      "dong": "당산동",
+      "address_road": "서울특별시 영등포구 가상로 808",
+      "address_jibun": null
+    },
+    {
+      "store_id": "SAMPLE-009",
+      "name": "(샘플) 매출미공개카페",
+      "name_norm": "매출미공개카페",
+      "biz_type": "휴게음식점",
+      "gu": "영등포구",
+      "dong": "여의도동",
+      "address_road": "서울특별시 영등포구 가상로 909",
+      "address_jibun": null
+    },
+    {
+      "store_id": "SAMPLE-005",
+      "name": "(샘플) 상권밖식당",
+      "name_norm": "상권밖식당",
+      "biz_type": "일반음식점",
+      "gu": "영등포구",
+      "dong": "여의도동",
+      "address_road": null,
+      "address_jibun": "서울특별시 영등포구 여의도동 가상번지 5"
+    }
+  ]
+}
