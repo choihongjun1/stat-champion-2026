@@ -21,7 +21,7 @@ def _synthetic(n_stores=1500, seed=0):
             gu = ("마포구", "광진구", "영등포구")[i % 3]
             biz = ("일반음식점", "휴게음식점", "미용업")[(i // 3) % 3]
             rows.append({"store_id": sid, "origin": origin, "gu": gu, "biz_type": biz, "probability_12m": p,
-                         "band": band, "event_12m": y, "model": "detect_v0_enriched"})
+                         "band": band, "event_12m": y, "model": "detect_v0"})  # 옛 실행처럼 model 열이 부정확
             outside = i % 5 == 0
             mrows.append({"store_id": sid, "origin": origin, "age_months": int(rng.integers(0, 200)),
                           "trdar_flow_pop": np.nan if outside else float(rng.random()),
@@ -94,6 +94,7 @@ def test_run_outputs_have_no_store_identifiers(tmp_path):
     online.to_parquet(op, index=False)
     dd = tmp_path / "detect"
     dd.mkdir()
+    (dd / "run_meta.json").write_text('{"primary_feature_set": "enriched"}', encoding="utf-8")
     pd.DataFrame({"origin": ["2025Q1", "2025Q2", "2025Q1"], "auc": [0.6, 0.62, 0.55], "ap": [0.17, 0.18, 0.15],
                   "base_rate": [0.12, 0.11, 0.12], "n": [900, 900, 900],
                   "feature_set": ["enriched", "enriched", "base"]}).to_csv(dd / "oof_metrics_by_origin.csv", index=False)
@@ -113,3 +114,50 @@ def test_run_outputs_have_no_store_identifiers(tmp_path):
     assert "## 요점" in text and "S0000" not in text
     tab = pd.read_csv(out / "subgroup_metrics.csv")
     assert set(tab["dimension"]) == {"전체", "자치구", "업종", "업력대", "상권", "온라인", "자치구×업종"}
+
+
+def _detect_dir(tmp_path, with_meta=True):
+    dd = tmp_path / "detect"
+    dd.mkdir()
+    if with_meta:
+        (dd / "run_meta.json").write_text('{"primary_feature_set": "enriched", "calibration_applied": false}',
+                                          encoding="utf-8")
+    pd.DataFrame({"origin": ["2025Q1", "2025Q2"], "auc": [0.6, 0.62], "ap": [0.17, 0.18], "base_rate": [0.12, 0.11],
+                  "n": [900, 900], "feature_set": "enriched"}).to_csv(dd / "oof_metrics_by_origin.csv", index=False)
+    pd.DataFrame({"origin": ["2025Q1", "2025Q2"], "low": [0.8, 0.78], "mid": [0.14, 0.15],
+                  "high": [0.06, 0.07]}).to_csv(dd / "band_share_by_origin.csv", index=False)
+    return dd
+
+
+def _write_inputs(tmp_path, n_stores=600):
+    risk, master, online = _synthetic(n_stores=n_stores)
+    paths = tmp_path / "risk.parquet", tmp_path / "master.parquet", tmp_path / "online.parquet"
+    for df, pth in zip((risk, master, online), paths):
+        df.to_parquet(pth, index=False)
+    return paths
+
+
+def test_model_name_from_run_meta_and_oof_calibration(tmp_path):
+    rp, mp, op = _write_inputs(tmp_path)
+    dd = _detect_dir(tmp_path)
+    out = tmp_path / "out"
+    out.mkdir()
+    pd.DataFrame({"origin": ["2025Q1", "2025Q2"], "n": [900, 900], "obs_rate": [0.12, 0.11],
+                  "pred_mean": [0.10, 0.108], "calib_gap": [-0.02, -0.002], "share_high": [0.06, 0.07],
+                  "obs_rate_high": [0.24, 0.25]}).to_csv(out / "oof_calibration_by_origin.csv", index=False)
+    ds.run(rp, mp, op, dd, out, n_boot=0)
+    text = (out / "SUMMARY.md").read_text(encoding="utf-8")
+    assert "모형 detect_v0_enriched" in text  # risk_scores의 model 열(detect_v0)이 아니라 run_meta 기준
+    assert "| 예측 평균 | 예측−실측 |" in text and "10.0%→10.8%" in text and "-2.0%p→-0.2%p" in text
+    ts = pd.read_csv(out / "time_stability.csv")
+    assert {"pred_mean", "calib_gap", "obs_rate_high"} <= set(ts.columns)
+
+
+def test_model_name_falls_back_to_risk_column(tmp_path, capsys):
+    rp, mp, op = _write_inputs(tmp_path)
+    dd = _detect_dir(tmp_path, with_meta=False)
+    ds.run(rp, mp, op, dd, tmp_path / "out", n_boot=0)
+    assert "run_meta.json" in capsys.readouterr().out
+    text = (tmp_path / "out" / "SUMMARY.md").read_text(encoding="utf-8")
+    assert "모형 detect_v0" in text and "detect_v0_enriched" not in text
+    assert "| 예측 평균 |" not in text  # 예측 평균 파일이 없으면 열도 없다

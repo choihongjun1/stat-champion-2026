@@ -5,7 +5,9 @@
 - risk_scores.parquet : 검증 구간(rolling OOF 마지막 origin들) 점포별 예측·등급·event_12m
 - master_base.parquet : age_months, 상권 feature (전부 결측이면 상권 밖)
 - 온라인 feature parquet : online_blog_cnt_12m (결측 아니면 온라인 관측)
-- detect-dir : oof_metrics_by_origin.csv, band_share_by_origin.csv (시간 안정성)
+- detect-dir : run_meta.json(모형 이름), oof_metrics_by_origin.csv, band_share_by_origin.csv (시간 안정성)
+- (선택) oof_calibration_by_origin.csv : origin별 OOF 예측 평균·실측률 — 탐지 산출물에 없어 별도로 만든 파일
+  (`--oof-calibration`, 기본은 --out 폴더에 있으면 사용)
 
 집단: 전체 / 자치구 / 업종 / 업력대 / 상권 안·밖 / 온라인 관측·미관측 / 자치구×업종.
 사건 수 < 30인 집단은 지표를 NaN으로 두고 "표본 부족"으로 표시한다. AUC·AP 95% 구간은 점포 단위 부트스트랩.
@@ -152,14 +154,43 @@ def subgroup_table(panel: pd.DataFrame, n_boot: int, seed: int = SEED) -> pd.Dat
     return out
 
 
-def time_stability(detect_dir: Path, feature_set: str = "enriched") -> pd.DataFrame:
+MODEL_BASE = "detect_v0"
+
+
+def detect_model_name(detect_dir: Path, risk: pd.DataFrame) -> tuple[str, str]:
+    """모형 이름과 주 feature set. run_meta.json(primary_feature_set)이 기준이고, 없으면 risk_scores의 model 열."""
+    meta = Path(detect_dir) / "run_meta.json"
+    if meta.exists():
+        fs = pd.read_json(meta, typ="series").get("primary_feature_set", "base")
+        return (MODEL_BASE if fs == "base" else f"{MODEL_BASE}_{fs}"), fs
+    print(f"경고: {meta}가 없어 risk_scores의 model 열로 모형 이름을 쓴다 (예전 실행은 이 열이 부정확할 수 있다)")
+    name = ",".join(sorted(risk["model"].astype(str).unique())) if "model" in risk else "?"
+    fs = name.split("_", 2)[2] if name.startswith(MODEL_BASE + "_") else "base"
+    # model 열이 가리키는 feature set이 OOF 표에 없고 OOF 표에 feature set이 하나뿐이면 그것을 쓴다
+    oof_path = Path(detect_dir) / "oof_metrics_by_origin.csv"
+    if oof_path.exists():
+        sets = set(pd.read_csv(oof_path, usecols=lambda c: c == "feature_set").get("feature_set", pd.Series(dtype=str)))
+        if sets and fs not in sets and len(sets) == 1:
+            fs = sets.pop()
+            print(f"경고: OOF 표의 feature set({fs})으로 시간 안정성을 만든다")
+    return name, fs
+
+
+def time_stability(detect_dir: Path, feature_set: str = "enriched",
+                   oof_calibration: Path | None = None) -> pd.DataFrame:
+    """origin별 AUC·AP·등급 비율 (+ 있으면 OOF 예측 평균·예측−실측·high 실측률)."""
     oof = pd.read_csv(detect_dir / "oof_metrics_by_origin.csv")
     if "feature_set" in oof.columns:
         if feature_set not in set(oof["feature_set"]):
             raise ValueError(f"oof_metrics_by_origin.csv에 {feature_set} 결과가 없다")
         oof = oof[oof["feature_set"] == feature_set]
     band = pd.read_csv(detect_dir / "band_share_by_origin.csv")
-    t = oof[["origin", "n", "base_rate", "auc", "ap"]].merge(band, on="origin", how="outer")
+    t = oof[["origin", "n", "base_rate", "auc", "ap"]].merge(band, on="origin", how="left")
+    if oof_calibration is not None and Path(oof_calibration).exists():
+        c = pd.read_csv(oof_calibration, encoding="utf-8-sig")
+        t = t.merge(c[["origin", "pred_mean", "calib_gap", "obs_rate_high"]], on="origin", how="left")
+        if t["pred_mean"].isna().any():
+            raise ValueError(f"{oof_calibration}에 없는 origin이 있다")
     return t.sort_values("origin").reset_index(drop=True)
 
 
@@ -200,22 +231,48 @@ def plot_auc(tab: pd.DataFrame, path: Path) -> None:
     plt.close(fig)
 
 
+def _label_points(ax, g: pd.DataFrame) -> None:
+    """라벨끼리 겹치지 않게 후보 위치(오른쪽·왼쪽·위·아래) 중 이미 놓인 라벨과 먼 곳을 고른다 (화면 픽셀 기준)."""
+    fig = ax.figure
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    cands = [(5, -3, "left"), (-5, -3, "right"), (5, 7, "left"), (5, -13, "left"), (-5, 7, "right"), (-5, -13, "right")]
+    placed = []
+    for r in g.sort_values("base_rate", ascending=False).itertuples(index=False):
+        best = None
+        for dx, dy, ha in cands:
+            ann = ax.annotate(r.group, (r.pred_mean, r.base_rate), fontsize=7, xytext=(dx, dy),
+                              textcoords="offset points", ha=ha)
+            bb = ann.get_window_extent(renderer).expanded(1.05, 1.15)
+            if not any(bb.overlaps(p) for p in placed):
+                best = (ann, bb)
+                break
+            ann.remove()
+        if best is None:  # 모두 겹치면 첫 후보에 둔다
+            ann = ax.annotate(r.group, (r.pred_mean, r.base_rate), fontsize=7, xytext=cands[0][:2],
+                              textcoords="offset points", ha=cands[0][2])
+            best = (ann, ann.get_window_extent(renderer))
+        placed.append(best[1])
+
+
 def plot_calibration(tab: pd.DataFrame, path: Path) -> None:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     _font()
-    t = tab[tab["dimension"] != "자치구×업종"]
-    fig, ax = plt.subplots(figsize=(6, 6))
+    t = tab
+    fig, ax = plt.subplots(figsize=(6.5, 6.5))
     lim = [0, max(t["pred_mean"].max(), t["base_rate"].max()) * 1.15]
     ax.plot(lim, lim, color="#999", lw=1, ls="--", label="예측 = 실측")
+    # 라벨은 자치구×업종 9개에만 붙인다 (나머지는 점 + 범례로 차원 구분 — 가운데 겹침 방지)
+    markers = {"전체": "*", "자치구×업종": "D"}
     for dim, g in t.groupby("dimension", sort=False):
-        ax.scatter(g["pred_mean"], g["base_rate"], s=28, label=dim)
-        for r in g.itertuples(index=False):
-            ax.annotate(r.group, (r.pred_mean, r.base_rate), fontsize=7, xytext=(3, 2), textcoords="offset points")
+        ax.scatter(g["pred_mean"], g["base_rate"], s=70 if dim == "전체" else 30, marker=markers.get(dim, "o"),
+                   label=dim, alpha=0.85, zorder=3)
     ax.set_xlim(lim)
     ax.set_ylim(lim)
+    _label_points(ax, t[t["dimension"] == "자치구×업종"])
     ax.set_xlabel("예측 평균 (probability_12m)")
     ax.set_ylabel("실측 폐업률 (event_12m)")
     ax.legend(fontsize=7, loc="upper left")
@@ -255,7 +312,10 @@ def key_points(tab: pd.DataFrame, ts: pd.DataFrame) -> list[str]:
     if len(ts):
         pts.append(f"origin별 변동 폭({ts['origin'].iloc[0]}–{ts['origin'].iloc[-1]}, {len(ts)}개): "
                    f"AUC {ts['auc'].min():.3f}–{ts['auc'].max():.3f}, AP {ts['ap'].min():.3f}–{ts['ap'].max():.3f}, "
-                   f"high 비율 {_f(ts['high'].min(), True)}–{_f(ts['high'].max(), True)}")
+                   f"high 비율 {_f(ts['high'].min(), True)}–{_f(ts['high'].max(), True)}"
+                   + (f", 예측 평균 {_f(ts['pred_mean'].iloc[0], True)}→{_f(ts['pred_mean'].iloc[-1], True)} "
+                      f"(예측−실측 {ts['calib_gap'].iloc[0] * 100:+.1f}%p→{ts['calib_gap'].iloc[-1] * 100:+.1f}%p)"
+                      if "pred_mean" in ts else ""))
     return pts
 
 
@@ -274,15 +334,26 @@ def summary_md(tab: pd.DataFrame, ts: pd.DataFrame, meta: dict) -> str:
         lines.append(f"| {r.dimension} | {r.group} | {r.n:,} | {r.events:,} | {_f(r.base_rate, True)} | {auc} | {ap} | "
                      f"{_f(r.ap_lift)} | {r.calib_gap * 100:+.1f}%p | {shares} | {_f(r.obs_rate_high, True)} | "
                      f"{_f(r.high_lift)} | {r.note} |")
-    lines += ["", "## origin별 안정성 (rolling OOF, enriched)", "",
-              "| origin | n | 폐업률 | AUC | AP | low | mid | high |", "|---|---|---|---|---|---|---|---|"]
+    cal = "pred_mean" in ts.columns
+    lines += ["", f"## origin별 안정성 (rolling OOF, {meta['feature_set']})", ""]
+    if cal:
+        lines += ["| origin | n | 폐업률 | 예측 평균 | 예측−실측 | AUC | AP | low | mid | high | high 실측 |",
+                  "|---|---|---|---|---|---|---|---|---|---|---|"]
+    else:
+        lines += ["| origin | n | 폐업률 | AUC | AP | low | mid | high |", "|---|---|---|---|---|---|---|---|"]
     for r in ts.itertuples(index=False):
-        lines.append(f"| {r.origin} | {int(r.n):,} | {_f(r.base_rate, True)} | {_f(r.auc)} | {_f(r.ap)} | "
-                     f"{_f(r.low, True)} | {_f(r.mid, True)} | {_f(r.high, True)} |")
+        mid = f" {_f(r.pred_mean, True)} | {r.calib_gap * 100:+.1f}%p |" if cal else ""
+        tail = f" {_f(r.obs_rate_high, True)} |" if cal else ""
+        lines.append(f"| {r.origin} | {int(r.n):,} | {_f(r.base_rate, True)} |{mid} {_f(r.auc)} | {_f(r.ap)} | "
+                     f"{_f(r.low, True)} | {_f(r.mid, True)} | {_f(r.high, True)} |{tail}")
+    if cal:
+        lines += ["", f"- 예측 평균·high 실측률: `{meta['oof_calibration']}` (rolling OOF를 같은 규칙으로 다시 계산해 "
+                  "AUC·등급 비율이 탐지 산출물과 일치함을 확인한 파일)"]
     return "\n".join(lines) + "\n"
 
 
-def run(risk_path: Path, master_path: Path, online_path: Path, detect_dir: Path, out: Path, n_boot: int) -> pd.DataFrame:
+def run(risk_path: Path, master_path: Path, online_path: Path, detect_dir: Path, out: Path, n_boot: int,
+        oof_calibration: Path | None = None) -> pd.DataFrame:
     t0 = time.time()
     risk = pd.read_parquet(risk_path)
     need = {"store_id", "origin", "gu", "biz_type", "probability_12m", "band", "event_12m"}
@@ -294,15 +365,17 @@ def run(risk_path: Path, master_path: Path, online_path: Path, detect_dir: Path,
     online = pd.read_parquet(online_path, columns=["store_id", "origin", ONLINE_OBS_COL])
     panel = build_panel(risk, master, online)
     tab = subgroup_table(panel, n_boot)
-    ts = time_stability(detect_dir)
+    model, fs = detect_model_name(detect_dir, risk)
+    oof_calibration = oof_calibration or (out / "oof_calibration_by_origin.csv")
+    ts = time_stability(detect_dir, fs, oof_calibration)
     out.mkdir(parents=True, exist_ok=True)
     tab.to_csv(out / "subgroup_metrics.csv", index=False, encoding="utf-8-sig")
     ts.to_csv(out / "time_stability.csv", index=False, encoding="utf-8-sig")
     plot_auc(tab, out / "fig_subgroup_auc.png")
     plot_calibration(tab, out / "fig_subgroup_calibration.png")
     meta = {"risk": risk_path, "origins": "·".join(sorted(risk["origin"].astype(str).unique())), "n": len(risk),
-            "events": int(risk["event_12m"].sum()), "model": ",".join(sorted(risk["model"].astype(str).unique()))
-            if "model" in risk else "?", "n_boot": n_boot}
+            "events": int(risk["event_12m"].sum()), "model": model, "feature_set": fs, "n_boot": n_boot,
+            "oof_calibration": oof_calibration}
     (out / "SUMMARY.md").write_text(summary_md(tab, ts, meta), encoding="utf-8")
     print(f"집단 {len(tab)}개 · 부트스트랩 {n_boot}회 · {time.time() - t0:.1f}초 → {out}")
     return tab
@@ -316,8 +389,10 @@ def main(argv=None) -> None:
     ap.add_argument("--detect-dir", type=Path, required=True)
     ap.add_argument("--n-boot", type=int, default=200)
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--oof-calibration", type=Path, default=None,
+                    help="origin별 OOF 예측 평균 csv (기본: --out 폴더의 oof_calibration_by_origin.csv가 있으면 사용)")
     a = ap.parse_args(argv)
-    run(a.risk, a.master, a.online, a.detect_dir, a.out, a.n_boot)
+    run(a.risk, a.master, a.online, a.detect_dir, a.out, a.n_boot, a.oof_calibration)
 
 
 if __name__ == "__main__":
