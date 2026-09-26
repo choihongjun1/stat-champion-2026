@@ -517,3 +517,33 @@ row 부재 패턴 실측. 상세 수치는 `outputs/master/qa_report.md` "업종
   그중 흔한 단어로 된 4글자 상호(API total 2,900)는 오탐 가능성이 높다 (점포 목록은 팀 드라이브). 기여값은 바꾸지 않는다.
 - **팀 확인 필요**: (1) 온라인 언급을 입지·수요에 둘지 별도 유형으로 둘지 (2) 현재 owner 요인은 온라인 언급뿐이고
   policy 요인(공시지가)은 기여가 0이라, W2-7 정책 매칭이 연결할 요인이 사실상 온라인 하나다.
+
+## 2026-09-25 — W2-2/W2-3 서빙(현재 시점 점포) 규칙
+구현: `src/models/serve.py`. 실행: `python -m src.models.serve --score <예측용 master> --primary enriched ...`
+
+- **서빙 모형의 학습 구간은 검증과 같은 embargo 규칙을 따른다**: score origin s → 라벨 origin ≤ s−5분기.
+  검증 구간 마지막 origin을 라벨 없이 넣으면 `train_detect` risk_scores의 확률·등급·백분위가 정확히 같다(테스트).
+- **보정기·등급 컷오프는 `train_detect` 실행 결과를 그대로 쓴다** (`run_meta.json`, `calibrator.pkl`,
+  `band_cutoffs.csv`). 서빙에서 다시 정하지 않는다. feature set이 다르면 멈춘다.
+- **검증 구간의 학습에 한 번도 값이 없던 feature는 서빙에서도 뺀다** (검증 마지막 origin의 학습 구간 기준).
+  score origin이 뒤로 가면 학습 구간에 land_price 값이 생기지만, 검증되지 않았으므로 넣지 않는다
+  (2026-09-25 W2-2 항목의 "서빙 모형은 검증과 같은 feature set" 규칙의 구현).
+- **진단은 `diagnose.explain`을 공유한다** — 요인 매핑·Shapley·peer 비교·온라인 표시 보류 규칙이 W2-3과 같다.
+  요인 기여도는 보정 전 확률 척도에서 합산된다. 보정이 적용된 실행이면 화면 확률과 합이 달라지며
+  `serve_meta.json`의 `diagnosis_scale`에 기록한다 (현재 실데이터 실행은 보정 미적용이라 같다).
+- 출력 `reports.jsonl`은 W2-5 결과 스키마의 risk·factors 블록(점포당 1줄)이다. 처방(W2-4)·정책(W2-7) 블록은 붙이지 않는다.
+- **데이터 없음 표시 보류 (W2-3·서빙 공통).** 요인에 속한 feature가 그 점포에서 전부 결측이면(상권 경계 밖 점포의 상권 요인, 상권 안이지만 해당
+  업종 자료·매출 공개가 없는 점포의 경쟁 요인(2025Q2: peer_sales 514곳, peer_competition 21곳), 온라인 관측 불가) `data_missing=True, display=False`로 두고 진단문은
+  "이 점포는 ○○ 데이터가 없어(상권 경계 밖) 이 요인은 진단하지 않습니다."로 바꾼다. 이때 기여는 값이 아니라
+  결측 자체(= 상권 밖 위치라는 정보)에서 나오므로 "동종 업종 경쟁이 위험을 낮췄다"는 문장은 사실과 다르다.
+  기여값과 가법성은 그대로 둔다 (실데이터 2025Q2: 상권 밖 6,563점포, 요인의 38%가 |기여| ≥ 0.5%p, 최대 2.9%p).
+  이유 문구는 점포별로 다르다(`missing_reason`, `trdar_cd`로 판정): 상권 밖 → "상권 경계 밖", 상권 안 → "해당 상권에 이 업종 (매출 공개) 자료 없음", 온라인 → "관측 불가", `trdar_cd`를 알 수 없으면 "상권 데이터 없음".
+- 점포를 식별할 수 있는 모형 출력(상호·주소·store_id와 위험도·진단이 함께 있는 것)은 공개 저장소에
+  올리지 않는다. 저장소에는 가린 샘플만 두고, 실명 결과는 outputs/(gitignore)와 팀 드라이브로만 공유한다.
+  GitHub 이슈·PR·코멘트에도 가게명·store_id를 위험도와 함께 쓰지 않는다.
+- **출력 스키마 0.2 (PR #36 리뷰 반영, 2026-09-26).** 레코드에 `score_origin`(예측 기준 분기)을 넣고, `factors[]`에 코드값
+  `hold_reason`(display=false 이유: `online_review` 검토 대기 / `data_missing` 데이터 없음, `HOLD_REASONS`로 확장)과
+  `missing_reason`(데이터 없음 세부 사유: `out_of_trdar` / `sales_unpublished` / `industry_unpublished` /
+  `trdar_quarter_unavailable` / `online_unobservable` / `trdar_unknown` / `unknown` — 사유 문구와 1:1)을 넣는다.
+  화면은 설명문을 파싱하지 않고 이 코드로 분기한다. `direction`은 기여 절댓값 < 0.001이면 "영향 미미"(설명문의
+  "거의 영향을 주지 않았습니다"와 같은 기준, 기여 원값은 그대로). store.`dong`은 인허가 데이터의 **법정동**이다.

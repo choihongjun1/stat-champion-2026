@@ -1,0 +1,24 @@
+﻿store_id,name,cases,band,probability_12m,gu,biz_type,summary
+SAMPLE-001,(샘플) 휴게음식점 A,top_risk;online_hold;peer_top,high,0.6648,마포구,휴게음식점,최대 위험 요인: 업력 +10.6%p / 표시 보류: 온라인 언급(블로그)
+SAMPLE-002,(샘플) 일반음식점 A,online_absent;peer_top,high,0.6507,광진구,일반음식점,최대 위험 요인: 업종·점포 규모 +16.8%p
+SAMPLE-003,(샘플) 일반음식점 B,missing_outside_trdar;online_hold;peer_top,high,0.4839,마포구,일반음식점,"최대 위험 요인: 업력 +9.6%p / 표시 보류: 온라인 언급(블로그), 상권 유동·배후 인구, 동종 업종 매출 수준, 동종 업종 경쟁·개폐업, 상권 변화·영업 지속"
+SAMPLE-004,(샘플) 휴게음식점 B,missing_sales_only;online_hold;peer_top,high,0.4568,광진구,휴게음식점,"최대 위험 요인: 업력 +8.8%p / 표시 보류: 온라인 언급(블로그), 동종 업종 매출 수준"
+SAMPLE-005,(샘플) 일반음식점 C,online_decline;peer_top,high,0.4388,마포구,일반음식점,최대 위험 요인: 업력 +10.0%p
+SAMPLE-006,(샘플) 일반음식점 D,online_absent;peer_top,high,0.2585,광진구,일반음식점,최대 위험 요인: 상권 유동·배후 인구 +6.4%p
+SAMPLE-007,(샘플) 일반음식점 E,band_high;online_decline;peer_top,high,0.2482,광진구,일반음식점,최대 위험 요인: 업력 +4.7%p
+SAMPLE-008,(샘플) 일반음식점 F,band_high;online_decline,high,0.2482,마포구,일반음식점,최대 위험 요인: 업력 +7.1%p
+SAMPLE-009,(샘플) 미용업 A,near_cut_high;online_hold;peer_top,high,0.2142,광진구,미용업,최대 위험 요인: 동종 업종 매출 수준 +4.3%p / 표시 보류: 온라인 언급(블로그)
+SAMPLE-010,(샘플) 휴게음식점 C,missing_online;peer_top,mid,0.1968,마포구,휴게음식점,최대 위험 요인: 업력 +3.5%p / 표시 보류: 온라인 언급(블로그)
+SAMPLE-011,(샘플) 일반음식점 G,band_mid;peer_top,mid,0.1743,마포구,일반음식점,최대 위험 요인: 온라인 언급(블로그) +2.5%p
+SAMPLE-012,(샘플) 일반음식점 H,band_mid;online_decline;peer_top,mid,0.1743,마포구,일반음식점,최대 위험 요인: 온라인 언급(블로그) +4.7%p
+SAMPLE-013,(샘플) 일반음식점 I,online_hold;peer_top,mid,0.1555,마포구,일반음식점,최대 위험 요인: 업종·점포 규모 +4.8%p / 표시 보류: 온라인 언급(블로그)
+SAMPLE-014,(샘플) 미용업 B,wide_interval;online_hold;peer_top,mid,0.15,마포구,미용업,최대 위험 요인: 업력 +4.0%p / 표시 보류: 온라인 언급(블로그)
+SAMPLE-015,(샘플) 일반음식점 J,no_standout,mid,0.1495,마포구,일반음식점,최대 위험 요인: 자치구 +0.7%p
+SAMPLE-016,(샘플) 미용업 C,peer_top,low,0.1414,마포구,미용업,최대 위험 요인: 상권 변화·영업 지속 +7.2%p
+SAMPLE-017,(샘플) 미용업 D,online_decline,low,0.1254,광진구,미용업,최대 위험 요인: 업력 +3.0%p
+SAMPLE-018,(샘플) 미용업 E,missing_outside_trdar;online_decline,low,0.1007,광진구,미용업,"최대 위험 요인: 업력 +3.8%p / 표시 보류: 동종 업종 매출 수준, 상권 유동·배후 인구, 동종 업종 경쟁·개폐업, 상권 변화·영업 지속"
+SAMPLE-019,(샘플) 미용업 F,missing_sales_only;online_decline,low,0.0975,광진구,미용업,최대 위험 요인: 온라인 언급(블로그) +2.1%p / 표시 보류: 동종 업종 매출 수준
+SAMPLE-020,(샘플) 미용업 G,band_low,low,0.0852,마포구,미용업,최대 위험 요인: 업력 +2.5%p
+SAMPLE-021,(샘플) 미용업 H,band_low;online_decline;missing_outside_trdar,low,0.0852,영등포구,미용업,"최대 위험 요인: 업력 +2.5%p / 표시 보류: 동종 업종 매출 수준, 상권 변화·영업 지속, 상권 유동·배후 인구, 동종 업종 경쟁·개폐업"
+SAMPLE-022,(샘플) 미용업 I,no_standout;missing_outside_trdar,low,0.0615,영등포구,미용업,"위험을 높이는 요인 없음 / 표시 보류: 동종 업종 매출 수준, 상권 변화·영업 지속, 상권 유동·배후 인구, 동종 업종 경쟁·개폐업"
+SAMPLE-023,(샘플) 미용업 J,missing_online,low,0.0526,마포구,미용업,최대 위험 요인: 상권 변화·영업 지속 +1.1%p / 표시 보류: 온라인 언급(블로그)

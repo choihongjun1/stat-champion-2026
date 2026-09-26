@@ -230,11 +230,64 @@ def online_drivers(model, Xt: pd.DataFrame, Xb: pd.DataFrame, online_cols: list[
     return [online_cols[i] for i in k], sub.max(axis=1)
 
 
+MISSING_NOTE = "이 점포에는 해당 데이터가 없음 — 기여는 값이 아니라 '데이터 없음' 자체에서 나와 표시 보류"
+# 데이터 없음 이유 (점포별). 상권 요인은 trdar_cd(provenance, predictor 아님)로 상권 밖/안을 가른다.
+TRDAR_FACTOR_IDS = ("trdar_population", "trdar_vitality", "peer_competition", "peer_sales")
+REASON_OUTSIDE = "상권 경계 밖"
+REASON_TRDAR_UNKNOWN = "상권 데이터 없음"  # raw에 trdar_cd가 없어 상권 밖인지 판단할 수 없을 때
+REASON_INSIDE = {"trdar_population": "해당 분기 상권 자료 없음", "trdar_vitality": "해당 분기 상권 자료 없음",
+                 "peer_competition": "해당 상권에 이 업종 자료 없음",
+                 "peer_sales": "해당 상권에 이 업종 매출 공개 자료 없음"}
+REASON_ONLINE = "관측 불가"
+REASON_DEFAULT = "데이터 없음"
+# 화면이 설명문을 파싱하지 않고 분기하도록 내보내는 코드값 (factors[].missing_reason). 사유 문구와 1:1.
+MISSING_REASON_CODES = {
+    REASON_OUTSIDE: "out_of_trdar",                                   # 상권 경계 밖
+    REASON_INSIDE["peer_sales"]: "sales_unpublished",                 # 상권 안, 이 업종 매출 공개 자료 없음
+    REASON_INSIDE["peer_competition"]: "industry_unpublished",        # 상권 안, 이 업종 자료 없음
+    REASON_INSIDE["trdar_population"]: "trdar_quarter_unavailable",   # 상권 안, 해당 분기 상권 자료 없음
+    REASON_ONLINE: "online_unobservable",                             # 온라인 관측 불가
+    REASON_TRDAR_UNKNOWN: "trdar_unknown",                            # trdar_cd가 없어 상권 밖인지 판단 불가
+    REASON_DEFAULT: "unknown",                                        # 예비값
+}
+# display=false인 이유 (factors[].hold_reason). 새 보류 사유가 생기면 여기에 추가한다.
+HOLD_REASONS = {
+    "online_review": "온라인 언급이 많은 쪽에서 위험이 높게 나와 상호 오탐(#28)·유행 상권 효과 검토 전까지 보류",
+    "data_missing": "요인에 속한 값이 이 점포에서 전부 결측 — 세부 사유는 missing_reason",
+}
+# 개별 요인의 방향 표시 기준 (설명문의 "거의 영향을 주지 않았습니다"와 같은 기준). 샘플 추출의
+# no_standout(가장 큰 위험 기여 < 1%p)과는 다른 값이다.
+DIRECTION_EPS = 0.001
+DIRECTION_NEGLIGIBLE = "영향 미미"
+
+
+def direction_label(contribution: float) -> str:
+    if abs(contribution) < DIRECTION_EPS:
+        return DIRECTION_NEGLIGIBLE
+    return "위험 증가" if contribution > 0 else "위험 감소"
+
+
+def missing_reasons(factor_id: str, raw: pd.DataFrame) -> np.ndarray:
+    """요인 feature가 전부 결측인 이유를 점포(raw 행)별로 고른다."""
+    n = len(raw)
+    if factor_id == "online_attention":
+        return np.full(n, REASON_ONLINE, dtype=object)
+    if factor_id not in TRDAR_FACTOR_IDS:
+        return np.full(n, REASON_DEFAULT, dtype=object)
+    if "trdar_cd" not in raw.columns:
+        return np.full(n, REASON_TRDAR_UNKNOWN, dtype=object)
+    inside = raw["trdar_cd"].notna().to_numpy()
+    return np.where(inside, REASON_INSIDE[factor_id], REASON_OUTSIDE).astype(object)
+
+
 def explanation(row) -> str:
     pp = abs(row["contribution"]) * 100
+    if row.get("data_missing"):
+        why = row.get("missing_reason") or REASON_DEFAULT
+        return f"이 점포는 {row['factor']} 데이터가 없어({why}) 이 요인은 진단하지 않습니다."
     peer = {"biz_type·gu·age_band": "같은 업종·자치구·업력대", "biz_type·age_band": "같은 업종·업력대",
             "biz_type": "같은 업종"}.get(row["peer_level"], "비슷한 점포")
-    if abs(row["contribution"]) < 0.001:
+    if abs(row["contribution"]) < DIRECTION_EPS:
         return f"{_josa(row['factor'], '은', '는')} 이 점포의 예측 위험도에 거의 영향을 주지 않았습니다."
     way = "높이는" if row["contribution"] > 0 else "낮추는"
     s = f"{_josa(row['factor'], '이', '가')} 예측 위험도를 약 {pp:.1f}%p {way} 쪽으로 기여했습니다."
@@ -264,16 +317,117 @@ def factors_json(long: pd.DataFrame, store_id: str, origin: str, values: dict | 
     return [{
         "category": r["category"], "name": r["factor"], "factor_id": r["factor_id"],
         "contribution": round(float(r["contribution"]), 4),
-        "direction": "위험 증가" if r["contribution"] > 0 else "위험 감소",
+        "direction": direction_label(r["contribution"]),
         "peer_percentile": None if pd.isna(r["peer_percentile"]) else int(r["peer_percentile"]),
         "actionability": r["actionability"], "explanation": r["explanation"],
         "driver": r["driver_text"] or None,
         "display": bool(r["display"]), "display_note": r["display_note"] or None,
+        "data_missing": bool(r.get("data_missing", False)),
+        "missing_reason": r.get("missing_reason_code") or None,
+        "hold_reason": r.get("hold_reason") or None,
         "values": {k: _plain(v) for k, v in values.get(r["factor_id"], {}).items()},
     } for _, r in g.iterrows()]
 
 
 # ---------------------------------------------------------------------------
+def explain(model: detect.DetectModel, Xt: pd.DataFrame, Xb: pd.DataFrame, meta: pd.DataFrame,
+            raw: pd.DataFrame) -> dict:
+    """학습된 모형 하나로 대상 점포들의 요인 진단을 만든다 (진단·서빙 공용).
+
+    meta: 대상 행의 store_id, origin, biz_type, gu, age_months (Xt와 같은 순서)
+    raw : 대상 행의 원래 값 (판단 근거 `values` 출력용, Xt와 같은 순서)
+    반환: long(점포×요인), by_category, active(요인 목록), base, meta(확률 포함), values(함수)
+    """
+    meta = meta.reset_index(drop=True).copy()
+    raw = raw.reset_index(drop=True)
+    active = [f for f in FACTORS if any(c in model.columns_ for c in f["features"])]
+    dropped = [f["id"] for f in FACTORS if f not in active]
+    factor_cols = [[c for c in f["features"] if c in model.columns_] for f in active]
+    train_detect.log(f"요인 {len(active)}개 (학습에 값이 없어 제외: {dropped or '없음'}) · 배경 {len(Xb)}개 · "
+                     f"조합 {2 ** len(active)}개")
+    phi, base = factor_shapley(model, Xt, Xb, factor_cols)
+    p = model.predict_proba(Xt)
+    gap = np.abs(phi.sum(axis=1) + base - p).max()
+    train_detect.log(f"가법성 확인: max|Σ기여 + base − p| = {gap:.2e}")
+    if gap > 1e-6:
+        raise RuntimeError("Shapley 가법성이 깨졌다")
+
+    meta["age_band"] = age_band(meta["age_months"])
+    meta["probability_12m"] = p
+    meta["base_value"] = base
+    long = []
+    for k, f in enumerate(active):
+        part = meta[["store_id", "origin", "biz_type", "gu", "age_band"]].copy()
+        part["factor_id"], part["factor"], part["category"], part["actionability"] = (
+            f["id"], f["name"], f["category"], f["actionability"])
+        part["contribution"] = phi[:, k]
+        long.append(part)
+    long = pd.concat(long, ignore_index=True)
+    long["driver_feature"], long["driver_text"] = "", ""
+    long["display"], long["display_note"], long["hold_reason"] = True, "", ""
+    on = next((k for k, f in enumerate(active) if f["id"] == "online_attention"), None)
+    if on is not None:
+        online_cols = factor_cols[on]
+        other_cols = [c for k, cs in enumerate(factor_cols) if k != on for c in cs]
+        sign = np.where(phi[:, on] >= 0, 1.0, -1.0)
+        train_detect.log(f"온라인 요인 세부 근거 계산 (참가자 {1 + len(online_cols)}명)")
+        drv, _ = online_drivers(model, Xt, Xb, online_cols, other_cols, sign)
+        vals = Xt[online_cols].reset_index(drop=True)
+        texts = [online_driver_text(f, vals.at[i, f]) for i, f in enumerate(drv)]
+        m = (long["factor_id"] == "online_attention").to_numpy()
+        long.loc[m, "driver_feature"] = drv
+        long.loc[m, "driver_text"] = texts
+        # 화면 표시 보류: 온라인 요인이 위험을 올리는데 주된 근거가 "언급이 있음/많음"인 경우.
+        # 사업자가 할 수 있는 일로 번역되지 않고(언급을 줄이라는 뜻이 아니다), 이름 오탐(#28)이나
+        # 유행 상권 인기 점포 효과일 수 있어 검증 전까지 진단문에 내보내지 않는다. 기여값은 그대로 둔다.
+        presence = np.array([online_signal_is_presence(f, vals.at[i, f]) for i, f in enumerate(drv)])
+        hold = presence & (phi[:, on] > 0)
+        idx = np.flatnonzero(m)
+        long.loc[idx[hold], "display"] = False
+        long.loc[idx[hold], "hold_reason"] = "online_review"
+        long.loc[idx[hold], "display_note"] = "언급이 많은 쪽에서 위험이 높게 나온 경우 — 이름 오탐(#28)·유행 상권 효과 검토 전까지 표시 보류"
+        train_detect.log(f"온라인 요인 표시 보류: {int(hold.sum()):,}점포 (위험을 올리고 주된 근거가 언급 있음/많음)")
+    # 데이터 없음 표시 보류: 요인에 속한 feature 값이 이 점포에서 전부 결측이면(예: 상권 경계 밖 점포의
+    # 상권 요인) 기여는 "값"이 아니라 "데이터가 없다는 사실"(= 상권 밖 위치)에서 나온다. "동종 업종 경쟁이
+    # 위험을 낮췄다" 같은 문장은 사실과 다르므로 진단문으로 내보내지 않는다. 기여값·가법성은 그대로 둔다.
+    # 이유는 점포별로 다르다 (상권 밖 / 상권 안이지만 해당 업종 자료·매출 공개 없음 / 온라인 관측 불가).
+    long["data_missing"] = False
+    long["missing_reason"], long["missing_reason_code"] = "", ""
+    n = len(meta)
+    for k, f in enumerate(active):
+        allna = Xt[factor_cols[k]].isna().all(axis=1).to_numpy()
+        if not allna.any():
+            continue
+        idx = np.flatnonzero((long["factor_id"] == f["id"]).to_numpy())[allna]
+        why = missing_reasons(f["id"], raw)[allna]
+        long.loc[idx, ["data_missing", "display"]] = [True, False]
+        long.loc[idx, "display_note"] = MISSING_NOTE
+        long.loc[idx, "missing_reason"] = why
+        long.loc[idx, "missing_reason_code"] = [MISSING_REASON_CODES[w] for w in why]
+        long.loc[idx, "hold_reason"] = "data_missing"
+        by_reason = pd.Series(why).value_counts().to_dict()
+        train_detect.log(f"데이터 없음 표시 보류 [{f['id']}]: {int(allna.sum()):,} / {n:,}점포 {by_reason}")
+    unknown_hold = set(long["hold_reason"]) - set(HOLD_REASONS) - {""}
+    if unknown_hold or ((~long["display"]) != (long["hold_reason"] != "")).any():
+        raise RuntimeError(f"display=false ⇔ hold_reason 규칙이 깨졌다 (미등록 사유: {unknown_hold or '없음'})")
+    long = add_peer_percentiles(long)
+    long["rank_in_store"] = long.groupby(["store_id", "origin"])["contribution"].rank(ascending=False, method="first").astype(int)
+    long["explanation"] = long.apply(explanation, axis=1)
+    cat = long.groupby(["store_id", "origin", "category"])["contribution"].sum().unstack(fill_value=0.0)
+    cat = cat.reindex(columns=list(CATEGORIES), fill_value=0.0).reset_index()
+    # 활성 요인이 하나도 없는 유형(현재 비용)은 0이 아니라 "판단 불가"다. 화면이 0으로 그리지 않도록 표시한다.
+    for c in CATEGORIES:
+        cat[f"{c}_available"] = any(f["category"] == c for f in active)
+    cat = cat.merge(meta[["store_id", "origin", "probability_12m", "base_value"]], on=["store_id", "origin"])
+    pos = {(s_, o_): i for i, (s_, o_) in enumerate(zip(raw["store_id"], raw["origin"]))}
+
+    def values(store_id, origin_):
+        row = raw.iloc[pos[(store_id, origin_)]]
+        return {f["id"]: {c: row[c] for c in f["features"] if c in raw.columns} for f in active}
+
+    return {"long": long, "by_category": cat, "active": active, "base": base, "meta": meta, "values": values}
+
+
 def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: str, origin: str | None,
         n_background: int, max_stores: int | None, seed: int = 20260925) -> pd.DataFrame:
     t0 = time.time()
@@ -297,66 +451,12 @@ def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: 
                      f"· feature set {primary}")
     model = detect.DetectModel().fit(X[tr], y[tr])
 
-    active = [f for f in FACTORS if any(c in model.columns_ for c in f["features"])]
-    dropped = [f["id"] for f in FACTORS if f not in active]
-    factor_cols = [[c for c in f["features"] if c in model.columns_] for f in active]
     bg_idx = rng.choice(np.flatnonzero(tr), n_background, replace=False)
-    Xt, Xb = X.iloc[te_idx], X.iloc[bg_idx]
-    train_detect.log(f"요인 {len(active)}개 (학습에 값이 없어 제외: {dropped or '없음'}) · 배경 {n_background}개 · "
-                     f"조합 {2 ** len(active)}개")
-    phi, base = factor_shapley(model, Xt, Xb, factor_cols)
-    p = model.predict_proba(Xt)
-    gap = np.abs(phi.sum(axis=1) + base - p).max()
-    train_detect.log(f"가법성 확인: max|Σ기여 + base − p| = {gap:.2e}")
-    if gap > 1e-6:
-        raise RuntimeError("Shapley 가법성이 깨졌다")
-
     meta = df.iloc[te_idx][["store_id", "origin", "biz_type", "gu", "age_months"]].reset_index(drop=True)
-    meta["age_band"] = age_band(meta["age_months"])
-    meta["probability_12m"] = p
-    meta["base_value"] = base
-    long = []
-    for k, f in enumerate(active):
-        part = meta[["store_id", "origin", "biz_type", "gu", "age_band"]].copy()
-        part["factor_id"], part["factor"], part["category"], part["actionability"] = (
-            f["id"], f["name"], f["category"], f["actionability"])
-        part["contribution"] = phi[:, k]
-        long.append(part)
-    long = pd.concat(long, ignore_index=True)
-    long["driver_feature"], long["driver_text"] = "", ""
-    long["display"], long["display_note"] = True, ""
-    on = next((k for k, f in enumerate(active) if f["id"] == "online_attention"), None)
-    if on is not None:
-        online_cols = factor_cols[on]
-        other_cols = [c for k, cs in enumerate(factor_cols) if k != on for c in cs]
-        sign = np.where(phi[:, on] >= 0, 1.0, -1.0)
-        train_detect.log(f"온라인 요인 세부 근거 계산 (참가자 {1 + len(online_cols)}명)")
-        drv, _ = online_drivers(model, Xt, Xb, online_cols, other_cols, sign)
-        vals = Xt[online_cols].reset_index(drop=True)
-        texts = [online_driver_text(f, vals.at[i, f]) for i, f in enumerate(drv)]
-        m = (long["factor_id"] == "online_attention").to_numpy()
-        long.loc[m, "driver_feature"] = drv
-        long.loc[m, "driver_text"] = texts
-        # 화면 표시 보류: 온라인 요인이 위험을 올리는데 주된 근거가 "언급이 있음/많음"인 경우.
-        # 사업자가 할 수 있는 일로 번역되지 않고(언급을 줄이라는 뜻이 아니다), 이름 오탐(#28)이나
-        # 유행 상권 신규 점포 효과일 수 있어 검증 전까지 진단문에 내보내지 않는다. 기여값은 그대로 둔다.
-        presence = np.array([online_signal_is_presence(f, vals.at[i, f]) for i, f in enumerate(drv)])
-        hold = presence & (phi[:, on] > 0)
-        idx = np.flatnonzero(m)
-        long.loc[idx[hold], "display"] = False
-        long.loc[idx[hold], "display_note"] = "언급이 많은 쪽에서 위험이 높게 나온 경우 — 이름 오탐(#28)·유행 상권 효과 검토 전까지 표시 보류"
-        train_detect.log(f"온라인 요인 표시 보류: {int(hold.sum()):,}점포 (위험을 올리고 주된 근거가 언급 있음/많음)")
-    long = add_peer_percentiles(long)
-    long["rank_in_store"] = long.groupby(["store_id", "origin"])["contribution"].rank(ascending=False, method="first").astype(int)
-    long["explanation"] = long.apply(explanation, axis=1)
+    res = explain(model, X.iloc[te_idx], X.iloc[bg_idx], meta, df.iloc[te_idx].reset_index(drop=True))
+    long, cat, active, base, meta = res["long"], res["by_category"], res["active"], res["base"], res["meta"]
     long.to_parquet(out_dir / "diagnosis.parquet", index=False)
 
-    cat = long.groupby(["store_id", "origin", "category"])["contribution"].sum().unstack(fill_value=0.0)
-    cat = cat.reindex(columns=list(CATEGORIES), fill_value=0.0).reset_index()
-    # 활성 요인이 하나도 없는 유형(현재 비용)은 0이 아니라 "판단 불가"다. 화면이 0으로 그리지 않도록 표시한다.
-    for c in CATEGORIES:
-        cat[f"{c}_available"] = any(f["category"] == c for f in active)
-    cat = cat.merge(meta[["store_id", "origin", "probability_12m", "base_value"]], on=["store_id", "origin"])
     cat.to_parquet(out_dir / "diagnosis_by_category.parquet", index=False)
 
     summary = long.groupby(["category", "factor_id", "factor", "actionability"]).agg(
@@ -369,13 +469,7 @@ def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: 
     # 샘플 진단문 10건: high 등급 쪽에서 5건, 나머지 5건
     order = meta.sort_values("probability_12m", ascending=False)
     pick = pd.concat([order.head(5), order.sample(5, random_state=seed)])
-    raw = df.iloc[te_idx].reset_index(drop=True)
-    pos = {(s_, o_): i for i, (s_, o_) in enumerate(zip(raw["store_id"], raw["origin"]))}
-
-    def vals(store_id, origin_):
-        row = raw.iloc[pos[(store_id, origin_)]]
-        return {f["id"]: {c: row[c] for c in f["features"] if c in raw.columns} for f in active}
-
+    vals = res["values"]
     sample = [{"store_id": r.store_id, "origin": r.origin, "probability_12m": round(float(r.probability_12m), 4),
                "base_value": round(base, 4),
                "unavailable_categories": [c for c in CATEGORIES if not any(f["category"] == c for f in active)],

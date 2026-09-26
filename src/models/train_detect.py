@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import pickle
 import time
 from pathlib import Path
 
@@ -353,6 +354,9 @@ def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
     log(f"risk_scores {len(rows):,}행 → {out_dir / 'risk_scores.parquet'}")
 
     meta["calibration_applied"] = apply
+    # 서빙(`serve.py`)이 같은 보정기를 쓰도록 저장한다. 적용하지 않은 경우에도 기록용으로 남긴다.
+    with open(out_dir / "calibrator.pkl", "wb") as f:
+        pickle.dump(iso, f)
     meta["calib_origins"] = calib_origins
     meta["band_cutoffs"] = cut
     meta["seconds"] = round(time.time() - t0, 1)
