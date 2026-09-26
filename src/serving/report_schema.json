@@ -1,0 +1,1983 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/choihongjun1/stat-champion-2026/src/serving/report_schema.json",
+  "title": "W2-5 store report",
+  "description": "점포 1곳의 결과 레코드 (프론트 정적 JSON·SQLite 정본 공통 계약). 필드 의미·nullable 근거는 docs/REPORT_SCHEMA.md. 구조로 표현할 수 없는 규칙(기여 합, 정렬, 정책-요인 연결 등)은 src/serving/report_validation.py가 검사한다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "_schema_version",
+    "store_id",
+    "score_origin",
+    "as_of",
+    "store",
+    "risk",
+    "factors",
+    "unavailable_categories",
+    "prescriptions",
+    "online_presence",
+    "policy_matching",
+    "policies",
+    "disclaimer"
+  ],
+  "properties": {
+    "_schema_version": {
+      "const": "0.2"
+    },
+    "store_id": {
+      "$ref": "#/$defs/store_id"
+    },
+    "score_origin": {
+      "$ref": "#/$defs/quarter"
+    },
+    "as_of": {
+      "$ref": "#/$defs/date",
+      "description": "score_origin 분기 말일. 모든 feature의 as-of 기준 시점"
+    },
+    "store": {
+      "$ref": "#/$defs/store"
+    },
+    "risk": {
+      "$ref": "#/$defs/risk"
+    },
+    "factors": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 9,
+      "items": {
+        "$ref": "#/$defs/factor"
+      }
+    },
+    "unavailable_categories": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/category"
+      }
+    },
+    "prescriptions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/prescription"
+      }
+    },
+    "online_presence": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/online_presence"
+        }
+      ]
+    },
+    "policy_matching": {
+      "enum": [
+        "performed",
+        "not_performed"
+      ],
+      "description": "정책 원천으로 매칭을 실제로 계산했는지. not_performed면 policies는 빈 배열이며 '해당 정책 없음'이 아니다"
+    },
+    "policies": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/policy_match"
+      }
+    },
+    "disclaimer": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "policy_matching": {
+            "const": "not_performed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "policies": {
+            "maxItems": 0
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "date": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "nullable_date": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "quarter": {
+      "type": "string",
+      "pattern": "^\\d{4}Q[1-4]$"
+    },
+    "prob": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "pct": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "store_id": {
+      "type": "string",
+      "description": "실데이터 '{GR|SR|BT}_{관리번호}'. 공개 샘플은 SAMPLE-NNN, 화면 더미는 DUMMY-…",
+      "pattern": "^((GR|SR|BT)_[0-9A-Za-z-]+|SAMPLE-\\d{3}|DUMMY-[0-9A-Za-z-]+)$"
+    },
+    "gu": {
+      "enum": [
+        "광진구",
+        "마포구",
+        "영등포구"
+      ]
+    },
+    "biz_type": {
+      "enum": [
+        "일반음식점",
+        "휴게음식점",
+        "미용업"
+      ]
+    },
+    "category": {
+      "enum": [
+        "사업체 구조",
+        "입지·수요",
+        "경쟁",
+        "비용"
+      ]
+    },
+    "actionability": {
+      "enum": [
+        "owner",
+        "policy",
+        "external"
+      ]
+    },
+    "factor_id": {
+      "enum": [
+        "tenure",
+        "store_profile",
+        "district",
+        "trdar_population",
+        "trdar_vitality",
+        "online_attention",
+        "peer_competition",
+        "peer_sales",
+        "rent_level"
+      ]
+    },
+    "missing_reason": {
+      "description": "data_missing=true인 요인의 세부 사유 코드. PR #36 serve 0.2 `diagnose.MISSING_REASON_CODES`의 값을 그대로 쓴다 (서빙이 원천 값으로 내보내며 explanation 문장에서 역추출하지 않는다)",
+      "enum": [
+        "out_of_trdar",
+        "sales_unpublished",
+        "industry_unpublished",
+        "online_unobservable",
+        "trdar_quarter_unavailable",
+        "trdar_unknown",
+        "unknown"
+      ]
+    },
+    "hold_reason": {
+      "description": "display=false인 이유 코드 (PR #36 `diagnose.HOLD_REASONS`). data_missing = 요인 값이 전부 결측(세부는 missing_reason), online_review = 온라인 언급 쪽 위험 상승의 오탐 검수 대기",
+      "enum": [
+        "online_review",
+        "data_missing"
+      ]
+    },
+    "store": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "biz_type",
+        "gu",
+        "dong",
+        "name",
+        "address_road",
+        "address_jibun",
+        "license_date",
+        "mdis_industry_code",
+        "status"
+      ],
+      "properties": {
+        "biz_type": {
+          "$ref": "#/$defs/biz_type"
+        },
+        "gu": {
+          "$ref": "#/$defs/gu"
+        },
+        "dong": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "description": "법정동 (인허가 지번주소 기준). 행정동이 아니다"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "address_road": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "address_jibun": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "license_date": {
+          "$ref": "#/$defs/nullable_date"
+        },
+        "mdis_industry_code": {
+          "enum": [
+            "56",
+            "96",
+            null
+          ],
+          "description": "MDIS 산업중분류. 고정 매핑 확정 전까지 null"
+        },
+        "status": {
+          "$ref": "#/$defs/store_status"
+        }
+      }
+    },
+    "store_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "기준일(as_of) 당시 영업과 인허가 스냅샷 시점의 현재 상태를 구분한다",
+      "required": [
+        "open_at_as_of",
+        "current",
+        "close_date",
+        "license_snapshot_date"
+      ],
+      "properties": {
+        "open_at_as_of": {
+          "const": true,
+          "description": "리포트는 as_of에 영업 중인 점포에만 만든다"
+        },
+        "current": {
+          "enum": [
+            "open",
+            "closed",
+            "unknown"
+          ]
+        },
+        "close_date": {
+          "$ref": "#/$defs/nullable_date"
+        },
+        "license_snapshot_date": {
+          "$ref": "#/$defs/nullable_date"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "current": {
+                "const": "open"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "close_date": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "current": {
+                "const": "closed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "close_date": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "probability_12m",
+        "ci_low",
+        "ci_high",
+        "interval_note",
+        "band",
+        "percentile",
+        "peer_group",
+        "peer_median",
+        "model",
+        "calibrated"
+      ],
+      "properties": {
+        "probability_12m": {
+          "$ref": "#/$defs/prob"
+        },
+        "ci_low": {
+          "$ref": "#/$defs/prob",
+          "description": "점포 단위 부트스트랩 재학습 예측의 5 백분위 (신뢰구간 아님)"
+        },
+        "ci_high": {
+          "$ref": "#/$defs/prob",
+          "description": "같은 방식의 95 백분위 (신뢰구간 아님)"
+        },
+        "interval_note": {
+          "type": "string",
+          "minLength": 1
+        },
+        "band": {
+          "enum": [
+            "low",
+            "mid",
+            "high"
+          ]
+        },
+        "percentile": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/pct"
+            }
+          ],
+          "description": "같은 score_origin·자치구·업종 안 위험도 백분위, 높을수록 위험"
+        },
+        "peer_group": {
+          "type": "string",
+          "minLength": 1,
+          "description": "'{gu} {biz_type}' (업력 조건 없음)"
+        },
+        "peer_median": {
+          "$ref": "#/$defs/prob"
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "calibrated": {
+          "type": "boolean"
+        }
+      }
+    },
+    "factor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "factor_id",
+        "name",
+        "category",
+        "actionability",
+        "contribution",
+        "direction",
+        "peer_percentile",
+        "explanation",
+        "driver",
+        "values",
+        "display",
+        "data_missing",
+        "missing_reason",
+        "hold_reason",
+        "display_note"
+      ],
+      "properties": {
+        "factor_id": {
+          "$ref": "#/$defs/factor_id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "$ref": "#/$defs/category"
+        },
+        "actionability": {
+          "$ref": "#/$defs/actionability"
+        },
+        "contribution": {
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1,
+          "description": "예측 확률에 대한 요인 단위 Shapley 기여 (확률 단위, 인과효과 아님)"
+        },
+        "direction": {
+          "enum": [
+            "위험 증가",
+            "위험 감소",
+            "영향 미미"
+          ],
+          "description": "|contribution| < 0.001이면 '영향 미미' (진단문 '거의 영향을 주지 않았습니다'와 같은 기준)"
+        },
+        "peer_percentile": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/pct"
+            }
+          ]
+        },
+        "explanation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "driver": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "values": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "number",
+              "string",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "display": {
+          "type": "boolean"
+        },
+        "data_missing": {
+          "type": "boolean"
+        },
+        "missing_reason": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/missing_reason"
+            }
+          ]
+        },
+        "hold_reason": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/hold_reason"
+            }
+          ]
+        },
+        "display_note": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "내부용 문장. 화면 분기에 쓰지 않는다"
+        }
+      },
+      "allOf": [
+        {
+          "$ref": "#/$defs/factor_display_state"
+        }
+      ]
+    },
+    "prescription": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "schema 0.2에서는 unavailable 상태만 허용한다 — W3 DML 전까지 효과 수치를 만들지 않는다",
+      "required": [
+        "id",
+        "title",
+        "related_factor_ids",
+        "status",
+        "unavailable_reason",
+        "evidence_level",
+        "effect_value",
+        "effect_summary",
+        "source",
+        "caveat",
+        "actionability"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "related_factor_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/factor_id"
+          }
+        },
+        "status": {
+          "const": "unavailable"
+        },
+        "unavailable_reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_level": {
+          "type": "null",
+          "description": "근거 등급 척도는 W3에서 DECISIONS.md로 확정"
+        },
+        "effect_value": {
+          "type": "null"
+        },
+        "effect_summary": {
+          "type": "null"
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "caveat": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "actionability": {
+          "$ref": "#/$defs/actionability"
+        }
+      }
+    },
+    "online_presence": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "수집 시점(현재) 스냅샷. 표시 전용이며 예측·진단 feature가 아니다",
+      "required": [
+        "basis",
+        "collected_at",
+        "naver_local_registered",
+        "kakao_registered",
+        "naver_blog_total_12m",
+        "first_date_truncated",
+        "note"
+      ],
+      "properties": {
+        "basis": {
+          "const": "current_snapshot"
+        },
+        "collected_at": {
+          "$ref": "#/$defs/date"
+        },
+        "naver_local_registered": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "kakao_registered": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "naver_blog_total_12m": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "first_date_truncated": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "policy_match": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "W2-7 정책 원천(policy_source)을 W2-5 빌드에서 점포에 매칭한 결과 (FACTOR_POLICY_LINKS.md §4)",
+      "required": [
+        "id",
+        "name",
+        "operator",
+        "link",
+        "eligibility_text",
+        "announce_year",
+        "collected_at",
+        "match_status",
+        "matched_by",
+        "unverifiable_conditions",
+        "linked_factor_ids",
+        "check_note"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operator": {
+          "type": "string",
+          "minLength": 1
+        },
+        "link": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^https?://"
+        },
+        "eligibility_text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "announce_year": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 2000,
+          "maximum": 2100
+        },
+        "collected_at": {
+          "$ref": "#/$defs/date"
+        },
+        "match_status": {
+          "enum": [
+            "matched",
+            "check_required"
+          ]
+        },
+        "matched_by": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "gu",
+              "biz_type",
+              "tenure"
+            ]
+          }
+        },
+        "unverifiable_conditions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "linked_factor_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/factor_id"
+          }
+        },
+        "check_note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "match_status": {
+                "const": "check_required"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "unverifiable_conditions": {
+                "minItems": 1
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "unverifiable_conditions": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "policy_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "W2-7 policies.json의 정책 1건 (빌드 입력, FACTOR_POLICY_LINKS.md §3)",
+      "required": [
+        "id",
+        "name",
+        "operator",
+        "link",
+        "announce_year",
+        "collected_at",
+        "eligibility_text",
+        "conditions",
+        "unverifiable_conditions",
+        "related_factor_ids"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operator": {
+          "type": "string",
+          "minLength": 1
+        },
+        "link": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^https?://"
+        },
+        "announce_year": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 2000,
+          "maximum": 2100
+        },
+        "collected_at": {
+          "$ref": "#/$defs/date"
+        },
+        "eligibility_text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "conditions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "gu",
+            "biz_type",
+            "tenure_months_min",
+            "tenure_months_max"
+          ],
+          "properties": {
+            "gu": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/gu"
+                  }
+                }
+              ]
+            },
+            "biz_type": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/biz_type"
+                  }
+                }
+              ]
+            },
+            "tenure_months_min": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "tenure_months_max": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        },
+        "unverifiable_conditions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "related_factor_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/factor_id"
+          }
+        }
+      }
+    },
+    "search_index_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "상호·주소 검색용 인덱스 1행. SQLite stores 테이블에서 만들며 인허가 공개 정보만 담는다 — 위험도·등급·기여·정책은 담지 않는다",
+      "required": [
+        "store_id",
+        "name",
+        "name_norm",
+        "biz_type",
+        "gu",
+        "dong",
+        "address_road",
+        "address_jibun"
+      ],
+      "properties": {
+        "store_id": {
+          "$ref": "#/$defs/store_id"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "name_norm": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "biz_type": {
+          "$ref": "#/$defs/biz_type"
+        },
+        "gu": {
+          "$ref": "#/$defs/gu"
+        },
+        "dong": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "description": "법정동"
+        },
+        "address_road": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "address_jibun": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      }
+    },
+    "dong_summary_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "동(법정동) × 업종 집계 (Issue #29). biz_type=null은 동 전체 행. 모형 예측 등급의 분포이며 개별 점포 진단이 아니다. 숨김 하한값은 dong_summary_file.min_cell_n",
+      "required": [
+        "gu",
+        "dong",
+        "biz_type",
+        "score_origin",
+        "as_of",
+        "n_stores",
+        "suppressed",
+        "band_share",
+        "top_risk_biz_types",
+        "note",
+        "suppression_reason"
+      ],
+      "properties": {
+        "gu": {
+          "$ref": "#/$defs/gu"
+        },
+        "dong": {
+          "type": "string",
+          "minLength": 1
+        },
+        "biz_type": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/biz_type"
+            }
+          ]
+        },
+        "score_origin": {
+          "$ref": "#/$defs/quarter"
+        },
+        "as_of": {
+          "$ref": "#/$defs/date"
+        },
+        "n_stores": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "suppressed": {
+          "type": "boolean"
+        },
+        "band_share": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "low",
+                "mid",
+                "high"
+              ],
+              "properties": {
+                "low": {
+                  "$ref": "#/$defs/prob"
+                },
+                "mid": {
+                  "$ref": "#/$defs/prob"
+                },
+                "high": {
+                  "$ref": "#/$defs/prob"
+                }
+              }
+            }
+          ]
+        },
+        "top_risk_biz_types": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/biz_type"
+              }
+            }
+          ]
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1
+        },
+        "suppression_reason": {
+          "enum": [
+            "small_cell",
+            "complementary",
+            null
+          ],
+          "description": "small_cell = 점포 수 < min_cell_n, complementary = 다른 셀 역산 방지를 위한 추가 숨김"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "suppressed": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "n_stores": {
+                "type": "null"
+              },
+              "band_share": {
+                "type": "null"
+              },
+              "top_risk_biz_types": {
+                "type": "null"
+              },
+              "suppression_reason": {
+                "enum": [
+                  "small_cell",
+                  "complementary"
+                ]
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "n_stores": {
+                "type": "integer"
+              },
+              "band_share": {
+                "type": "object"
+              },
+              "suppression_reason": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "biz_type": {
+                "type": "string"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "top_risk_biz_types": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "serve_record_v0_1": {
+      "type": "object",
+      "description": "PR #36 serve 출력 0.1 (구버전). 개발용 호환만 유지한다 — missing_reason·hold_reason·'영향 미미'가 없어 정본은 final_contract=not_ready가 되고 최종 리포트·정적 번들이 되지 못한다",
+      "required": [
+        "_schema_version",
+        "store_id",
+        "as_of",
+        "store",
+        "risk",
+        "factors",
+        "unavailable_categories",
+        "disclaimer"
+      ],
+      "properties": {
+        "_schema_version": {
+          "const": "0.1"
+        },
+        "store_id": {
+          "$ref": "#/$defs/store_id"
+        },
+        "as_of": {
+          "$ref": "#/$defs/date"
+        },
+        "store": {
+          "type": "object",
+          "required": [
+            "biz_type",
+            "gu"
+          ],
+          "properties": {
+            "biz_type": {
+              "$ref": "#/$defs/biz_type"
+            },
+            "gu": {
+              "$ref": "#/$defs/gu"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "address_road": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "address_jibun": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "dong": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "license_date": {
+              "$ref": "#/$defs/nullable_date"
+            }
+          }
+        },
+        "risk": {
+          "$ref": "#/$defs/risk"
+        },
+        "factors": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "factor_id",
+              "name",
+              "category",
+              "actionability",
+              "contribution",
+              "direction",
+              "peer_percentile",
+              "explanation",
+              "driver",
+              "values",
+              "display",
+              "data_missing",
+              "display_note"
+            ],
+            "properties": {
+              "factor_id": {
+                "$ref": "#/$defs/factor_id"
+              },
+              "category": {
+                "$ref": "#/$defs/category"
+              },
+              "actionability": {
+                "$ref": "#/$defs/actionability"
+              },
+              "contribution": {
+                "type": "number"
+              },
+              "direction": {
+                "enum": [
+                  "위험 증가",
+                  "위험 감소"
+                ]
+              },
+              "peer_percentile": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/pct"
+                  }
+                ]
+              },
+              "display": {
+                "type": "boolean"
+              },
+              "data_missing": {
+                "type": "boolean"
+              },
+              "missing_reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/missing_reason"
+                  }
+                ]
+              },
+              "hold_reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/hold_reason"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "unavailable_categories": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/category"
+          }
+        },
+        "disclaimer": {
+          "type": "string"
+        }
+      }
+    },
+    "serve_record_v0_2": {
+      "type": "object",
+      "description": "PR #36 serve 출력 0.2 (d6cfeb9, R1~R5 반영) — W2-5 빌드 입력. 최종 리포트 0.2와 버전 번호만 같고 구조가 다르다 (최종 리포트의 prescriptions·policies·online_presence·policy_matching이 없다). 최종 리포트를 입력으로 넣지 못하도록 최상위 키를 닫는다",
+      "required": [
+        "_schema_version",
+        "store_id",
+        "score_origin",
+        "as_of",
+        "store",
+        "risk",
+        "factors",
+        "unavailable_categories",
+        "disclaimer"
+      ],
+      "properties": {
+        "_schema_version": {
+          "const": "0.2"
+        },
+        "store_id": {
+          "$ref": "#/$defs/store_id"
+        },
+        "as_of": {
+          "$ref": "#/$defs/date"
+        },
+        "store": {
+          "type": "object",
+          "required": [
+            "biz_type",
+            "gu"
+          ],
+          "properties": {
+            "biz_type": {
+              "$ref": "#/$defs/biz_type"
+            },
+            "gu": {
+              "$ref": "#/$defs/gu"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "address_road": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "address_jibun": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "dong": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "license_date": {
+              "$ref": "#/$defs/nullable_date"
+            }
+          }
+        },
+        "risk": {
+          "$ref": "#/$defs/risk"
+        },
+        "factors": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "factor_id",
+              "name",
+              "category",
+              "actionability",
+              "contribution",
+              "direction",
+              "peer_percentile",
+              "explanation",
+              "driver",
+              "values",
+              "display",
+              "data_missing",
+              "display_note",
+              "missing_reason",
+              "hold_reason"
+            ],
+            "properties": {
+              "factor_id": {
+                "$ref": "#/$defs/factor_id"
+              },
+              "category": {
+                "$ref": "#/$defs/category"
+              },
+              "actionability": {
+                "$ref": "#/$defs/actionability"
+              },
+              "contribution": {
+                "type": "number"
+              },
+              "direction": {
+                "enum": [
+                  "위험 증가",
+                  "위험 감소",
+                  "영향 미미"
+                ]
+              },
+              "peer_percentile": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/pct"
+                  }
+                ]
+              },
+              "display": {
+                "type": "boolean"
+              },
+              "data_missing": {
+                "type": "boolean"
+              },
+              "missing_reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/missing_reason"
+                  }
+                ]
+              },
+              "hold_reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/hold_reason"
+                  }
+                ]
+              }
+            },
+            "allOf": [
+              {
+                "$ref": "#/$defs/factor_display_state"
+              }
+            ]
+          }
+        },
+        "unavailable_categories": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/category"
+          }
+        },
+        "disclaimer": {
+          "type": "string"
+        },
+        "score_origin": {
+          "$ref": "#/$defs/quarter"
+        }
+      },
+      "additionalProperties": false
+    },
+    "online_presence_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "빌드 입력 online_presence.jsonl 1줄 (PR #21 수집 결과를 store_id 형식으로 변환한 것)",
+      "required": [
+        "store_id",
+        "online_presence"
+      ],
+      "properties": {
+        "store_id": {
+          "$ref": "#/$defs/store_id"
+        },
+        "online_presence": {
+          "$ref": "#/$defs/online_presence"
+        }
+      }
+    },
+    "search_index_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "검색 인덱스 파일 (정적 JSON 후보). 같은 run_id의 리포트와 store_id 집합이 같아야 한다",
+      "required": [
+        "_schema_version",
+        "run_id",
+        "score_origin",
+        "as_of",
+        "release_ready",
+        "release_blockers",
+        "n_entries",
+        "entries"
+      ],
+      "properties": {
+        "_schema_version": {
+          "const": "0.2"
+        },
+        "run_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "score_origin": {
+          "$ref": "#/$defs/quarter"
+        },
+        "as_of": {
+          "$ref": "#/$defs/date"
+        },
+        "release_ready": {
+          "type": "boolean",
+          "description": "false면 개발용 — 공개 배포 금지"
+        },
+        "release_blockers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "n_entries": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/search_index_entry"
+          }
+        }
+      }
+    },
+    "dong_list_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "동 선택 목록 1행. 식별자는 (gu, dong), 표시명은 '{dong} ({gu})'. 법정동",
+      "required": [
+        "gu",
+        "dong",
+        "label"
+      ],
+      "properties": {
+        "gu": {
+          "$ref": "#/$defs/gu"
+        },
+        "dong": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string",
+          "pattern": "^.+ \\((광진구|마포구|영등포구)\\)$"
+        }
+      }
+    },
+    "dong_summary_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "동 요약 파일 (정적 JSON 후보). 점포 식별자·점포별 위험도는 담지 않는다",
+      "required": [
+        "_schema_version",
+        "run_id",
+        "score_origin",
+        "as_of",
+        "release_ready",
+        "release_blockers",
+        "min_cell_n",
+        "min_cell_n_status",
+        "risk_ranking_rule",
+        "n_stores_total",
+        "n_stores_without_dong",
+        "duplicate_dong_names",
+        "dongs",
+        "rows"
+      ],
+      "properties": {
+        "_schema_version": {
+          "const": "0.2"
+        },
+        "run_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "score_origin": {
+          "$ref": "#/$defs/quarter"
+        },
+        "as_of": {
+          "$ref": "#/$defs/date"
+        },
+        "release_ready": {
+          "type": "boolean",
+          "description": "false면 개발용 — 공개 배포 금지"
+        },
+        "release_blockers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "min_cell_n": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "min_cell_n_status": {
+          "enum": [
+            "provisional",
+            "decided"
+          ],
+          "description": "provisional이면 DECISIONS 확정 전 — 공개 배포 금지"
+        },
+        "risk_ranking_rule": {
+          "type": "string",
+          "minLength": 1
+        },
+        "n_stores_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "n_stores_without_dong": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duplicate_dong_names": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dongs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dong_list_entry"
+          }
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dong_summary_row"
+          }
+        }
+      }
+    },
+    "dong_list_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "정적 번들의 동 선택 목록 (dongs.json)",
+      "required": [
+        "_schema_version",
+        "run_id",
+        "score_origin",
+        "as_of",
+        "dongs"
+      ],
+      "properties": {
+        "_schema_version": {
+          "const": "0.2"
+        },
+        "run_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "score_origin": {
+          "$ref": "#/$defs/quarter"
+        },
+        "as_of": {
+          "$ref": "#/$defs/date"
+        },
+        "dongs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dong_list_entry"
+          }
+        }
+      }
+    },
+    "static_meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "정적 번들 meta.json — 프론트가 가장 먼저 읽는 작은 파일",
+      "required": [
+        "_schema_version",
+        "run_id",
+        "score_origin",
+        "as_of",
+        "data_kind",
+        "n_stores",
+        "band_cutoffs",
+        "policy_matching",
+        "report_path_template",
+        "files",
+        "technical_gate",
+        "dong_summary_public_ready",
+        "dong_summary_blockers",
+        "publication_approved",
+        "publication_note"
+      ],
+      "properties": {
+        "_schema_version": {
+          "const": "0.2"
+        },
+        "run_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "score_origin": {
+          "$ref": "#/$defs/quarter"
+        },
+        "as_of": {
+          "$ref": "#/$defs/date"
+        },
+        "data_kind": {
+          "enum": [
+            "real",
+            "synthetic_sample"
+          ],
+          "description": "synthetic_sample = 모든 점포가 SAMPLE-NNN·'(샘플)' 상호인 합성 번들. 그 밖은 real"
+        },
+        "n_stores": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "band_cutoffs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "cut_mid",
+            "cut_high"
+          ],
+          "description": "등급 절대 확률 컷오프 (serve_meta.band_cutoffs의 cut_mid·cut_high 그대로): p ≥ cut_high → high, p ≥ cut_mid → mid",
+          "properties": {
+            "cut_mid": {
+              "$ref": "#/$defs/prob"
+            },
+            "cut_high": {
+              "$ref": "#/$defs/prob"
+            }
+          }
+        },
+        "policy_matching": {
+          "enum": [
+            "performed",
+            "not_performed"
+          ]
+        },
+        "report_path_template": {
+          "const": "reports/{store_id}.json"
+        },
+        "files": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "search_index",
+            "dongs",
+            "dong_summary"
+          ],
+          "properties": {
+            "search_index": {
+              "const": "search_index.json"
+            },
+            "dongs": {
+              "const": "dongs.json"
+            },
+            "dong_summary": {
+              "const": "dong_summary.json"
+            }
+          }
+        },
+        "technical_gate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "passed",
+            "blockers"
+          ],
+          "properties": {
+            "passed": {
+              "const": true
+            },
+            "blockers": {
+              "type": "array",
+              "maxItems": 0
+            }
+          },
+          "description": "기술적 계약 통과(최종 0.2·provenance·스키마·불변식). 공개 승인과 별개"
+        },
+        "dong_summary_public_ready": {
+          "type": "boolean"
+        },
+        "dong_summary_blockers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "publication_approved": {
+          "const": false,
+          "description": "실명·주소·store_id·개별 위험도 결합 데이터의 공개 승인. 현재 승인 절차가 없어 항상 false"
+        },
+        "publication_note": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "static_manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "정적 번들 manifest.json — 파일별 무결성 기록 (자기 자신은 목록에 없음)",
+      "required": [
+        "_schema_version",
+        "run_id",
+        "score_origin",
+        "as_of",
+        "export_version",
+        "data_kind",
+        "n_stores",
+        "technical_gate",
+        "dong_summary_public_ready",
+        "dong_summary_blockers",
+        "publication_approved",
+        "publication_note",
+        "files"
+      ],
+      "properties": {
+        "_schema_version": {
+          "const": "0.2"
+        },
+        "run_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "score_origin": {
+          "$ref": "#/$defs/quarter"
+        },
+        "as_of": {
+          "$ref": "#/$defs/date"
+        },
+        "export_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "data_kind": {
+          "enum": [
+            "real",
+            "synthetic_sample"
+          ],
+          "description": "synthetic_sample = 모든 점포가 SAMPLE-NNN·'(샘플)' 상호인 합성 번들. 그 밖은 real"
+        },
+        "n_stores": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "technical_gate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "passed",
+            "blockers"
+          ],
+          "properties": {
+            "passed": {
+              "const": true
+            },
+            "blockers": {
+              "type": "array",
+              "maxItems": 0
+            }
+          },
+          "description": "기술적 계약 통과(최종 0.2·provenance·스키마·불변식). 공개 승인과 별개"
+        },
+        "dong_summary_public_ready": {
+          "type": "boolean"
+        },
+        "dong_summary_blockers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "publication_approved": {
+          "const": false,
+          "description": "실명·주소·store_id·개별 위험도 결합 데이터의 공개 승인. 현재 승인 절차가 없어 항상 false"
+        },
+        "publication_note": {
+          "type": "string",
+          "minLength": 1
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "sha256",
+              "bytes",
+              "rows",
+              "schema_version",
+              "run_id"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_./-]+$"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "rows": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "schema_version": {
+                "const": "0.2"
+              },
+              "run_id": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{16}$"
+              }
+            }
+          }
+        }
+      }
+    },
+    "factor_display_state": {
+      "description": "표시 상태 규칙 (PR #36 serve 0.2와 같음): display=true ⇔ hold_reason=null. data_missing=true ⇒ display=false, hold_reason=data_missing, missing_reason=세부 코드. data_missing=false ⇒ missing_reason=null, hold_reason ∈ {null, online_review}",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "display": {
+                "const": true
+              }
+            },
+            "required": [
+              "display"
+            ]
+          },
+          "then": {
+            "properties": {
+              "hold_reason": {
+                "type": "null"
+              },
+              "data_missing": {
+                "const": false
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "hold_reason": {
+                "$ref": "#/$defs/hold_reason"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "data_missing": {
+                "const": true
+              }
+            },
+            "required": [
+              "data_missing"
+            ]
+          },
+          "then": {
+            "properties": {
+              "display": {
+                "const": false
+              },
+              "hold_reason": {
+                "const": "data_missing"
+              },
+              "missing_reason": {
+                "$ref": "#/$defs/missing_reason"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "missing_reason": {
+                "type": "null"
+              },
+              "hold_reason": {
+                "enum": [
+                  null,
+                  "online_review"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "serve_band_cutoffs": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "PR #36 serve_meta.json의 band_cutoffs (= train_detect band_cutoffs.csv 1행 = bands.suggest_cutoffs 결과). 등급 컷오프의 정본 이름은 cut_mid·cut_high다. base_rate는 컷오프를 정한 보정 구간의 평균 폐업률(참고값)이며 정적 번들로 내보내지 않는다. 0 < cut_mid < cut_high < 1은 build_db가 따로 검사한다",
+      "required": [
+        "cut_mid",
+        "cut_high"
+      ],
+      "properties": {
+        "cut_mid": {
+          "$ref": "#/$defs/prob"
+        },
+        "cut_high": {
+          "$ref": "#/$defs/prob"
+        },
+        "base_rate": {
+          "$ref": "#/$defs/prob"
+        }
+      }
+    }
+  }
+}

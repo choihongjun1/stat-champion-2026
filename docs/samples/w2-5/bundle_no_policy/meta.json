@@ -1,0 +1,29 @@
+{
+  "_schema_version": "0.2",
+  "run_id": "03c079174cbae7d6",
+  "score_origin": "2026Q2",
+  "as_of": "2026-06-30",
+  "data_kind": "synthetic_sample",
+  "n_stores": 1,
+  "band_cutoffs": {
+    "cut_mid": 0.1493,
+    "cut_high": 0.2142
+  },
+  "policy_matching": "not_performed",
+  "report_path_template": "reports/{store_id}.json",
+  "files": {
+    "search_index": "search_index.json",
+    "dongs": "dongs.json",
+    "dong_summary": "dong_summary.json"
+  },
+  "technical_gate": {
+    "passed": true,
+    "blockers": []
+  },
+  "dong_summary_public_ready": false,
+  "dong_summary_blockers": [
+    "소표본 하한값 미확정 (min_cell_n=2, provisional)"
+  ],
+  "publication_approved": false,
+  "publication_note": "합성 샘플: 점포·상호·주소·위험도·요인 기여·정책은 모두 지어낸 값이며 실제 점포·실제 추정 결과·실제 통계가 아니다. 공개 승인 대상 데이터가 아니다."
+}
