@@ -7,6 +7,8 @@
 - tenure_only    : 업력대(1년 미만/1–3/3–5/5–10/10년 이상) × 업종의 학습 구간 폐업률 표.
 - logit_license  : 로지스틱 회귀, 인허가 5개 (업력은 자연 3차 스플라인, 범주형은 원-핫).
 - logit_base     : 로지스틱 회귀, base 19개. 수치형은 표준화.
+- logit_enriched : logit_base + 온라인 6개 (PR #33). 개수형(cnt_3m·cnt_12m·months_since_last)은 log1p 후 표준화.
+  온라인 NA(Issue #25 규칙으로 정해진 미관측)도 학습 구간 중앙값으로 채운다.
 로지스틱의 결측은 학습 구간 중앙값(범주형은 최빈값)으로 채우고 **결측 지시자는 만들지 않는다**
 (`features.py` — 결측 지시자는 상권 polygon 소속·공시지가 시기 정보가 새는 경로). 학습 구간에 값이 하나도 없는
 컬럼(초기 fold의 land_price)은 HGB와 같이 뺀다.
@@ -17,6 +19,10 @@
   learning_rate × max_leaf_nodes 격자를 고르고, 고른 설정의 rolling OOF AUC를 고정값과 비교한다.
   검증(test) origin은 선택에 쓰지 않는다. 내부 분할에도 embargo를 두되, 학습 origin이 모자라는 초기 fold는
   embargo 없이(내부 학습 = 검증 직전까지) 고른다 — 어느 쪽이었는지 기록한다.
+- (c) hgb_enriched 보정 기울기 개선 후보 (서빙 모형은 바꾸지 않는다): 튜닝 설정 / 로지스틱 재보정 / 둘 다.
+  재보정은 fold마다 학습 구간 안에서 embargo를 지켜 OOF를 만들 수 있는 가장 최근 origin s의 예측으로
+  logit(p)에 절편·기울기를 적합한다 (s의 모형은 origin ≤ s−5로 학습). 검증 origin은 쓰지 않는다.
+  그런 s가 없는 초기 fold는 재보정 없이 그대로 두고 기록한다. 등급 비율은 현재 서빙 컷오프를 그대로 적용한다.
 
 실행:
     python -m src.models.benchmark [--master outputs/master/master_base.parquet] \\
@@ -35,18 +41,21 @@ import pandas as pd
 from scipy.optimize import brentq
 from scipy.special import expit, logit
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import average_precision_score, roc_auc_score
 
 from src.data import config
-from src.models import calibration, detect, features, train_detect
+from src.models import bands, calibration, detect, features, train_detect
 
 EMBARGO = train_detect.EMBARGO
 MIN_TRAIN_ORIGINS = train_detect.MIN_TRAIN_ORIGINS
 DEFAULT_OUT = config.REPO_ROOT / "outputs" / "models" / "benchmark"
 DEFAULT_ONLINE = config.REPO_ROOT / "outputs" / "online" / "online_features.parquet"
+DEFAULT_BAND_CUTOFFS = config.REPO_ROOT / "outputs" / "models" / "detect_v0_enriched" / "band_cutoffs.csv"
 LICENSE_COLS = ["age_months", "biz_type", "area", "has_coord", "gu"]
 ONLINE_COLS = ["online_blog_cnt_3m", "online_blog_cnt_12m", "online_blog_has_12m", "online_blog_trend_6m",
                "online_blog_has_ever", "online_blog_months_since_last"]  # PR #33 enriched = base + 이 6개
+# 로지스틱에서 log1p 후 표준화하는 개수형(0 이상, 오른쪽 꼬리) 온라인 열. trend_6m은 부호가 있고 has_*는 0/1이라 그대로
+ONLINE_LOG1P_COLS = ("online_blog_cnt_3m", "online_blog_cnt_12m", "online_blog_months_since_last")
 # 업력대 경계(개월, 상한 포함). W2-3 진단 업력대와 같은 구간
 AGE_BANDS = [(-np.inf, 12, "1년 미만"), (12, 36, "1–3년"), (36, 60, "3–5년"), (60, 120, "5–10년"),
              (120, np.inf, "10년 이상")]
@@ -104,16 +113,26 @@ def rcs_basis(x: np.ndarray, knots) -> np.ndarray:
 
 
 class LogitModel:
-    """로지스틱 회귀 + 학습 구간 기준 전처리 (중앙값·최빈값 대치, 결측 지시자 없음, 표준화, 원-핫)."""
+    """로지스틱 회귀 + 학습 구간 기준 전처리 (중앙값·최빈값 대치, 결측 지시자 없음, 표준화, 원-핫).
+    log1p_cols는 log1p 변환 후 같은 처리를 한다 (중앙값도 변환된 값에서 — 단조 변환이라 같은 점포 값이다)."""
 
-    def __init__(self, cols, spline_age: bool = False):
+    def __init__(self, cols, spline_age: bool = False, log1p_cols=()):
         self.cols = list(cols)
         self.spline_age = spline_age
+        self.log1p_cols = set(log1p_cols)
+
+    def _num(self, X: pd.DataFrame, c: str) -> pd.Series:
+        v = X[c].astype(float)
+        if c in self.log1p_cols:
+            if (v < 0).any():
+                raise ValueError(f"{c}: log1p 대상인데 음수가 있다")
+            v = np.log1p(v)
+        return v
 
     def _design(self, X: pd.DataFrame) -> np.ndarray:
         parts = []
         for c in self.num_:
-            v = X[c].astype(float).fillna(self.median_[c]).to_numpy()
+            v = self._num(X, c).fillna(self.median_[c]).to_numpy()
             if c == "age_months" and self.spline_age:
                 parts.append(rcs_basis(v, self.knots_))
             else:
@@ -130,7 +149,7 @@ class LogitModel:
         use = [c for c in self.cols if c not in self.dropped_all_na_]
         self.cat_ = [c for c in use if c in features.CATEGORICAL]
         self.num_ = [c for c in use if c not in features.CATEGORICAL]
-        self.median_ = {c: float(X[c].astype(float).median()) for c in self.num_}
+        self.median_ = {c: float(self._num(X, c).median()) for c in self.num_}
         self.mode_ = {c: str(X[c].dropna().astype(str).mode().iloc[0]) for c in self.cat_}
         self.levels_ = {c: sorted(X[c].dropna().astype(str).unique().tolist()) for c in self.cat_}
         if self.spline_age and "age_months" in self.num_:
@@ -158,6 +177,8 @@ def make_fitters(base_cols, enriched_cols, hgb_params=None) -> dict:
         "hgb_base": lambda a, b, c: detect.fit_predict(a[base_cols], b, c[base_cols], p),
     }
     if enriched_cols:
+        fitters["logit_enriched"] = lambda a, b, c: LogitModel(enriched_cols, log1p_cols=ONLINE_LOG1P_COLS).fit(
+            a, b).predict_proba(c)
         fitters["hgb_enriched"] = lambda a, b, c: detect.fit_predict(a[enriched_cols], b, c[enriched_cols], p)
     return fitters
 
@@ -190,17 +211,23 @@ def summary_row(name: str, oof: pd.DataFrame) -> dict:
 
 
 def bootstrap_auc_diff(y, p_a, p_b, n_boot: int, seed: int = BOOT_SEED) -> dict:
-    """AUC(a) − AUC(b)와 점포 단위 부트스트랩 95% 백분위 구간. 한 origin 안에서는 점포당 1행이라 행 = 점포."""
+    """AUC(a) − AUC(b), AP(a) − AP(b)와 점포 단위 부트스트랩 95% 백분위 구간 (같은 재표본으로 두 지표).
+    한 origin 안에서는 점포당 1행이라 행 = 점포."""
     y, p_a, p_b = np.asarray(y), np.asarray(p_a), np.asarray(p_b)
     rng = np.random.default_rng(seed)
-    d = np.empty(n_boot)
+    d = np.empty((n_boot, 2))
     for b in range(n_boot):
         i = rng.integers(0, len(y), len(y))
-        d[b] = roc_auc_score(y[i], p_a[i]) - roc_auc_score(y[i], p_b[i])
-    obs = roc_auc_score(y, p_a) - roc_auc_score(y, p_b)
-    lo, hi = np.percentile(d, [2.5, 97.5])
-    return {"auc_diff": obs, "ci_low": lo, "ci_high": hi, "n_boot": n_boot, "p_boot_le0": float((d <= 0).mean()),
-            "significant": bool(lo > 0 or hi < 0)}
+        d[b] = (roc_auc_score(y[i], p_a[i]) - roc_auc_score(y[i], p_b[i]),
+                average_precision_score(y[i], p_a[i]) - average_precision_score(y[i], p_b[i]))
+    obs = (roc_auc_score(y, p_a) - roc_auc_score(y, p_b),
+           average_precision_score(y, p_a) - average_precision_score(y, p_b))
+    out = {"n_boot": n_boot}
+    for j, (m, prefix) in enumerate((("auc", ""), ("ap", "ap_"))):
+        lo, hi = np.percentile(d[:, j], [2.5, 97.5])
+        out.update({f"{m}_diff": obs[j], f"{prefix}ci_low": lo, f"{prefix}ci_high": hi,
+                    f"{prefix}p_boot_le0": float((d[:, j] <= 0).mean()), f"{prefix}significant": bool(lo > 0 or hi < 0)})
+    return out
 
 
 def base_rate_table(df: pd.DataFrame, y: np.ndarray, oofs: dict[str, pd.DataFrame]) -> pd.DataFrame:
@@ -263,6 +290,91 @@ def hpo(df: pd.DataFrame, X: pd.DataFrame, y: np.ndarray, cols) -> tuple[pd.Data
 
 
 # ---------------------------------------------------------------------------
+# 보정 기울기 개선 후보 (hgb_enriched) — 서빙 모형은 바꾸지 않고 비교만 한다
+# ---------------------------------------------------------------------------
+TUNED_PARAMS = {"learning_rate": 0.03, "max_leaf_nodes": 15}  # (b) HPO에서 내부 분할로 고른 설정
+CALIB_CANDIDATES = {  # 이름 → (HGB 설정, 로지스틱 재보정 여부)
+    "hgb_enriched": ("default", False),
+    "a_tuned": ("tuned", False),
+    "b_default_recal": ("default", True),
+    "c_tuned_recal": ("tuned", True),
+}
+
+
+def recal_split(origins: list[str], i: int) -> tuple[str, list[str]]:
+    """검증 origin i의 재보정 표본: 학습 구간(origins[: i−EMBARGO]) 안에서 embargo를 지켜 OOF 예측을 만들 수 있는
+    가장 최근 origin s와, s를 예측할 모형의 학습 origin(origins[: s−EMBARGO]). 만들 수 없으면 학습 목록이 빈다."""
+    s_idx = i - EMBARGO - 1
+    n_tr = s_idx - EMBARGO
+    return origins[s_idx], (origins[:n_tr] if n_tr > 0 else [])
+
+
+def fit_logistic_recal(p, y) -> tuple[float, float]:
+    """logit(p)에 절편·기울기를 적합한다 (Platt 방식 재보정). 반환: (절편, 기울기)."""
+    lp = logit(np.clip(np.asarray(p, dtype=float), 1e-6, 1 - 1e-6))
+    m = LogisticRegression(C=np.inf, max_iter=1000).fit(lp[:, None], np.asarray(y))
+    return float(m.intercept_[0]), float(m.coef_[0, 0])
+
+
+def apply_logistic_recal(p, intercept: float, slope: float) -> np.ndarray:
+    return expit(intercept + slope * logit(np.clip(np.asarray(p, dtype=float), 1e-6, 1 - 1e-6)))
+
+
+def band_row(oof: pd.DataFrame, cut_mid: float, cut_high: float, origin: str = COMPARE_ORIGIN) -> dict:
+    g = oof[oof["origin"] == origin]
+    b = bands.assign_bands_absolute(g["p_oof"].to_numpy(), cut_mid=cut_mid, cut_high=cut_high)
+    y = g["y"].to_numpy()
+    base = y.mean()
+    out = {f"share_{k}_{origin}": float((b == k).mean()) for k in ("low", "mid", "high")}
+    out[f"high_obs_rate_{origin}"] = float(y[b == "high"].mean()) if (b == "high").any() else float("nan")
+    out[f"high_lift_{origin}"] = out[f"high_obs_rate_{origin}"] / base if base else float("nan")
+    return out
+
+
+def calibration_candidates(df: pd.DataFrame, X: pd.DataFrame, y: np.ndarray, cols, cut_mid: float, cut_high: float
+                           ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    origins = sorted(df["origin"].unique())
+    params = {"default": dict(detect.DEFAULT_PARAMS), "tuned": {**detect.DEFAULT_PARAMS, **TUNED_PARAMS}}
+    preds = {name: [] for name in CALIB_CANDIDATES}
+    recal_rows = []
+    for i in range(MIN_TRAIN_ORIGINS + EMBARGO, len(origins)):
+        o = origins[i]
+        tr, te = df["origin"].isin(origins[: i - EMBARGO]).to_numpy(), (df["origin"] == o).to_numpy()
+        s, cal_tr_o = recal_split(origins, i)
+        assert o not in cal_tr_o and s < o and s in origins[: i - EMBARGO]  # 검증 origin은 재보정에 안 쓴다
+        for cfg, prm in params.items():
+            p_raw = detect.fit_predict(X.loc[tr, cols], y[tr], X.loc[te, cols], prm)
+            a, b, applied, why = 0.0, 1.0, False, "재보정 표본 없음"
+            if cal_tr_o:
+                ctr, cs = df["origin"].isin(cal_tr_o).to_numpy(), (df["origin"] == s).to_numpy()
+                p_s = detect.fit_predict(X.loc[ctr, cols], y[ctr], X.loc[cs, cols], prm)
+                a, b = fit_logistic_recal(p_s, y[cs])
+                # 기울기 ≤ 0이면 순위를 뒤집으므로 적용하지 않는다 (그 fold는 원래 예측 그대로)
+                applied, why = (True, "") if b > 0 else (False, "재보정 기울기 ≤ 0")
+            p_rec = apply_logistic_recal(p_raw, a, b) if applied else p_raw
+            recal_rows.append({"origin": o, "config": cfg, "recal_origin": s,
+                               "recal_model_train": f"{cal_tr_o[0]}~{cal_tr_o[-1]}" if cal_tr_o else "",
+                               "applied": applied, "not_applied_reason": why, "recal_intercept": a, "recal_slope": b})
+            for name, (c, rec) in CALIB_CANDIDATES.items():
+                if c == cfg:
+                    preds[name].append(pd.DataFrame({"origin": o, "idx": np.flatnonzero(te),
+                                                     "p_oof": p_rec if rec else p_raw, "y": y[te]}))
+        log(f"보정 후보 {o}: 재보정 표본 {s} ({'적용' if cal_tr_o else '표본 없음 — 그대로'})")
+    oofs = {n: pd.concat(v, ignore_index=True) for n, v in preds.items()}
+    recal = pd.DataFrame(recal_rows)
+    applied_o = sorted(recal.loc[recal["applied"], "origin"].unique())
+    rows = []
+    for n, oof in oofs.items():
+        r = summary_row(n, oof)
+        bo = train_detect.metrics_by_origin(oof[oof["origin"].isin(applied_o)])
+        r.update({"auc_mean_recal_origins": bo["auc"].mean(), "ece_mean_recal_origins": bo["ece"].mean(),
+                  "recal_origins": f"{applied_o[0]}~{applied_o[-1]}" if applied_o else ""})
+        rows.append({**r, **band_row(oof, cut_mid, cut_high)})
+    by_origin = pd.concat([train_detect.metrics_by_origin(o).assign(model=n) for n, o in oofs.items()])
+    return pd.DataFrame(rows), by_origin, recal
+
+
+# ---------------------------------------------------------------------------
 def load_inputs(master_path: Path, online_path: Path | None):
     df = train_detect.load_master(master_path)
     y = df["event_12m"].astype(int).to_numpy()
@@ -282,7 +394,8 @@ def load_inputs(master_path: Path, online_path: Path | None):
     return df, X, y, base_cols, enriched_cols
 
 
-def run(master_path: Path, online_path: Path | None, out: Path, n_boot: int, do_hpo: bool) -> dict:
+def run(master_path: Path, online_path: Path | None, out: Path, n_boot: int, do_hpo: bool,
+        band_cutoffs: Path | None = None, do_calib: bool = True) -> dict:
     t0 = time.time()
     out.mkdir(parents=True, exist_ok=True)
     df, X, y, base_cols, enriched_cols = load_inputs(master_path, online_path)
@@ -307,7 +420,8 @@ def run(master_path: Path, online_path: Path | None, out: Path, n_boot: int, do_
     pairs = [("hgb_base", "logit_base"), ("hgb_base", "logit_license"), ("hgb_base", "tenure_only"),
              ("logit_base", "logit_license")]
     if "hgb_enriched" in oofs:
-        pairs = [("hgb_enriched", "logit_base"), ("hgb_enriched", "hgb_base")] + pairs
+        pairs = [("hgb_enriched", "logit_enriched"), ("hgb_enriched", "logit_base"), ("hgb_enriched", "hgb_base"),
+                 ("logit_enriched", "logit_base")] + pairs
     diff = pd.DataFrame([{"origin": COMPARE_ORIGIN, "model_a": a, "model_b": b,
                           **bootstrap_auc_diff(yl, last[a]["p_oof"], last[b]["p_oof"], n_boot)} for a, b in pairs])
     diff.to_csv(out / f"auc_diff_bootstrap_{COMPARE_ORIGIN}.csv", index=False, encoding="utf-8-sig")
@@ -325,6 +439,20 @@ def run(master_path: Path, online_path: Path | None, out: Path, n_boot: int, do_
         hpo_cmp["auc_tuned_minus_default"] = hpo_cmp["auc_tuned"] - hpo_cmp["auc_default"]
         hpo_cmp.to_csv(out / "hpo_comparison.csv", index=False, encoding="utf-8-sig")
 
+    calib = None
+    if do_calib and enriched_cols:
+        cut = pd.read_csv(band_cutoffs).iloc[0] if band_cutoffs else None
+        if cut is None:
+            raise ValueError("보정 후보 비교에는 --band-cutoffs(현재 서빙 컷오프)가 필요하다")
+        calib, calib_by_origin, recal = calibration_candidates(df, X, y, enriched_cols, float(cut["cut_mid"]),
+                                                               float(cut["cut_high"]))
+        calib.to_csv(out / "calibration_candidates_summary.csv", index=False, encoding="utf-8-sig")
+        calib_by_origin.to_csv(out / "calibration_candidates_by_origin.csv", index=False, encoding="utf-8-sig")
+        recal.to_csv(out / "calibration_recal_params.csv", index=False, encoding="utf-8-sig")
+        # 같은 설정·seed라 후보 비교의 hgb_enriched는 본 비교와 같아야 한다
+        assert np.isclose(calib.set_index("model").at["hgb_enriched", "auc_mean"],
+                          summary.set_index("model").at["hgb_enriched", "auc_mean"])
+
     meta = {"master": str(master_path), "master_sha256": train_detect.sha256(Path(master_path)),
             "online": str(online_path) if enriched_cols else None,
             "online_sha256": train_detect.sha256(Path(online_path)) if enriched_cols else None,
@@ -332,10 +460,12 @@ def run(master_path: Path, online_path: Path | None, out: Path, n_boot: int, do_
             "base_cols": base_cols, "enriched_cols": enriched_cols, "license_cols": LICENSE_COLS,
             "age_bands": [b[2] for b in AGE_BANDS], "spline_knot_quantiles": SPLINE_KNOT_QUANTILES,
             "n_boot": n_boot, "boot_seed": BOOT_SEED, "hpo_grid": HPO_GRID if do_hpo else None,
+            "online_log1p_cols": ONLINE_LOG1P_COLS, "tuned_params": TUNED_PARAMS if calib is not None else None,
+            "band_cutoffs": str(band_cutoffs) if calib is not None else None,
             "seconds": round(time.time() - t0, 1)}
     (out / "run_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     log(f"완료 ({meta['seconds']}초) → {out}")
-    return {"summary": summary, "diff": diff, "base_rate": br, "hpo": hpo_cmp}
+    return {"summary": summary, "diff": diff, "base_rate": br, "hpo": hpo_cmp, "calib": calib}
 
 
 def main(argv=None) -> None:
@@ -345,8 +475,11 @@ def main(argv=None) -> None:
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
     ap.add_argument("--n-boot", type=int, default=1000)
     ap.add_argument("--skip-hpo", action="store_true")
+    ap.add_argument("--band-cutoffs", type=Path, default=DEFAULT_BAND_CUTOFFS,
+                    help="보정 후보의 등급 비율에 쓸 현재 컷오프 (기본: detect_v0_enriched/band_cutoffs.csv)")
+    ap.add_argument("--skip-calib", action="store_true", help="hgb_enriched 보정 후보 비교 생략")
     a = ap.parse_args(argv)
-    run(a.master, a.online, a.out, a.n_boot, not a.skip_hpo)
+    run(a.master, a.online, a.out, a.n_boot, not a.skip_hpo, a.band_cutoffs, not a.skip_calib)
 
 
 if __name__ == "__main__":

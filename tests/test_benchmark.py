@@ -7,6 +7,7 @@ import math
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.metrics import roc_auc_score
 
 from src.models import benchmark as bm
 from src.models import features
@@ -84,8 +85,44 @@ def test_bootstrap_auc_diff_detects_real_gap():
     bad = y + rng.normal(0, 3.0, 3000)
     r = bm.bootstrap_auc_diff(y, good, bad, n_boot=200)
     assert r["significant"] and r["ci_low"] > 0 and r["ci_low"] < r["auc_diff"] < r["ci_high"]
+    assert r["ap_significant"] and r["ap_ci_low"] < r["ap_diff"] < r["ap_ci_high"]  # AP 차이도 같은 재표본으로
     same = bm.bootstrap_auc_diff(y, good, good, n_boot=50)
-    assert same["auc_diff"] == 0 and not same["significant"]
+    assert same["auc_diff"] == 0 and same["ap_diff"] == 0 and not same["significant"] and not same["ap_significant"]
+
+
+def test_logit_log1p_count_columns():
+    rng = np.random.default_rng(4)
+    X = pd.DataFrame({"cnt": rng.poisson(3, 300).astype(float), "trend": rng.normal(0, 2, 300)})
+    X.loc[:29, "cnt"] = np.nan
+    m = bm.LogitModel(["cnt", "trend"], log1p_cols=["cnt"]).fit(X, (rng.random(300) < 0.3).astype(int))
+    assert m.median_["cnt"] == pytest.approx(np.log1p(X["cnt"]).median())
+    assert m.model_.coef_.shape[1] == 2  # 결측 지시자 없음
+    assert np.allclose(m._design(X.head(3))[:, 0], m.median_["cnt"])  # 앞 30행은 결측 → log1p 척도의 학습 중앙값
+    with pytest.raises(ValueError):
+        bm.LogitModel(["trend"], log1p_cols=["trend"]).fit(X, (rng.random(300) < 0.3).astype(int))
+
+
+def test_recal_split_uses_only_embargoed_training_origins():
+    for i in range(bm.MIN_TRAIN_ORIGINS + bm.EMBARGO, len(ORIGINS)):
+        s, tr = bm.recal_split(ORIGINS, i)
+        train = ORIGINS[: i - bm.EMBARGO]
+        assert s == train[-1] and ORIGINS[i] not in tr
+        if tr:
+            assert ORIGINS.index(s) - ORIGINS.index(tr[-1]) == bm.EMBARGO + 1
+    assert bm.recal_split(ORIGINS, 8)[1] == [] and bm.recal_split(ORIGINS, 9)[1] == []  # 2023Q1·Q2: 표본 없음
+    assert bm.recal_split(ORIGINS, 10)[1] == ["2021Q1"]
+
+
+def test_logistic_recal_recovers_slope():
+    rng = np.random.default_rng(5)
+    true = rng.uniform(0.03, 0.4, 100_000)
+    y = (rng.random(len(true)) < true).astype(int)
+    overconf = bm.expit(2.0 * bm.logit(true) + 1.0)  # 기울기 0.5짜리 과신 예측
+    a, b = bm.fit_logistic_recal(overconf, y)
+    assert b == pytest.approx(0.5, abs=0.03) and a == pytest.approx(-0.5, abs=0.05)
+    fixed = bm.apply_logistic_recal(overconf, a, b)
+    assert bm.calibration_slope_intercept(y, fixed)[0] == pytest.approx(1, abs=0.03)
+    assert roc_auc_score(y, fixed) == pytest.approx(roc_auc_score(y, overconf))  # 단조 변환 — 순위 불변
 
 
 def test_inner_split_never_uses_test_or_later_origins():
@@ -116,17 +153,35 @@ def test_end_to_end(tmp_path, panel):
     for c in bm.ONLINE_COLS:
         online[c] = rng.poisson(1, len(online)).astype(float)
     online.to_parquet(tmp_path / "online.parquet", index=False)
-    r = bm.run(master, tmp_path / "online.parquet", tmp_path / "out", n_boot=20, do_hpo=True)
+    cuts = tmp_path / "band_cutoffs.csv"
+    pd.DataFrame([{"cut_mid": 0.12, "cut_high": 0.2, "base_rate": 0.1}]).to_csv(cuts, index=False)
+    r = bm.run(master, tmp_path / "online.parquet", tmp_path / "out", n_boot=20, do_hpo=True, band_cutoffs=cuts)
     s = r["summary"].set_index("model")
-    assert set(s.index) == {"tenure_only", "logit_license", "logit_base", "hgb_base", "hgb_enriched"}
+    assert set(s.index) == {"tenure_only", "logit_license", "logit_base", "logit_enriched", "hgb_base", "hgb_enriched"}
     assert (s["n_origins"] == 10).all() and s["origins"].eq("2023Q1~2025Q2").all()
-    assert {("hgb_base", "logit_base"), ("hgb_enriched", "logit_base")} <= set(zip(r["diff"]["model_a"], r["diff"]["model_b"]))
+    assert {("hgb_enriched", "logit_enriched"), ("hgb_base", "logit_base")} <= set(
+        zip(r["diff"]["model_a"], r["diff"]["model_b"]))
+    assert {"ap_diff", "ap_ci_low", "ap_ci_high", "ap_significant"} <= set(r["diff"].columns)
+    c = r["calib"].set_index("model")
+    assert list(c.index) == list(bm.CALIB_CANDIDATES)
+    assert c.at["hgb_enriched", "auc_mean"] == pytest.approx(s.at["hgb_enriched", "auc_mean"])
+    assert c.at["b_default_recal", "auc_mean_recal_origins"] == pytest.approx(  # 재보정은 순위를 바꾸지 않는다
+        c.at["hgb_enriched", "auc_mean_recal_origins"])
+    share = c[[f"share_{k}_2025Q2" for k in ("low", "mid", "high")]].sum(axis=1)
+    assert np.allclose(share, 1)
+    recal = pd.read_csv(tmp_path / "out" / "calibration_recal_params.csv")
+    assert (~recal.loc[recal["origin"].isin(["2023Q1", "2023Q2"]), "applied"]).all()
+    later = recal[~recal["origin"].isin(["2023Q1", "2023Q2"])]
+    assert (later["applied"] | (later["not_applied_reason"] == "재보정 기울기 ≤ 0")).all()
+    assert (recal.loc[recal["applied"], "recal_slope"] > 0).all()
+    assert (recal["recal_origin"] < recal["origin"]).all()
     assert len(r["hpo"]) == 10 and r["hpo"]["origin"].tolist() == ORIGINS[8:]
     inner = pd.read_csv(tmp_path / "out" / "hpo_inner_selection.csv")
     assert len(inner) == 10 * 9 and inner.groupby("test_origin")["chosen"].sum().eq(1).all()
     assert (inner["inner_val"] < inner["test_origin"]).all()
     for f in ("benchmark_summary.csv", "oof_metrics_by_origin.csv", "auc_diff_bootstrap_2025Q2.csv",
-              "base_rate_vs_pred.csv", "hpo_comparison.csv", "run_meta.json"):
+              "base_rate_vs_pred.csv", "hpo_comparison.csv", "run_meta.json", "calibration_candidates_summary.csv",
+              "calibration_candidates_by_origin.csv", "calibration_recal_params.csv"):
         assert (tmp_path / "out" / f).exists()
     # 산출물에 점포 식별 열이 없다
     for f in (tmp_path / "out").glob("*.csv"):
