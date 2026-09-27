@@ -468,6 +468,111 @@ def run(master_path: Path, online_path: Path | None, out: Path, n_boot: int, do_
     return {"summary": summary, "diff": diff, "base_rate": br, "hpo": hpo_cmp, "calib": calib}
 
 
+# ---------------------------------------------------------------------------
+# 적용 전 검정 (튜닝 hgb_enriched) — 서빙 모형·컷오프는 바꾸지 않고 값만 낸다
+# ---------------------------------------------------------------------------
+BAND_TEST_ORIGINS = ["2025Q1", "2025Q2"]  # train_detect TEST_SIZE=2와 같은 검증 origin
+
+
+def cluster_bootstrap_diff(y, p_a, p_b, clusters, n_boot: int, seed: int = BOOT_SEED) -> dict:
+    """여러 origin을 합친 OOF의 AUC·AP 차이와 점포 단위 클러스터 부트스트랩 95% 구간.
+    점포를 복원추출하고, 뽑힌 점포의 모든 origin 행을 뽑힌 횟수만큼 넣는다 (정수 가중치 = 행 복제와 같다)."""
+    y, p_a, p_b = np.asarray(y), np.asarray(p_a), np.asarray(p_b)
+    codes, uniq = pd.factorize(pd.Series(clusters))
+    n = len(uniq)
+    rng = np.random.default_rng(seed)
+    d = np.empty((n_boot, 2))
+    for b in range(n_boot):
+        w = np.bincount(rng.integers(0, n, n), minlength=n)[codes]
+        m = w > 0
+        yy, ww = y[m], w[m]
+        d[b] = (roc_auc_score(yy, p_a[m], sample_weight=ww) - roc_auc_score(yy, p_b[m], sample_weight=ww),
+                average_precision_score(yy, p_a[m], sample_weight=ww)
+                - average_precision_score(yy, p_b[m], sample_weight=ww))
+    obs = (roc_auc_score(y, p_a) - roc_auc_score(y, p_b), average_precision_score(y, p_a) - average_precision_score(y, p_b))
+    out = {"n_rows": len(y), "n_clusters": n, "n_boot": n_boot}
+    for j, m in enumerate(("auc", "ap")):
+        lo, hi = np.percentile(d[:, j], [2.5, 97.5])
+        out.update({f"{m}_diff": obs[j], f"{m}_ci_low": lo, f"{m}_ci_high": hi,
+                    f"{m}_p_boot_le0": float((d[:, j] <= 0).mean()), f"{m}_significant": bool(lo > 0 or hi < 0)})
+    return out
+
+
+def band_rule_values(oof: pd.DataFrame, origins: list[str]) -> tuple[dict, pd.DataFrame]:
+    """train_detect와 같은 등급 규칙: 보정 구간(첫 검증 origin − embargo 이전 OOF)으로 isotonic 적용 여부를 정하고
+    (검증 ECE가 좋아질 때만), 같은 구간 OOF로 `bands.suggest_cutoffs`. 검증 origin(2025Q1–Q2)에 적용한 등급 비율·lift."""
+    iso, apply, calib_origins, _ = train_detect.calibration_step(oof, origins, BAND_TEST_ORIGINS)
+    cal = oof[oof["origin"].isin(calib_origins)]
+    p_cal = iso.predict(cal["p_oof"]) if apply else cal["p_oof"].to_numpy()
+    cut = bands.suggest_cutoffs(cal["y"].to_numpy(), p_cal)
+    info = {**cut, "isotonic_applied": apply, "calib_origins": f"{min(calib_origins)}~{max(calib_origins)}"}
+    if not 0 < cut["cut_mid"] < cut["cut_high"] < 1:
+        # 규칙이 순서가 맞는 컷오프를 못 만든 경우 (예측이 기준율 근처에 몰림) — 멈추지 않고 기록만 한다
+        return {**info, "cutoff_rule_failed": True}, pd.DataFrame()
+    te = oof[oof["origin"].isin(BAND_TEST_ORIGINS)]
+    p_te = iso.predict(te["p_oof"]) if apply else te["p_oof"].to_numpy()
+    b = bands.assign_bands_absolute(p_te, cut_mid=cut["cut_mid"], cut_high=cut["cut_high"])
+    prof = []
+    for name, m in [("2025Q1~2025Q2", np.ones(len(te), bool))] + [(o, (te["origin"] == o).to_numpy())
+                                                                  for o in BAND_TEST_ORIGINS]:
+        prof.append(bands.band_profile(te["y"].to_numpy()[m], p_te[m], b[m]).assign(test_origins=name))
+    return {**info, "cutoff_rule_failed": False}, pd.concat(prof, ignore_index=True)
+
+
+def pre_adoption(master_path: Path, online_path: Path, out: Path, n_boot: int,
+                 current_cutoffs: Path | None = None) -> dict:
+    t0 = time.time()
+    out.mkdir(parents=True, exist_ok=True)
+    df, X, y, base_cols, enriched_cols = load_inputs(master_path, online_path)
+    if not enriched_cols:
+        raise ValueError("적용 전 검정에는 온라인 feature(--online)가 필요하다")
+    tuned = {**detect.DEFAULT_PARAMS, **TUNED_PARAMS}
+    fitters = {
+        "hgb_enriched_tuned": lambda a, b, c: detect.fit_predict(a[enriched_cols], b, c[enriched_cols], tuned),
+        "hgb_enriched": make_fitters(base_cols, enriched_cols)["hgb_enriched"],
+        "logit_enriched": make_fitters(base_cols, enriched_cols)["logit_enriched"],
+    }
+    oofs = {}
+    for n, fp in fitters.items():
+        oofs[n] = calibration.rolling_oof_predictions(df, X, y, fp, min_train_origins=MIN_TRAIN_ORIGINS,
+                                                      embargo=EMBARGO).sort_values(["origin", "idx"], ignore_index=True)
+        log(f"{n}: OOF {len(oofs[n]):,}행 · 합산 AUC {roc_auc_score(oofs[n]['y'], oofs[n]['p_oof']):.4f}")
+    ref = oofs["hgb_enriched_tuned"]
+    assert all((o["idx"].to_numpy() == ref["idx"].to_numpy()).all() for o in oofs.values())
+    stores = df.loc[ref["idx"], "store_id"].to_numpy()
+
+    rows = []
+    for a, b in (("hgb_enriched_tuned", "logit_enriched"), ("hgb_enriched_tuned", "hgb_enriched")):
+        rows.append({"model_a": a, "model_b": b, "origins": f"{ref['origin'].min()}~{ref['origin'].max()}",
+                     **cluster_bootstrap_diff(ref["y"], oofs[a]["p_oof"], oofs[b]["p_oof"], stores, n_boot)})
+        log(f"클러스터 부트스트랩 {a} − {b} 완료")
+    boot = pd.DataFrame(rows)
+    boot.to_csv(out / "pre_adoption_cluster_bootstrap.csv", index=False, encoding="utf-8-sig")
+
+    origins = sorted(df["origin"].unique())
+    cuts, profs = [], []
+    for n in ("hgb_enriched", "hgb_enriched_tuned"):
+        c, p = band_rule_values(oofs[n], origins)
+        cuts.append({"model": n, **c})
+        profs.append(p.assign(model=n))
+    cuts = pd.DataFrame(cuts)
+    if current_cutoffs is not None and Path(current_cutoffs).exists():
+        cur = pd.read_csv(current_cutoffs).iloc[0]
+        got = cuts.set_index("model").loc["hgb_enriched"]
+        # 같은 규칙을 현 모형에 돌리면 서빙 컷오프가 그대로 나와야 한다 (규칙 재현 확인)
+        cuts["reproduces_current"] = [bool(np.isclose(got["cut_mid"], cur["cut_mid"])
+                                           and np.isclose(got["cut_high"], cur["cut_high"])), None]
+    cuts.to_csv(out / "pre_adoption_cutoffs.csv", index=False, encoding="utf-8-sig")
+    prof = pd.concat(profs, ignore_index=True)
+    prof.to_csv(out / "pre_adoption_band_profile.csv", index=False, encoding="utf-8-sig")
+    meta = {"master_sha256": train_detect.sha256(Path(master_path)), "online_sha256": train_detect.sha256(Path(online_path)),
+            "tuned_params": TUNED_PARAMS, "n_boot": n_boot, "boot_seed": BOOT_SEED, "band_test_origins": BAND_TEST_ORIGINS,
+            "current_cutoffs": str(current_cutoffs), "seconds": round(time.time() - t0, 1)}
+    (out / "pre_adoption_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    log(f"적용 전 검정 완료 ({meta['seconds']}초) → {out}")
+    return {"bootstrap": boot, "cutoffs": cuts, "profile": prof}
+
+
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(description="W2-2 단순 기준 모형 비교")
     ap.add_argument("--master", type=Path, default=config.MASTER_BASE_PATH)
@@ -478,7 +583,12 @@ def main(argv=None) -> None:
     ap.add_argument("--band-cutoffs", type=Path, default=DEFAULT_BAND_CUTOFFS,
                     help="보정 후보의 등급 비율에 쓸 현재 컷오프 (기본: detect_v0_enriched/band_cutoffs.csv)")
     ap.add_argument("--skip-calib", action="store_true", help="hgb_enriched 보정 후보 비교 생략")
+    ap.add_argument("--pre-adoption", action="store_true",
+                    help="튜닝 hgb_enriched 적용 전 검정만 (합산 OOF 클러스터 부트스트랩, 새 컷오프 값)")
     a = ap.parse_args(argv)
+    if a.pre_adoption:
+        pre_adoption(a.master, a.online, a.out, a.n_boot, a.band_cutoffs)
+        return
     run(a.master, a.online, a.out, a.n_boot, not a.skip_hpo, a.band_cutoffs, not a.skip_calib)
 
 

@@ -90,6 +90,72 @@ def test_bootstrap_auc_diff_detects_real_gap():
     assert same["auc_diff"] == 0 and same["ap_diff"] == 0 and not same["significant"] and not same["ap_significant"]
 
 
+def test_cluster_bootstrap_weights_equal_row_replication():
+    rng = np.random.default_rng(6)
+    stores = np.repeat([f"S{i}" for i in range(300)], 3)  # 점포당 origin 3행
+    y = (rng.random(len(stores)) < 0.2).astype(int)
+    pa, pb = y + rng.normal(0, 1, len(y)), y + rng.normal(0, 2, len(y))
+    r = bm.cluster_bootstrap_diff(y, pa, pb, stores, n_boot=1, seed=11)
+    # 같은 seed로 점포를 뽑아 행을 실제로 복제한 값과 같아야 한다 (구간 폭 0인 1회 재표본)
+    codes, uniq = pd.factorize(pd.Series(stores))
+    draw = np.random.default_rng(11).integers(0, len(uniq), len(uniq))
+    rows = np.concatenate([np.flatnonzero(codes == s) for s in draw])
+    want = roc_auc_score(y[rows], pa[rows]) - roc_auc_score(y[rows], pb[rows])
+    assert r["auc_ci_low"] == pytest.approx(want) and r["auc_ci_high"] == pytest.approx(want)
+    assert r["n_clusters"] == 300 and r["n_rows"] == 900
+    same = bm.cluster_bootstrap_diff(y, pa, pa, stores, n_boot=20)
+    assert same["auc_diff"] == 0 and same["ap_diff"] == 0 and not same["auc_significant"]
+
+
+def test_pre_adoption_end_to_end(tmp_path, panel):
+    master = tmp_path / "master.parquet"
+    panel.to_parquet(master, index=False)
+    online = panel[["store_id", "origin"]].copy()
+    rng = np.random.default_rng(7)
+    for c in bm.ONLINE_COLS:
+        online[c] = rng.poisson(1, len(online)).astype(float)
+    # 등급 규칙이 순서 맞는 컷오프를 낼 만큼 신호를 넣는다 (합성 패널 기본 신호는 약하다)
+    online["online_blog_cnt_12m"] += 4 * panel["event_12m"].to_numpy() * (rng.random(len(online)) < 0.6)
+    online.to_parquet(tmp_path / "online.parquet", index=False)
+    cuts = tmp_path / "band_cutoffs.csv"
+    pd.DataFrame([{"cut_mid": 0.12, "cut_high": 0.2, "base_rate": 0.1}]).to_csv(cuts, index=False)
+    r = bm.pre_adoption(master, tmp_path / "online.parquet", tmp_path / "out", n_boot=10, current_cutoffs=cuts)
+    b = r["bootstrap"]
+    assert list(zip(b["model_a"], b["model_b"])) == [("hgb_enriched_tuned", "logit_enriched"),
+                                                     ("hgb_enriched_tuned", "hgb_enriched")]
+    assert (b["n_rows"] == 200 * 10).all() and (b["n_clusters"] == 200).all()  # 10개 origin 합산, 점포 = 묶음
+    c = r["cutoffs"].set_index("model")
+    assert set(c["calib_origins"]) == {"2023Q1~2023Q4"} and "reproduces_current" in c.columns
+    # 합성 패널에서는 기존 규칙이 순서 맞는 컷오프를 못 낼 수 있다 — 그 경우 멈추지 않고 표시만 하고 등급 표는 비운다
+    ok = c.index[~c["cutoff_rule_failed"]]
+    assert (c.loc[ok, "cut_mid"] < c.loc[ok, "cut_high"]).all()
+    assert (c.loc[c["cutoff_rule_failed"], "cut_mid"] >= c.loc[c["cutoff_rule_failed"], "cut_high"]).all()
+    p = r["profile"]
+    assert set(p.get("model", pd.Series(dtype=str))) == set(ok)
+    if len(p):
+        assert set(p["test_origins"]) == {"2025Q1~2025Q2", "2025Q1", "2025Q2"}
+        assert np.allclose(p.groupby(["model", "test_origins"])["share"].sum(), 1)
+    for f in ("pre_adoption_cluster_bootstrap.csv", "pre_adoption_cutoffs.csv", "pre_adoption_band_profile.csv",
+              "pre_adoption_meta.json"):
+        assert (tmp_path / "out" / f).exists()
+
+
+def test_band_rule_values_on_clear_signal():
+    """예측이 잘 갈리는 경우 기존 규칙으로 순서 맞는 컷오프·등급 비율이 나온다."""
+    rng = np.random.default_rng(8)
+    rows = []
+    for o in ORIGINS[8:]:
+        p = rng.uniform(0.02, 0.45, 3000)
+        rows.append(pd.DataFrame({"origin": o, "idx": np.arange(3000), "p_oof": p,
+                                  "y": (rng.random(3000) < p).astype(int)}))
+    oof = pd.concat(rows, ignore_index=True)
+    info, prof = bm.band_rule_values(oof, ORIGINS)
+    assert not info["cutoff_rule_failed"] and 0 < info["cut_mid"] < info["cut_high"] < 1
+    assert info["calib_origins"] == "2023Q1~2023Q4"
+    both = prof[prof["test_origins"] == "2025Q1~2025Q2"].set_index("band")
+    assert both["share"].sum() == pytest.approx(1) and both.at["high", "lift"] >= 1.8
+
+
 def test_logit_log1p_count_columns():
     rng = np.random.default_rng(4)
     X = pd.DataFrame({"cnt": rng.poisson(3, 300).astype(float), "trend": rng.normal(0, 2, 300)})
