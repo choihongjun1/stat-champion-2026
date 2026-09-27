@@ -24,7 +24,7 @@ blind 원칙: 대상 목록·판정표 어디에도 위험도·등급·폐업 �
 블로그명은 원본에 없어 링크에서 블로그 ID를 뽑아 `blog_name`으로 쓴다.
 
 실행:
-    python -m src.analysis.name_match_review targets --diagnosis outputs/serve/_trial/out/diagnosis.parquet \\
+    python -m src.analysis.name_match_review targets --diagnosis outputs/serve/2026Q2/diagnosis.parquet \\
         --licenses outputs/standardized/licenses_3gu.parquet --mentions outputs/online/online_mentions_monthly.parquet \\
         --out outputs/review/name_match_targets.csv
     python -m src.analysis.name_match_review sheet --targets name_match_targets.csv \\
@@ -181,6 +181,11 @@ def select_targets(pool: pd.DataFrame, prob: pd.Series, licenses: pd.DataFrame, 
     return targets, key
 
 
+def key_meta_path(key_path: Path) -> Path:
+    """선정 그룹 키 옆의 메타 (name_match_key.csv → name_match_key_meta.json)."""
+    return key_path.with_name(f"{key_path.stem}_meta.json")
+
+
 def cmd_targets(a) -> pd.DataFrame:
     diagnosis = pd.read_parquet(a.diagnosis, columns=["store_id", "gu", "biz_type", "factor_id", "display",
                                                       "data_missing"])
@@ -204,6 +209,11 @@ def cmd_targets(a) -> pd.DataFrame:
     Path(key_out).parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(a.out, index=False, encoding="utf-8-sig")
     key.to_csv(key_out, index=False, encoding="utf-8-sig")
+    # 집계 때 short_name 가중치(층별 모집단 크기)로 쓴다. 점포 식별 정보 없이 수만 둔다
+    meta = {"seed": a.seed, "diagnosis": Path(a.diagnosis).as_posix(), "online_review_pool_n": len(pool),
+            "short_pool_n": ({s: int((short_pool["stratum"] == s).sum()) for s in (OPEN, CLOSED)}
+                             if short_pool is not None else None)}
+    key_meta_path(Path(key_out)).write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     m = {g: in_group(key["groups"], g) for g in GROUPS}
     short = key[m[SHORT]]
     print(f"검토 대기 {len(pool):,}점포 → 대상 {len(out)}곳 (priority {int(m['priority'].sum())}, "
@@ -414,22 +424,52 @@ def _has_ci(grp: str) -> bool:
     return grp.partition(":")[0] in ("random", SHORT)
 
 
-def rates(items: pd.DataFrame, stores: pd.DataFrame) -> pd.DataFrame:
+def weighted_rate(counts: dict[str, tuple[int, int]], pool_n: dict[str, int]) -> tuple[float, float, float]:
+    """층별 모집단 비율로 가중한 비율과 95% 구간 (MOVER-Wilson: 층별 Wilson 구간을 가중합으로 결합 —
+    층 차이의 Newcombe 구간과 같은 방식). counts: 층 → (k, n). 판정된 표본이 없는 층이 있으면 NaN."""
+    total = sum(pool_n.values())
+    if total == 0 or any(counts[s][1] == 0 for s in pool_n):
+        return (float("nan"),) * 3
+    est = lo_sq = hi_sq = 0.0
+    for s, n_pop in pool_n.items():
+        k, n = counts[s]
+        w, p = n_pop / total, k / n
+        lo, hi = wilson(k, n)
+        est += w * p
+        lo_sq += (w * (p - lo)) ** 2
+        hi_sq += (w * (hi - p)) ** 2
+    return est, max(0.0, est - math.sqrt(lo_sq)), min(1.0, est + math.sqrt(hi_sq))
+
+
+def rates(items: pd.DataFrame, stores: pd.DataFrame, short_pool_n: dict[str, int] | None = None) -> pd.DataFrame:
+    """그룹별 오탐률. short_pool_n(층 → 모집단 점포 수)이 있으면 short_name 행은 층별 모집단 비율로 가중한 값이고,
+    비가중(표본 그대로, 층별 같은 수) 값은 *_unweighted 열에 참고로 둔다."""
     out = []
     groups = [g for g in GROUPS if in_group(stores["groups"], g).any()]
     if SHORT in groups:
         i = groups.index(SHORT) + 1
         groups[i:i] = [f"{SHORT}:{s}" for s in (OPEN, CLOSED) if len(_rows_of(stores, f"{SHORT}:{s}"))]
+    nan = float("nan")
     for grp in groups + ["전체"]:
         it, st = _rows_of(items, grp), _rows_of(stores, grp)
         ki, ni, ks, ns = _counts(it, st)
-        lo_i, hi_i = wilson(ki, ni) if _has_ci(grp) else (float("nan"), float("nan"))
-        lo_s, hi_s = wilson(ks, ns) if _has_ci(grp) else (float("nan"), float("nan"))
-        out.append({"group": grp, "items_decided": ni, "items_other": ki, "item_fp_rate": ki / ni if ni else float("nan"),
-                    "item_ci_low": lo_i, "item_ci_high": hi_i,
-                    "stores_decided": ns, "stores_fp": ks, "store_fp_rate": ks / ns if ns else float("nan"),
-                    "store_ci_low": lo_s, "store_ci_high": hi_s,
-                    "stores_undecided": int((st["store_verdict"] == "판정불가").sum())})
+        lo_i, hi_i = wilson(ki, ni) if _has_ci(grp) else (nan, nan)
+        lo_s, hi_s = wilson(ks, ns) if _has_ci(grp) else (nan, nan)
+        row = {"group": grp, "items_decided": ni, "items_other": ki, "item_fp_rate": ki / ni if ni else nan,
+               "item_ci_low": lo_i, "item_ci_high": hi_i,
+               "stores_decided": ns, "stores_fp": ks, "store_fp_rate": ks / ns if ns else nan,
+               "store_ci_low": lo_s, "store_ci_high": hi_s,
+               "stores_undecided": int((st["store_verdict"] == "판정불가").sum()),
+               "weighted": False, "item_fp_rate_unweighted": nan, "store_fp_rate_unweighted": nan}
+        if grp == SHORT and short_pool_n:
+            by = {s: _counts(_rows_of(items, f"{SHORT}:{s}"), _rows_of(stores, f"{SHORT}:{s}")) for s in short_pool_n}
+            row.update(weighted=True, item_fp_rate_unweighted=row["item_fp_rate"],
+                       store_fp_rate_unweighted=row["store_fp_rate"])
+            row["item_fp_rate"], row["item_ci_low"], row["item_ci_high"] = weighted_rate(
+                {s: (c[0], c[1]) for s, c in by.items()}, short_pool_n)
+            row["store_fp_rate"], row["store_ci_low"], row["store_ci_high"] = weighted_rate(
+                {s: (c[2], c[3]) for s, c in by.items()}, short_pool_n)
+        out.append(row)
     return pd.DataFrame(out)
 
 
@@ -463,7 +503,13 @@ def cmd_summarize(a) -> pd.DataFrame:
     items, stores, n_blank = judge(sheet, targets, key)
     if n_blank:
         print(f"경고: verdict가 빈 글 {n_blank}건은 집계에서 뺐다")
-    tab = rates(items, stores)
+    meta_path = a.key_meta or (key_meta_path(Path(a.key)) if a.key else None)
+    short_pool_n = None
+    if meta_path is not None and Path(meta_path).exists():
+        short_pool_n = json.loads(Path(meta_path).read_text(encoding="utf-8")).get("short_pool_n")
+    if in_group(stores["groups"], SHORT).any() and not short_pool_n:
+        print("경고: 선정 그룹 키 메타(short_pool_n)가 없어 short_name 전체 오탐률을 가중하지 못했다 (비가중 값만)")
+    tab = rates(items, stores, short_pool_n)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     tab.to_csv(out / "name_match_rates.csv", index=False, encoding="utf-8-sig")
@@ -477,6 +523,12 @@ def cmd_summarize(a) -> pd.DataFrame:
     for r in tab.itertuples(index=False):
         ci_i = f"{_pct(r.item_ci_low)}–{_pct(r.item_ci_high)}" if _has_ci(r.group) else "—"
         ci_s = f"{_pct(r.store_ci_low)}–{_pct(r.store_ci_high)}" if _has_ci(r.group) else "—"
+        if r.weighted:  # 가중 추정치는 k/n으로 나타낼 수 없어 표본 수만, 비가중 값은 참고로
+            lines.append(f"| {r.group} (모집단 가중) | {_pct(r.item_fp_rate)} (비가중 {_pct(r.item_fp_rate_unweighted)}"
+                         f" = {r.items_other}/{r.items_decided}) | {ci_i} | {_pct(r.store_fp_rate)} (비가중 "
+                         f"{_pct(r.store_fp_rate_unweighted)} = {r.stores_fp}/{r.stores_decided}) | {ci_s} | "
+                         f"{r.stores_undecided} |")
+            continue
         lines.append(f"| {r.group} | {_pct(r.item_fp_rate)} ({r.items_other}/{r.items_decided}) | {ci_i} | "
                      f"{_pct(r.store_fp_rate)} ({r.stores_fp}/{r.stores_decided}) | {ci_s} | {r.stores_undecided} |")
     lines += ["", "- 신뢰구간(Wilson)은 무작위 표본(random, short_name)에만 붙인다. priority는 선정 기준이 달라 "
@@ -493,7 +545,10 @@ def cmd_summarize(a) -> pd.DataFrame:
                          f" | {_pct(r.closed_rate)} ({r.closed_fp}/{r.closed_decided}) | {_pp(r.diff_closed_minus_open)}"
                          f" | {_pp(r.diff_ci_low)} – {_pp(r.diff_ci_high)} |")
         lines += ["", "- 차이 CI 하한이 0보다 크면 폐업 쪽 오탐이 더 높다 → 온라인 feature에 라벨과 상관된 노이즈가 있다.",
-                  "- short_name 합계 행은 영업·폐업을 같은 수로 뽑은 표본 기준이라 짧은 상호 모집단 오탐률이 아니다 (층별로 본다).",
+                  (f"- short_name 전체 오탐률은 층별 모집단 비율(영업 {short_pool_n.get(OPEN, 0):,} : 폐업 "
+                   f"{short_pool_n.get(CLOSED, 0):,})로 가중한 값이다. 95% CI는 층별 Wilson 구간을 같은 가중으로 결합했다"
+                   " (MOVER). 비가중 값은 층별 같은 수로 뽑은 표본 그대로라 참고용이다." if short_pool_n else
+                   "- short_name 합계 행은 영업·폐업을 같은 수로 뽑은 표본 기준(비가중)이라 짧은 상호 모집단 오탐률이 아니다."),
                   "- 글 단위 CI는 같은 점포 글끼리의 상관을 무시해 좁게 나온다. 판단은 점포 단위를 기준으로 한다."]
     (out / "name_match_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
@@ -519,13 +574,15 @@ def main(argv=None) -> None:
     s = sub.add_parser("sheet", help="판정표 (원본 블로그 글이 있는 컴퓨터)")
     s.add_argument("--targets", type=Path, required=True)
     s.add_argument("--items", type=Path, nargs="+", required=True, help="blog_items*.jsonl.gz (여러 개 가능)")
-    s.add_argument("--per-store", type=int, default=5)
+    s.add_argument("--per-store", type=int, default=3)
     s.add_argument("--seed", type=int, default=20260927)
     s.add_argument("--out", type=Path, required=True)
     m = sub.add_parser("summarize", help="판정 결과 집계 (분석 쪽)")
     m.add_argument("--targets", type=Path, required=True)
     m.add_argument("--sheet", type=Path, required=True)
     m.add_argument("--key", type=Path, default=None, help="선정 그룹 키 (targets가 만든 name_match_key.csv)")
+    m.add_argument("--key-meta", type=Path, default=None,
+                   help="선정 그룹 키 메타 (기본: --key 옆 name_match_key_meta.json, short_name 가중치)")
     m.add_argument("--out", type=Path, required=True)
     a = ap.parse_args(argv)
     {"targets": cmd_targets, "sheet": cmd_sheet, "summarize": cmd_summarize}[a.cmd](a)

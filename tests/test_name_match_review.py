@@ -369,3 +369,64 @@ def test_targets_cli_with_mentions(tmp_path):
     assert list(t.columns) == nm.TARGET_COLS and list(k.columns) == nm.KEY_COLS
     assert (k["stratum"] == nm.OPEN).sum() == 3 and (k["stratum"] == nm.CLOSED).sum() == 3
     assert not t.isin([nm.OPEN, nm.CLOSED]).any().any()
+    # 가중치용 메타: 층별 모집단 크기 (점포 식별 정보 없음)
+    meta = json.loads((out.parent / "name_match_key_meta.json").read_text(encoding="utf-8"))
+    assert meta["short_pool_n"] == {nm.OPEN: 11, nm.CLOSED: 11} and meta["seed"] == 20260927
+    assert meta["online_review_pool_n"] == 15
+
+
+def test_weighted_rate():
+    pool = {nm.OPEN: 1524, nm.CLOSED: 6624}
+    est, lo, hi = nm.weighted_rate({nm.OPEN: (5, 50), nm.CLOSED: (20, 50)}, pool)
+    w_c = 6624 / (1524 + 6624)
+    assert math.isclose(est, (1 - w_c) * 0.1 + w_c * 0.4)  # 비가중 (5+20)/100 = 0.25와 다르다
+    assert 0 <= lo < est < hi <= 1
+    # 모집단이 같은 크기면 층별 같은 수 표본의 비가중 비율과 같다
+    same, _, _ = nm.weighted_rate({nm.OPEN: (5, 50), nm.CLOSED: (20, 50)}, {nm.OPEN: 1, nm.CLOSED: 1})
+    assert math.isclose(same, 0.25)
+    # 한 층이 오탐 0이어도 구간 폭이 0이 되지 않는다 (Wilson 결합)
+    _, lo0, hi0 = nm.weighted_rate({nm.OPEN: (0, 50), nm.CLOSED: (0, 50)}, pool)
+    assert lo0 == 0.0 and hi0 > 0
+    assert all(math.isnan(x) for x in nm.weighted_rate({nm.OPEN: (0, 0), nm.CLOSED: (1, 2)}, pool))
+
+
+def test_summarize_short_weighted(tmp_path):
+    targets = pd.DataFrame({"review_id": ["R01", "R02", "R03", "R04"], "store_id": list("ABCD")})
+    key = targets.assign(groups="short_name", stratum=["영업", "영업", "폐업", "폐업"])
+    sheet = pd.DataFrame({"review_id": ["R01", "R02", "R03", "R04"], "item_no": 1,
+                          "verdict": ["해당가게", "해당가게", "다른가게", "해당가게"]})  # 영업 0/2, 폐업 1/2
+    pool = {nm.OPEN: 1524, nm.CLOSED: 6624}
+    items, stores, _ = nm.judge(sheet, targets, key)
+    tab = nm.rates(items, stores, pool).set_index("group")
+    w_c = 6624 / 8148
+    assert bool(tab.at["short_name", "weighted"]) and math.isclose(tab.at["short_name", "store_fp_rate"], w_c * 0.5)
+    assert math.isclose(tab.at["short_name", "store_fp_rate_unweighted"], 0.25)
+    assert not tab.at["short_name:폐업", "weighted"]  # 층별 행은 가중하지 않는다
+    assert math.isclose(tab.at["short_name:폐업", "store_fp_rate"], 0.5)
+    # 층 차이(Newcombe)는 가중과 무관
+    assert math.isclose(nm.stratum_gap(items, stores).set_index("level").at["store", "diff_closed_minus_open"], 0.5)
+
+    tp, sp, kp = tmp_path / "t.csv", tmp_path / "s.csv", tmp_path / "name_match_key.csv"
+    targets.to_csv(tp, index=False, encoding="utf-8-sig")
+    sheet.to_csv(sp, index=False, encoding="utf-8-sig")
+    key.to_csv(kp, index=False, encoding="utf-8-sig")
+    nm.key_meta_path(kp).write_text(json.dumps({"short_pool_n": pool}, ensure_ascii=False), encoding="utf-8")
+    nm.main(["summarize", "--targets", str(tp), "--key", str(kp), "--sheet", str(sp), "--out", str(tmp_path / "out")])
+    r = pd.read_csv(tmp_path / "out" / "name_match_rates.csv").set_index("group")
+    assert math.isclose(r.at["short_name", "store_fp_rate"], w_c * 0.5)
+    md = (tmp_path / "out" / "name_match_summary.md").read_text(encoding="utf-8")
+    assert "모집단 가중" in md and "비가중 25.0%" in md and "1,524 : 폐업 6,624" in md
+
+
+def test_summarize_short_without_meta_is_unweighted(tmp_path, capsys):
+    targets = pd.DataFrame({"review_id": ["R01", "R02"], "store_id": ["A", "B"]})
+    key = targets.assign(groups="short_name", stratum=["영업", "폐업"])
+    sheet = pd.DataFrame({"review_id": ["R01", "R02"], "item_no": 1, "verdict": ["해당가게", "다른가게"]})
+    tp, sp, kp = tmp_path / "t.csv", tmp_path / "s.csv", tmp_path / "k.csv"
+    targets.to_csv(tp, index=False, encoding="utf-8-sig")
+    sheet.to_csv(sp, index=False, encoding="utf-8-sig")
+    key.to_csv(kp, index=False, encoding="utf-8-sig")
+    nm.main(["summarize", "--targets", str(tp), "--key", str(kp), "--sheet", str(sp), "--out", str(tmp_path / "out")])
+    assert "가중하지 못했다" in capsys.readouterr().out
+    r = pd.read_csv(tmp_path / "out" / "name_match_rates.csv").set_index("group")
+    assert not r.at["short_name", "weighted"] and math.isclose(r.at["short_name", "store_fp_rate"], 0.5)
