@@ -106,6 +106,8 @@ _ONLINE_DRIVER_PATTERNS: list[tuple[re.Pattern, object]] = [
 # PR #38 §2: 온라인 요인은 근거가 언급 감소·끊김·없음(온라인 노출 부족)일 때만 정책에 연결한다.
 # 관측 불가(검색 결과 상한)·변화 없음·언급 있음/많음은 연결하지 않는다.
 ONLINE_DRIVER_LINKABLE = frozenset({"decline", "lapse", "absent"})
+# serve 입력 factor의 선택 필드 driver_code의 값 (= classify_online_driver가 내는 분류). 스키마 $defs/online_driver_code와 같다.
+ONLINE_DRIVER_CODES = ("decline", "lapse", "absent", "unobservable", "no_change", "presence")
 
 
 def classify_online_driver(text: str | None) -> str | None:
@@ -126,15 +128,52 @@ def online_driver_errors(factors: list[dict]) -> list[str]:
             and classify_online_driver(f["driver"]) is None]
 
 
+def online_driver_class(f: dict) -> str | None:
+    """정책 연결 판정용 온라인 근거 분류. driver_code가 있으면 코드(신규 serve 입력), 없으면 driver 문구 분류
+    (구버전 입력·최종 리포트 — 최종 리포트에는 driver_code가 없다). 알 수 없으면 None → 연결하지 않는다(fail closed).
+    두 값이 모두 있으면 입력 검증(driver_code_errors)에서 같다는 것을 이미 확인한다."""
+    code = f.get("driver_code")
+    if code is not None:
+        return code
+    return classify_online_driver(f.get("driver"))
+
+
+def driver_code_errors(factors: list[dict]) -> list[str]:
+    """serve 입력 driver_code 교차 검증. 코드는 온라인 요인에만 있고, 있으면 허용 enum이어야 하며
+    driver 문구 분류와 같아야 한다 — 다르면 어느 쪽도 채택하지 않고 입력을 거부한다."""
+    errs = []
+    for f in factors:
+        code = f.get("driver_code")
+        if code is None:
+            continue
+        fid = f["factor_id"]
+        if fid != "online_attention":
+            errs.append(f"{fid}: driver_code는 온라인 요인(online_attention)에만 있다")
+            continue
+        if code not in ONLINE_DRIVER_CODES:
+            errs.append(f"online_attention: 허용되지 않는 driver_code '{code}'")
+            continue
+        text = f.get("driver")
+        if text is None:
+            errs.append(f"online_attention: driver 문구 없이 driver_code '{code}'만 있다 — 교차 검증할 수 없다")
+            continue
+        cls = classify_online_driver(text)
+        if cls is None:
+            errs.append(f"online_attention: driver 문구 '{text}'를 분류할 수 없어 driver_code '{code}'를 확인할 수 없다")
+        elif cls != code:
+            errs.append(f"online_attention: driver_code '{code}' ≠ 문구 분류 '{cls}' ('{text}')")
+    return errs
+
+
 def policy_linkable_factors(factors: list[dict]) -> dict[str, float]:
     """정책을 요인에 연결할 수 있는 요인 → 기여 (FACTOR_POLICY_LINKS.md §1·§2, PR #38 초안).
     공통: 표시되고(display=true) 위험을 올린(contribution > 0) 요인 — factors에 없는 비활성 요인은 자연히 빠진다.
-    온라인 요인은 driver가 노출 부족(ONLINE_DRIVER_LINKABLE)일 때만."""
+    온라인 요인은 근거 분류(online_driver_class: driver_code 우선, 없으면 문구)가 노출 부족(ONLINE_DRIVER_LINKABLE)일 때만."""
     out = {}
     for f in factors:
         if not (f["display"] and f["contribution"] > 0):
             continue
-        if f["factor_id"] == "online_attention" and classify_online_driver(f["driver"]) not in ONLINE_DRIVER_LINKABLE:
+        if f["factor_id"] == "online_attention" and online_driver_class(f) not in ONLINE_DRIVER_LINKABLE:
             continue
         out[f["factor_id"]] = f["contribution"]
     return out

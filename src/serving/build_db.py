@@ -135,6 +135,7 @@ CREATE TABLE factors (
   missing_reason TEXT,
   hold_reason TEXT,
   display_note TEXT,
+  driver_code TEXT,
   PRIMARY KEY (store_id, factor_id),
   UNIQUE (store_id, rank)
 );
@@ -262,6 +263,8 @@ def validate_serve_input(records: list[dict], serve_meta: dict) -> str:
     _fail(f"serve 입력 스키마({INPUT_DEFS[version]}) 위반", errs)
     errs = [f"{r['store_id']}: {e}" for r in records for e in rv.online_driver_errors(r["factors"])]
     _fail("serve 입력의 온라인 driver 문구가 알려진 템플릿이 아니다 — 정책 연결 조건을 판정할 수 없다", errs)
+    errs = [f"{r['store_id']}: {e}" for r in records for e in rv.driver_code_errors(r["factors"])]
+    _fail("serve 입력 driver_code 계약 위반 (온라인 요인 전용·허용 enum·driver 문구 분류와 일치)", errs)
 
     for key in ("score_origin", "as_of", "n_stores", "band_cutoffs"):
         if key not in serve_meta:
@@ -613,12 +616,13 @@ def build(reports_path: Path, serve_meta_path: Path, licenses_path: Path, out_pa
                              (sid, k["probability_12m"], k["ci_low"], k["ci_high"], k["interval_note"], k["band"],
                               k["percentile"], k["peer_group"], k["peer_median"], k["model"], int(k["calibrated"])))
                 conn.executemany(
-                    "INSERT INTO factors VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO factors VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     [(sid, f["factor_id"], i, f["name"], f["category"], f["actionability"], f["contribution"],
                       f["direction"], f["peer_percentile"], f["explanation"], f["driver"], _j(f["values"]),
                       int(f["display"]), int(f["data_missing"]),
                       f.get("missing_reason"), f.get("hold_reason"),  # 0.1 입력에는 키가 없다 → NULL (추측 금지)
-                      f["display_note"]) for i, f in enumerate(r["factors"])])
+                      f["display_note"],
+                      f.get("driver_code")) for i, f in enumerate(r["factors"])])  # 내부 보존용, 최종 리포트에 넣지 않는다
             conn.executemany(
                 "INSERT INTO policies VALUES (?,?,?,?,?,?,?,?,?,?)",
                 [(p["id"], p["name"], p["operator"], p["link"], p["announce_year"], p["collected_at"],

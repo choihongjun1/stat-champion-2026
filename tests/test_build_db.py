@@ -464,3 +464,141 @@ def test_final_report_rejects_online_link_with_unobservable_driver(inputs, tmp_p
     f = next(x for x in rec["factors"] if x["factor_id"] == "online_attention")
     f["driver"] = "관측 불가(검색 결과 상한)"
     assert any("연결할 수 없는 요인" in e for e in rv.validate_report(rec))
+
+
+# ---------------------------------------------------------------------------
+# 온라인 driver_code (serve 입력 선택 필드, PR #41 코멘트 1단계)
+DRIVER_TEXT = {  # PR #36 online_driver_text 템플릿 예 → 분류
+    "decline": "최근 6개월 블로그 언급이 그 전 6개월보다 4건 줄어듦",
+    "lapse": "마지막 블로그 언급 이후 14개월",
+    "absent": "블로그 언급 이력 없음",
+    "unobservable": "관측 불가(검색 결과 상한)",
+    "no_change": "최근 1년 블로그 언급 수 변화 없음",
+    "presence": "최근 3개월 블로그 언급 2건",
+}
+STORE_LIC = {"gu": "마포구", "biz_type": "미용업", "license_date": "2020-01-01"}
+
+
+def _online_factor(cls, *, code=True, display=True, c=0.02, text=None):
+    f = _f("online_attention", c, "0.2", driver=DRIVER_TEXT[cls] if text is None else text, display=display,
+           hold_reason=None if display else "online_review")
+    if code is not False:
+        f["driver_code"] = cls if code is True else code
+    return f
+
+
+def _linked(factors):
+    return bd.match_policies(STORE_LIC, factors, [ONLINE_POLICY], AS_OF)[0]["linked_factor_ids"]
+
+
+def _input_errs(factors):
+    rec = _records("0.2")[0]
+    rec["factors"] = factors
+    return rv.validate_def("serve_record_v0_2", rec) + rv.driver_code_errors(factors) + rv.online_driver_errors(factors)
+
+
+def test_serve_input_without_driver_code_is_accepted():                               # 1
+    assert _input_errs([_online_factor("lapse", code=False), _f("tenure", 0.01, "0.2")]) == []
+
+
+@pytest.mark.parametrize("cls", sorted(DRIVER_TEXT))
+def test_serve_input_with_matching_driver_code_is_accepted(cls):                    # 2
+    assert _input_errs([_online_factor(cls), _f("tenure", 0.01, "0.2")]) == []
+
+
+@pytest.mark.parametrize("bad", ["missing", "Absent", "", "unknown"])
+def test_driver_code_outside_enum_is_rejected(bad):                                 # 3
+    assert _input_errs([_online_factor("absent", code=bad)])
+
+
+@pytest.mark.parametrize("code, cls", [("absent", "unobservable"), ("lapse", "presence"), ("decline", "no_change"),
+                                       ("absent", "presence")])
+def test_driver_code_text_mismatch_is_rejected(code, cls):                         # 4
+    errs = _input_errs([_online_factor(cls, code=code)])
+    assert any("≠ 문구 분류" in e for e in errs)
+
+
+def test_driver_code_only_on_online_factor_and_needs_text():
+    t = _f("tenure", 0.01, "0.2")
+    t["driver_code"] = "absent"
+    assert _input_errs([t])                                                          # 비온라인 요인에는 금지
+    t["driver_code"] = None
+    assert _input_errs([t]) == []                                                    # null은 코드 없음
+    assert _input_errs([_online_factor("absent", text=None) | {"driver": None}])            # 문구 없이 코드만 → 거부
+
+
+@pytest.mark.parametrize("cls, linked", [("unobservable", False), ("presence", False), ("no_change", False),  # 5·6·7
+                                         ("absent", True), ("lapse", True), ("decline", True)])                  # 8·9·10
+def test_policy_link_by_driver_code(cls, linked):
+    assert _linked([_online_factor(cls), _f("tenure", 0.01, "0.2")]) == (["online_attention", "tenure"] if linked else ["tenure"])
+
+
+def test_unobservable_code_never_links_even_if_text_is_ignored():
+    """일부 온라인 feature만 결측이라 근거가 관측 불가인 경우 — 코드가 unobservable이면 absent·lapse로 연결되지 않는다."""
+    f = _online_factor("unobservable")
+    assert rv.online_driver_class(f) == "unobservable" and _linked([f]) == []
+
+
+@pytest.mark.parametrize("cls", ["absent", "lapse", "decline"])
+def test_hidden_or_non_positive_online_factor_is_not_linked(cls):                  # 11·12
+    assert _linked([_online_factor(cls, display=False)]) == []
+    assert _linked([_online_factor(cls, c=0.0)]) == [] and _linked([_online_factor(cls, c=-0.02)]) == []
+
+
+@pytest.mark.parametrize("cls", sorted(DRIVER_TEXT))
+def test_legacy_fallback_gives_same_links_as_code(cls):                             # 13
+    with_code = _linked([_online_factor(cls), _f("tenure", 0.01, "0.2")])
+    legacy = _linked([_online_factor(cls, code=False), _f("tenure", 0.01, "0.2")])
+    assert with_code == legacy
+
+
+def test_unclassifiable_text_fails_closed(inputs, tmp_path):                        # 14
+    f = _online_factor("absent", code=False, text="블로그 언급이 줄어드는 추세")
+    assert rv.online_driver_class(f) is None and _linked([f]) == []                  # 연결하지 않는다 (absent로 대체 안 함)
+    recs = _records("0.2")
+    recs[0]["factors"][0]["driver"] = "블로그 언급이 줄어드는 추세"
+    with pytest.raises(bd.BuildError):                                               # 빌드는 입력 검증에서 멈춘다
+        _build(inputs, tmp_path / "r.sqlite", version="0.2", records=recs)
+
+
+def test_driver_code_stored_internally_not_in_final_report(inputs, tmp_path):
+    recs = _records("0.2")
+    recs[0]["factors"][0]["driver_code"] = "lapse"                                   # 문구 '마지막 … 이후 14개월'
+    out = tmp_path / "r.sqlite"
+    run = _build(inputs, out, version="0.2", records=recs, policies=True)
+    assert run["final_contract"] == "passed"
+    assert _q(out, f"SELECT driver_code FROM factors WHERE store_id = '{A}' AND factor_id = 'online_attention'") \
+        == [("lapse",)]
+    reps = _reports(out)
+    assert all(rv.validate_report(r) == [] for r in reps.values())
+    assert "driver_code" not in json.dumps(reps, ensure_ascii=False)
+    legacy = _reports(_build_legacy(inputs, tmp_path))
+    assert {k: r["policies"] for k, r in reps.items()} == {k: r["policies"] for k, r in legacy.items()}
+
+
+def _build_legacy(inputs, tmp_path):
+    out = tmp_path / "legacy.sqlite"
+    _build(inputs, out, version="0.2", policies=True)
+    return out
+
+
+def test_mismatched_driver_code_stops_build(inputs, tmp_path):
+    recs = _records("0.2")
+    recs[0]["factors"][0]["driver_code"] = "absent"                                  # 문구는 lapse
+    with pytest.raises(bd.BuildError, match="driver_code"):
+        _build(inputs, tmp_path / "r.sqlite", version="0.2", records=recs)
+    assert not (tmp_path / "r.sqlite").exists()
+
+
+def test_db_without_driver_code_column_is_still_readable(inputs, tmp_path):
+    """이 변경 전에 만든 정본(factors에 driver_code 컬럼 없음)도 최종 리포트로 조립된다."""
+    import sqlite3
+    out = tmp_path / "r.sqlite"
+    _build(inputs, out, version="0.2")
+    conn = sqlite3.connect(out)
+    try:
+        conn.execute("ALTER TABLE factors DROP COLUMN driver_code")
+        conn.commit()
+        assert all(rv.validate_report(r) == [] for r in bd.iter_reports(conn))
+    finally:
+        conn.close()
