@@ -211,8 +211,23 @@ W2-7 정책 원천(`$defs/policy_source`, FACTOR_POLICY_LINKS.md §3)을 입력�
   | 최근 1년 블로그 언급 수 변화 없음 | no_change | 연결 안 함 |
   | 최근 12개월·3개월 블로그 언급 N건 (N > 0) / …있음 / 과거 블로그 언급 이력 있음 / 이번 달에도 블로그 언급 있음 / 마지막 블로그 언급 이후 N개월 (N ≤ 3) / …N건 늘어남 | presence | 연결 안 함 |
 
-  N ≤ 3개월 경계는 #36 `online_signal_is_presence`와 같다. 문구가 바뀌면 이 표와 `_ONLINE_DRIVER_PATTERNS`를 같이 바꿔야 하므로,
-  #36에 구조화된 driver 코드(예: `driver_code`)를 두는 편이 안정적이다 — 계약 변경 제안으로 남긴다(§14).
+  N ≤ 3개월 경계는 #36 `online_signal_is_presence`와 같다.
+- **`driver`와 `driver_code`** (2026-09-28, PR #41 코멘트의 1단계):
+  - `driver`: 화면용 설명 문구. serve 입력·최종 리포트 모두 그대로 유지한다.
+  - `driver_code`: serve 입력 온라인 요인의 **선택** 필드, 정책 연결 판정용 구조화 코드. 허용값 = 위 표의 분류
+    `decline`·`lapse`·`absent`·`unobservable`·`no_change`·`presence` (`$defs/online_driver_code`). 없거나 null이면 코드 없음.
+    **온라인 요인(`online_attention`) 전용**이며 다른 요인에서는 없거나 null이어야 한다.
+  - **판정**: 코드가 있으면 코드 기준, 없으면(구버전 입력) 문구 분류(`_ONLINE_DRIVER_PATTERNS`)로 판정한다
+    (`report_validation.online_driver_class`). 연결 대상은 `decline`·`lapse`·`absent`뿐이고, `unobservable`(일부 feature 결측 등으로
+    근거를 해석할 수 없음)은 **언급 없음(`absent`)으로 취급하지 않는다**. 분류할 수 없으면 연결하지 않는다(fail closed, `absent`로 대체 안 함).
+  - **불일치 거부**: 코드가 있으면 driver 문구가 있어야 하고 그 분류와 같아야 한다. 다르거나, 문구가 없거나, 문구를 분류할 수 없으면
+    어느 쪽도 채택하지 않고 serve 입력 검증에서 빌드를 멈춘다. 코드 없는 입력의 모르는 문구도 기존처럼 입력 검증에서 멈춘다.
+  - **최종 리포트 0.2에는 `driver_code`를 노출하지 않는다** (최종 factor 정의는 닫혀 있고 바뀌지 않았다). 정본 SQLite `factors.driver_code`에
+    원천 값을 내부 보존하며, 이 컬럼이 없는 예전 정본도 그대로 조립된다. 최종 리포트 검증은 문구 분류로 같은 판정을 다시 한다
+    (입력에서 코드 = 문구 분류를 확인했으므로 결과가 같다).
+  - **#36 후속 계약**: #36 serve가 온라인 요인 factor마다 `driver_code`(위 enum, `driver` 문구의 분류와 같은 값)를 채운다.
+    serve 입력 버전(0.2)은 선택 필드 추가라 올리지 않았다 — 올릴지는 #36과 함께 정한다. #36이 코드를 채운 뒤 #41의 문구 표는
+    교차 검증·구버전 호환용으로만 남는다.
 - 업력 조건은 `store.license_date`와 `as_of`로 계산한다 (진단 업력대와 같은 경계, FACTOR_POLICY_LINKS.md §3).
   업력(개월) = as_of와 인허가일의 연·월 차이(라벨·master `age_months`와 같은 식), `tenure_months_min`·`max`는 경계 포함.
   인허가일이 없으면 업력을 추정하지 않고 `check_required`로 두며 `unverifiable_conditions`에 "업력 조건 (인허가일 정보 없음)"을 넣는다.
@@ -269,7 +284,7 @@ W3 DML 분석 전에는 효과 수치를 만들지 않는다. schema 0.2는 **�
 
 ### 빌드 입력 `serve_record_v0_2` / `serve_record_v0_1`
 - `serve_record_v0_2`: PR #36 serve 출력 0.2 (`d6cfeb9`). `score_origin`·`missing_reason`·`hold_reason` 필수, `영향 미미` 허용,
-  표시 상태 규칙(`factor_display_state`) 적용. 최상위 키를 닫아 최종 리포트(같은 0.2)를 입력으로 넣으면 거부한다. 이 입력만 최종 0.2 대상이다.
+  표시 상태 규칙(`factor_display_state`) 적용. factor의 선택 필드 `driver_code`(온라인 요인 전용, §5)를 명시한다. 최상위 키를 닫아 최종 리포트(같은 0.2)를 입력으로 넣으면 거부한다. 이 입력만 최종 0.2 대상이다.
 - `serve_record_v0_1`: 구버전 0.1. 개발용 호환만 유지하며 정본은 `not_ready`가 된다.
 - (이전 초안의 `serve_record_v0_1_1`은 PR #36이 실제로 0.2를 내보내면서 이 정의로 바꿨다 — DECISIONS 2026-09-26 "W2-5 입력 계약을 PR #36 serve 0.2에 맞춤".)
 
@@ -561,7 +576,8 @@ python -m src.serving.synthetic_samples
 - 약 2.9만 개 리포트 파일을 그대로 올릴지, 묶음 파일로 나눌지 — 정적 호스팅 서비스의 파일 수 제한 확인 후.
 - 정책(PR #38 초안, 팀 합의 전): 매칭 계산 위치(현재 W2-5 빌드), 온라인 driver 조건의 최종 문구, `policy_source.conditions` 항목 추가 여부
   (현재 `gu`·`biz_type`·`tenure_months_min/max`만, 추가 키 금지), 인허가일이 없을 때 업력 조건을 `check_required`로 두는 처리.
-- 온라인 driver를 문구 템플릿 대신 구조화된 코드로 받을지 (PR #36 계약 변경 필요).
+- 온라인 `driver_code`: #41 입력 계약은 정했다(§5, 2026-09-28). 남은 것 — #36의 코드 생성(후속), serve 입력 버전을 올릴지,
+  코드가 모든 입력에 채워진 뒤 문구 표를 교차 검증 전용으로 줄일지, 최종 리포트에 코드를 노출할지.
 - band 표시명(낮음/주의/높음)과 컷오프 문구 — 화면 결정.
 - `ci_low`/`ci_high` 필드명 변경(`interval_low/high`) 여부 — 이름이 신뢰구간으로 읽힐 수 있으나 PR #36 호환을 위해 0.2에서는 유지.
 - 실제 데이터 웹 공개 범위 (§9).

@@ -567,3 +567,15 @@ PR #32 `bands.suggest_cutoffs`(반환 `{cut_mid, cut_high, base_rate}`). 위 W2-
   저장하고, 정적 번들 `meta.json`에는 `cut_mid`·`cut_high`만 내보낸다(base_rate는 내보내지 않는다).
 - #32 확률 보정 방식에 의존하는 규칙(`risk.calibrated`, `serve_meta.diagnosis_scale`, 요인 기여 합산 척도)은 이번에 바꾸지 않는다.
   등급을 확률에서 다시 매기거나 대조하는 검사도 넣지 않는다(어느 확률 척도로 등급을 매기는지가 보정 결정에 달려 있다).
+
+## 2026-09-28 — W2-5 온라인 driver_code 입력 계약 (PR #41 코멘트 1단계)
+근거: PR #41 Xerenia 코멘트(2026-09-27)의 3단계 순서, PR #36 `d6cfeb9` `online_driver_text` 템플릿, PR #38 `FACTOR_POLICY_LINKS.md` §2
+(**미병합 초안**). 상세는 `docs/REPORT_SCHEMA.md` §5. 2026-09-26 "온라인 요인 정책 연결 조건" 항목의 연결 대상은 그대로다.
+
+- **serve 입력 온라인 요인에 선택 필드 `driver_code`를 둔다**: `decline`·`lapse`·`absent`·`unobservable`·`no_change`·`presence`.
+  `driver` 문구는 화면용으로 유지한다. 온라인 요인 전용이며, 없으면 구버전 입력으로 보고 문구 분류로 판정한다.
+- **코드와 문구 분류가 다르면 입력을 거부한다** (한쪽을 조용히 채택하지 않는다). 코드만 있고 문구가 없거나 문구를 분류할 수 없어도 거부한다.
+- **정책 연결은 코드 우선**(없으면 문구)으로 판정하고 대상은 `decline`·`lapse`·`absent`뿐이다. `unobservable`은 언급 없음이 아니며,
+  분류할 수 없으면 연결하지 않는다. 다른 요인의 연결 규칙은 바꾸지 않았다.
+- **최종 리포트 0.2에는 `driver_code`를 노출하지 않는다** — 정본 SQLite에만 내부 보존. 최종 스키마 버전·serve 입력 버전은 올리지 않았다.
+- 남은 결정: #36의 코드 생성 시점과 serve 버전 변경 여부, 최종 노출 여부 (PR #41 코멘트 2·3단계).
