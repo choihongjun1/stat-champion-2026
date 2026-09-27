@@ -156,6 +156,44 @@ def test_band_rule_values_on_clear_signal():
     assert both["share"].sum() == pytest.approx(1) and both.at["high", "lift"] >= 1.8
 
 
+def test_cutoff_windows_exclude_test_origins_and_flag_maturity():
+    for name, (s, e) in bm.CUTOFF_WINDOWS.items():
+        w = bm.window_origins(ORIGINS, s, e)
+        assert not set(w) & set(bm.BAND_TEST_ORIGINS) and w[0] == s and w[-1] == e
+    with pytest.raises(ValueError):
+        bm.window_origins(ORIGINS, "2024Q1", "2025Q1")
+    w23, w24 = bm.window_origins(ORIGINS, "2023Q1", "2023Q4"), bm.window_origins(ORIGINS, "2024Q1", "2024Q4")
+    assert bm.labels_matured_by(w23, ORIGINS, "2025Q1") and bm.labels_matured_by(w23, ORIGINS, "2025Q2")
+    assert not bm.labels_matured_by(w24, ORIGINS, "2025Q1") and not bm.labels_matured_by(w24, ORIGINS, "2025Q2")
+
+
+def test_high_lift_cluster_ci_brackets_point_estimate():
+    rng = np.random.default_rng(9)
+    stores = np.repeat([f"S{i}" for i in range(2000)], 2)
+    p = rng.uniform(0.02, 0.45, len(stores))
+    y = (rng.random(len(p)) < p).astype(int)
+    high = p >= 0.35
+    lift = y[high].mean() / y.mean()
+    lo, hi = bm.high_lift_cluster_ci(y, high, stores, n_boot=200)
+    assert lo < lift < hi and hi - lo < 0.5
+
+
+def test_cutoff_window_rows():
+    rng = np.random.default_rng(10)
+    rows = []
+    for o in ORIGINS[8:]:
+        p = rng.uniform(0.02, 0.45, 2000)
+        rows.append(pd.DataFrame({"origin": o, "idx": np.arange(2000), "p_oof": p, "y": (rng.random(2000) < p).astype(int)}))
+    oof = pd.concat(rows, ignore_index=True)
+    stores = np.array([f"S{i}" for i in oof["idx"]])
+    t = bm.cutoff_window_rows({"m": oof}, stores, ORIGINS, n_boot=50)
+    assert list(t["calib_window"]) == list(bm.CUTOFF_WINDOWS) and not t["cutoff_rule_failed"].any()
+    assert list(t["n_calib_origins"]) == [4, 4, 8]
+    assert list(t["labels_matured_at_2025Q1"]) == [True, False, False]
+    assert np.allclose(t[["share_low", "share_mid", "share_high"]].sum(axis=1), 1)
+    assert (t["high_lift_ci_low"] <= t["lift_high"]).all() and (t["lift_high"] <= t["high_lift_ci_high"]).all()
+
+
 def test_logit_log1p_count_columns():
     rng = np.random.default_rng(4)
     X = pd.DataFrame({"cnt": rng.poisson(3, 300).astype(float), "trend": rng.normal(0, 2, 300)})

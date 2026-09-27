@@ -573,6 +573,101 @@ def pre_adoption(master_path: Path, online_path: Path, out: Path, n_boot: int,
     return {"bootstrap": boot, "cutoffs": cuts, "profile": prof}
 
 
+# ---------------------------------------------------------------------------
+# 등급 컷오프 보정 기간 민감도 — 서빙 컷오프는 바꾸지 않는다
+# ---------------------------------------------------------------------------
+CUTOFF_WINDOWS = {  # 이름 → (시작, 끝) origin. 검증 origin(BAND_TEST_ORIGINS)과 겹치면 멈춘다
+    "2023Q1~2023Q4": ("2023Q1", "2023Q4"),   # 현행 (train_detect 보정 구간)
+    "2024Q1~2024Q4": ("2024Q1", "2024Q4"),   # 검증 직전 4분기
+    "2023Q1~2024Q4": ("2023Q1", "2024Q4"),   # 8분기 전체
+}
+
+
+def window_origins(origins: list[str], start: str, end: str) -> list[str]:
+    w = [o for o in origins if start <= o <= end]
+    if set(w) & set(BAND_TEST_ORIGINS):
+        raise ValueError(f"보정 기간 {start}~{end}에 검증 origin이 들어 있다")
+    return w
+
+
+def labels_matured_by(window: list[str], origins: list[str], test_origin: str) -> bool:
+    """test_origin 시점에 window의 라벨이 모두 확정돼 있는지 (embargo 규칙: origin ≤ t−EMBARGO−1)."""
+    return origins.index(max(window)) <= origins.index(test_origin) - EMBARGO - 1
+
+
+def high_lift_cluster_ci(y, is_high, clusters, n_boot: int, seed: int = BOOT_SEED) -> tuple[float, float]:
+    """high 실측 폐업률 ÷ 전체 실측 폐업률의 점포 단위 클러스터 부트스트랩 95% 구간 (컷오프는 고정)."""
+    y, h = np.asarray(y, dtype=float), np.asarray(is_high, dtype=bool)
+    codes, uniq = pd.factorize(pd.Series(clusters))
+    n = len(uniq)
+    rng = np.random.default_rng(seed)
+    lifts = np.empty(n_boot)
+    for b in range(n_boot):
+        w = np.bincount(rng.integers(0, n, n), minlength=n)[codes].astype(float)
+        wh = w * h
+        lifts[b] = ((wh * y).sum() / wh.sum()) / ((w * y).sum() / w.sum()) if wh.sum() > 0 else np.nan
+    lo, hi = np.nanpercentile(lifts, [2.5, 97.5])
+    return float(lo), float(hi)
+
+
+def cutoff_window_rows(oofs: dict[str, pd.DataFrame], stores: np.ndarray, origins: list[str], n_boot: int) -> pd.DataFrame:
+    """모형 × 보정 기간별 `bands.suggest_cutoffs` 컷오프와 검증 origin(2025Q1–Q2) 등급 비율·lift·high lift CI.
+    컷오프는 보정 기간 raw OOF로 정한다 — 현행 규칙에서 두 모형 모두 isotonic이 적용되지 않았다(pre_adoption_cutoffs)."""
+    rows = []
+    for model, oof in oofs.items():
+        te_m = oof["origin"].isin(BAND_TEST_ORIGINS).to_numpy()
+        te = oof[te_m]
+        y_te, p_te = te["y"].to_numpy(), te["p_oof"].to_numpy()
+        for name, (s, e) in CUTOFF_WINDOWS.items():
+            w = window_origins(origins, s, e)
+            cal = oof[oof["origin"].isin(w)]
+            assert not cal["origin"].isin(BAND_TEST_ORIGINS).any()
+            cut = bands.suggest_cutoffs(cal["y"].to_numpy(), cal["p_oof"].to_numpy())
+            row = {"model": model, "calib_window": name, "n_calib_origins": len(w),
+                   "labels_matured_at_2025Q1": labels_matured_by(w, origins, BAND_TEST_ORIGINS[0]),
+                   "labels_matured_at_2025Q2": labels_matured_by(w, origins, BAND_TEST_ORIGINS[-1]),
+                   "cut_mid": cut["cut_mid"], "cut_high": cut["cut_high"], "calib_base_rate": cut["base_rate"],
+                   "test_origins": f"{BAND_TEST_ORIGINS[0]}~{BAND_TEST_ORIGINS[-1]}", "test_obs_rate": y_te.mean()}
+            if not 0 < cut["cut_mid"] < cut["cut_high"] < 1:
+                rows.append({**row, "cutoff_rule_failed": True})
+                continue
+            b = bands.assign_bands_absolute(p_te, cut_mid=cut["cut_mid"], cut_high=cut["cut_high"])
+            for k in bands.BANDS:
+                m = b == k
+                row[f"share_{k}"] = float(m.mean())
+                row[f"lift_{k}"] = float(y_te[m].mean() / y_te.mean()) if m.any() else float("nan")
+            row["n_high"] = int((b == "high").sum())
+            row["high_lift_ci_low"], row["high_lift_ci_high"] = high_lift_cluster_ci(y_te, b == "high", stores[te_m],
+                                                                                     n_boot)
+            row["meets_high_lift_2"] = row["lift_high"] >= 2
+            row["meets_high_lift_2_ci_low"] = row["high_lift_ci_low"] >= 2
+            row["meets_high_share_5_10"] = 0.05 <= row["share_high"] <= 0.10
+            rows.append({**row, "cutoff_rule_failed": False})
+            log(f"{model} · {name}: mid {cut['cut_mid']:.4f} high {cut['cut_high']:.4f} → high {row['share_high']:.1%} "
+                f"lift {row['lift_high']:.2f} [{row['high_lift_ci_low']:.2f}, {row['high_lift_ci_high']:.2f}]")
+    return pd.DataFrame(rows)
+
+
+def cutoff_window(master_path: Path, online_path: Path, out: Path, n_boot: int) -> pd.DataFrame:
+    t0 = time.time()
+    out.mkdir(parents=True, exist_ok=True)
+    df, X, y, base_cols, enriched_cols = load_inputs(master_path, online_path)
+    if not enriched_cols:
+        raise ValueError("보정 기간 민감도에는 온라인 feature(--online)가 필요하다")
+    tuned = {**detect.DEFAULT_PARAMS, **TUNED_PARAMS}
+    fitters = {"hgb_enriched": make_fitters(base_cols, enriched_cols)["hgb_enriched"],
+               "hgb_enriched_tuned": lambda a, b, c: detect.fit_predict(a[enriched_cols], b, c[enriched_cols], tuned)}
+    oofs = {n: calibration.rolling_oof_predictions(df, X, y, fp, min_train_origins=MIN_TRAIN_ORIGINS, embargo=EMBARGO
+                                                   ).sort_values(["origin", "idx"], ignore_index=True)
+            for n, fp in fitters.items()}
+    ref = oofs["hgb_enriched"]
+    assert (oofs["hgb_enriched_tuned"]["idx"].to_numpy() == ref["idx"].to_numpy()).all()
+    tab = cutoff_window_rows(oofs, df.loc[ref["idx"], "store_id"].to_numpy(), sorted(df["origin"].unique()), n_boot)
+    tab.to_csv(out / "pre_adoption_cutoff_window.csv", index=False, encoding="utf-8-sig")
+    log(f"보정 기간 민감도 완료 ({time.time() - t0:.0f}초) → {out / 'pre_adoption_cutoff_window.csv'}")
+    return tab
+
+
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(description="W2-2 단순 기준 모형 비교")
     ap.add_argument("--master", type=Path, default=config.MASTER_BASE_PATH)
@@ -585,7 +680,12 @@ def main(argv=None) -> None:
     ap.add_argument("--skip-calib", action="store_true", help="hgb_enriched 보정 후보 비교 생략")
     ap.add_argument("--pre-adoption", action="store_true",
                     help="튜닝 hgb_enriched 적용 전 검정만 (합산 OOF 클러스터 부트스트랩, 새 컷오프 값)")
+    ap.add_argument("--cutoff-window", action="store_true",
+                    help="등급 컷오프 보정 기간 민감도만 (현·튜닝 hgb_enriched × 보정 기간 3가지)")
     a = ap.parse_args(argv)
+    if a.cutoff_window:
+        cutoff_window(a.master, a.online, a.out, a.n_boot)
+        return
     if a.pre_adoption:
         pre_adoption(a.master, a.online, a.out, a.n_boot, a.band_cutoffs)
         return
