@@ -59,6 +59,23 @@
   주소텍스트 기준 값이며, 위 표의 QA 행에 해당한다.
 - 한계: 인허가일자는 개업일 proxy(승계·양도양수 시 업력 왜곡 가능), 이전(移轉)은 식별 불가.
 
+### 1-1. 파생: 경쟁지표 테이블 (W2, 2026-09-26)
+
+- 모듈: `src/data/competition_features.py` · 정의·결정: `DECISIONS.md` 2026-09-26 "W2 경쟁지표 6종 정의"
+- 입력: `outputs/standardized/licenses_3gu.parquet` (110,347행, `store_id`·`business_type`·`gu`·`pnu`·`bjd_code`·
+  `license_date`·`close_date`) + 패널 키(`store_id`, `origin`, `origin_end`)
+- 출력 (커밋하지 않음): `outputs/competition/competition_features.parquet` (master_base 키, 527,934행),
+  `outputs/competition/competition_features_score_2026Q2.parquet` (master_score 키, 28,711행), 각각 `_meta.json`·`_qa.md`
+- 키: `(store_id, origin)` 유일, 패널과 같은 행 순서. 지표 6개(`comp_*`, 점포 수 Int64 / 증감률 Float64)와 provenance
+  (`comp_feature_asof`, `comp_available_at`(NA), `comp_available_at_basis`="unverified", `comp_source_snapshot`,
+  `comp_raw_last_observed`, `comp_location_basis`="license_current_address", `comp_location_status`)
+- 위치 상태 (인허가 110,347곳, 2026-09-26 실측): ok 110,148 / PNU·법정동 모두 없음 195 / 자치구–법정동 코드 불일치 4
+  (= `gu_mismatch`). PNU만 없는 점포 0. 법정동 70개, 코드–이름 1:1, 구를 넘는 동명 0.
+- 결측률: master_base 키 0.18%(968행 = 위치 없음 944 + 불일치 24), `comp_dong_density_yoy`는 전년 점포 0인 8행이 더해진다.
+  master_score 키 0.11%(31행 = 위치 없음 30 + 불일치 1, `density_yoy`는 분모 0인 3행 추가). 2021Q1도 산출(결측 0.23%). 상권 미배정(`trdar_cd` NA) 118,412행 중 117,803행에서 동 지표 산출.
+- 한계: 경쟁 모집단은 3개 구 × 3개 업종 인허가 점포뿐. 위치는 현재 스냅샷 주소의 소급. 실제 공개 시점 미확인.
+  `density_yoy`는 점포 수 증감률이며 open·close와 항등식으로 겹친다.
+
 ## 2. 소진공 상가(상권)정보 (공공데이터포털, UTF-8)
 
 - 파일: `data/00_raw/소진공_상가정보/` — **7개 스냅샷: 202412, 202503, 202506, 202510, 202512, 202603, 202606** (간격 2~4개월, 불균일).
