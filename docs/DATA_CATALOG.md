@@ -341,8 +341,9 @@ B-3가 아래 산출물로 파생한다. 소진공 소멸은 주 폐업 라벨�
 - 모집단: `개방자치단체코드` 기준 **정본 110,347건** (`DECISIONS.md` 2026-09-21). 주소텍스트 기준(110,355건)과의 불일치 20건은 `gu_mismatch` 등으로 QA 보존, 모집단 정의에는 미사용.
 - store_id: `standardize.py`와 동일한 `{GR|SR|BT}_{관리번호}` 형식으로 통일 (`build_targets.py`가 `io_license`/`config` 직접 사용).
 - **축A(등록·요약값): 110,347/110,347건 완료 (100%), 오류 0건.** 구 일치 조건 추가 후, 기존 수집분 중 구 불일치가 의심되는 363건(naver 32 + kakao 347, 중복 제외)을 재조회해 정정 반영 완료.
-  - `naver_local_registered=True`: 28,426건 (25.8%)
-  - `kakao_registered=True`: 25,563건 (23.2%)
+  - `naver_local_registered=True`: 29,768건 (26.98%)
+  - `kakao_registered=True`: 26,840건 (24.32%)
+  - (참고) 재조회 전 기존 수집분 100,879건만 놓고 보면 각각 28,426건 / 25,563건이다 — 이 값을 전체 모집단 비율로 쓰지 말 것.
 - **축B(블로그 월별): 110,347/110,347건 완료 (100%), 오류 0건.** 월별 행수 622,088건. `first_date_truncated=True`(200건 상한 도달): 3,931건 (3.56%) — 사전 표본(300건) 실측 2.0%로 `MAX_PAGES=2` 유지 결정, 실측치도 일관됨.
   - 원본(raw) 전량 보존: `data/raw/online/blog_items.jsonl.gz` (229MB, git 미추적) — 매칭 기준 변경 시 오프라인 재적용, 절단 지점 재계산에 사용. 카페는 원본 미보존, 재적용 대상 아님.
   - run manifest: `data/raw/online/collection_manifest.jsonl`에 `collection_run_id`/설정값/git SHA/시작·종료시간/input checksum 기록.
@@ -351,9 +352,13 @@ B-3가 아래 산출물로 파생한다. 소진공 소멸은 주 폐업 라벨�
 
 - **짧거나 흔한 단어형 상호명(예: "요즘", "오늘")에서 블로그·카페 매칭 오탐 확인됨.** 상호명이 본문에 포함되기만 하면 언급으로 카운트하는 방식이라, 무관한 글이 섞여 건수가 부풀려질 수 있다. 정규화 후 2자 이하 상호가 전체의 8.90%(9,817건)이며, 이 집단의 폐업률(82.6%)이 일반(73.0%)보다 높아 오탐 노이즈가 라벨과 상관될 위험이 있다. 9/27 짧은 상호 100건 영업/폐업 층화·blind 검수 후 정밀도 재평가 예정 (블로그만 해당, 이슈 #28).
 - **오래된 게시물 삭제 편향 가능성.** 블로그 보유율이 폐업 점포(41.8%)가 영업중(56.9%)보다 낮은 데는 실제 차이 외에 오래된 글 삭제·블로그 폐쇄가 섞여 있을 수 있다. origin별 "과거 온라인 feature 사용 안전성" 진단을 별도로 진행 예정 (이슈 #26).
-- **temporal 메타데이터(`feature_asof`/`available_at`/`source_snapshot`) 미부여 상태.** 수집 스크립트가 아니라 `outputs/online/*.parquet` 내보내기 단계에서 부여 예정 (이슈 #23).
+- **temporal 메타데이터는 `src/data/export_online_features.py`가 `outputs/online/*.parquet`으로 내보낼 때 부여한다** (이슈 #23, 수집 스크립트는 부여하지 않는다).
+  - 축A(`online_presence.parquet`): `feature_asof` = `available_at` = **수집 시각**(KST 기준 tz-naive). 수집 시점의 현재값이라 모든 origin보다 늦고, 따라서 master 조인의 as-of 규칙에서 **과거 origin에서는 자동으로 NA**가 된다 — "현재 진단 표시용" 결정이 규칙으로 강제된다.
+  - 축B(`online_mentions_monthly.parquet`): `feature_asof` = `available_at` = **해당 게시월의 말일**.
+  - as-of 컷오프(`available_at > origin_end` → NA)는 이 스크립트가 아니라 **W2-0 master 조인의 기존 규칙**(`src/data/master.py`)이 적용한다.
+  - `source_snapshot`은 날짜값이 아니라 원천 식별자다 — 축B는 `raw 파일명@collection_run_id#git SHA`, 축A는 원천 CSV 식별자. (`label_schema.py` 관례)
 - **카페 언급은 매칭 기준 변경의 재적용 대상이 아님.** 축B(블로그 월별) 수집만 원본을 보존한다. 카페 언급 수는 모델 feature로도 화면 표시(등록 여부 2개 + 축B 최근 12개월 블로그 수)에도 쓰이지 않아 원본을 저장하지 않으며, 향후 이름 매칭 기준이 바뀌어도 카페는 현행 규칙을 그대로 유지한다.
-- `naver_blog_total`/`naver_cafe_total`(축A)은 상호명 매칭 필터 이후 건수이며 API 원본 total과 다르다. 기존 100,879건은 이 원본 total(`*_api_total`)을 보존하지 않음 — 절단(100건 상한) 도달 행이 0.061%(블로그)/0.106%(카페)뿐이라 재수집하지 않기로 결정 (`DECISIONS.md` 2026-09-23).
+- `naver_blog_total`/`naver_cafe_total`(축A)은 **관련도순 상위 100건(1페이지) 안에서 상호명이 매칭된 건수**일 뿐 전체 언급 수가 아니며, API 원본 total과도 다르다. **모델·화면은 축B(월별)를 쓰고 축A의 총량 컬럼은 QA 용도로만 쓴다.** 기존 100,879건은 이 원본 total(`*_api_total`)을 보존하지 않음 — 절단(100건 상한) 도달 행이 **기존 100,879건 기준** 0.061%(블로그)/0.106%(카페)뿐이라 재수집하지 않기로 결정 (전체 110,347건 기준으로는 0.064%/0.112%) (`DECISIONS.md` 2026-09-23).
 - 모든 수집 레코드에 `collected_at`, `query_used` 기록. 축B는 `collection_run_id`, `oldest_raw_postdate` 추가.
 
 ## 포기·대체 (참고)

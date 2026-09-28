@@ -44,6 +44,23 @@ def load_manifest_git_sha(manifest_path: str) -> dict:
     return sha_by_run
 
 
+def _to_naive_kst(s: pd.Series) -> pd.Series:
+    """UTC ISO8601 문자열을 KST 기준 tz-naive datetime으로 바꾼다.
+
+    master의 시점 검사(`available_at > origin_end`)는 tz-naive datetime끼리 비교한다
+    (`src/data/master.py`). tz-aware 값을 그대로 넘기면 TypeError로 검사 자체가 죽으므로
+    여기서 맞춰준다. tz 표기가 없는 값은 UTC로 간주한다(수집 스크립트가 UTC로만 기록).
+
+    값이 비면 available_at 없이 통과해버리는 fail-open이 되므로 그대로 실패시킨다
+    (master는 available_at 없는 값을 시점 위반으로 센다).
+    """
+    out = pd.to_datetime(s, utc=True, errors="coerce")
+    if out.isna().any():
+        bad = int(out.isna().sum())
+        raise ValueError(f"collected_at 파싱 실패 {bad}건 - available_at을 만들 수 없다")
+    return out.dt.tz_convert("Asia/Seoul").dt.tz_localize(None)
+
+
 def build_presence() -> pd.DataFrame:
     parts = [pd.read_csv(p, dtype=str, keep_default_na=False) for p in PRESENCE_PATHS]
     df = pd.concat(parts, ignore_index=True)
@@ -53,8 +70,15 @@ def build_presence() -> pd.DataFrame:
     # 등록 여부·순위는 수집 시점의 "현재값" -> feature_asof/available_at을 항상
     # 모든 origin보다 늦게 만들어 과거 예측 feature로 못 쓰게 강제한다
     # (DECISIONS.md 2026-09-13 "현재 진단 표시용" 결정을 조인 규칙으로 강제).
-    df["feature_asof"] = df["collected_at"]
-    df["available_at"] = df["collected_at"]
+    #
+    # collected_at은 수집 스크립트가 UTC ISO8601(tz 포함)로 남긴다. 그대로 두면
+    # tz-aware가 되어 master의 `available_at > origin_end` 비교에서
+    # "Cannot compare tz-naive and tz-aware timestamps" TypeError가 난다
+    # (labels/landprice/trdar의 available_at은 모두 tz-naive). 한국 기준 달력일로
+    # 맞춰야 분기말(origin_end)과 같은 기준이 되므로 KST로 변환한 뒤 tz를 떼어낸다.
+    # 시각 정보는 버리지 않는다 - 날짜 의미를 바꾸지 않기 위해서다.
+    df["feature_asof"] = _to_naive_kst(df["collected_at"])
+    df["available_at"] = df["feature_asof"]
     # 축A는 원본 API 응답을 보존하지 않는다(이슈 #24 스코프 밖, 출력 CSV 자체가 원천).
     df["source_snapshot"] = "collect_online_presence.py:online_presence_all+remaining"
     return df
