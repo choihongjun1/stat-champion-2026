@@ -194,3 +194,7 @@ MASTER_OUTPUT_DIR = REPO_ROOT / "outputs" / "master"
 MASTER_BASE_PATH = MASTER_OUTPUT_DIR / "master_base.parquet"
 MASTER_QA_REPORT_PATH = MASTER_OUTPUT_DIR / "qa_report.md"
 MASTER_SPEC_PATH = REPO_ROOT / "docs" / "MASTER_SPEC.md"
+# 예측용 master (Issue #35, `python -m src.data.master_score`): 라벨 없는 단일 origin 패널.
+MASTER_SCORE_PATH = MASTER_OUTPUT_DIR / "master_score.parquet"
+MASTER_SCORE_META_PATH = MASTER_OUTPUT_DIR / "score_meta.json"
+MASTER_SCORE_QA_REPORT_PATH = MASTER_OUTPUT_DIR / "qa_report_score.md"
