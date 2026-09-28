@@ -59,6 +59,16 @@ def test_origin_end_day_open_and_close():
     assert ("CLOSE_T", "2025Q2") not in t.index
 
 
+def test_origin_end_day_opening_counts_as_open_but_not_in_own_open_4q():
+    """당일 개업 점포 자신: 영업 점포로 패널에 있고, 자기 개업은 open_4q에서 빠지며, 혼자인 PNU·동에서는 0 (NA 아님)."""
+    lic = licenses([lic_row("OPEN_T", lic="2025-06-30", pnu="1144012000100090000")])
+    t = feat(lic)
+    assert ("OPEN_T", "2025Q2") in t.index
+    assert val(t, "OPEN_T", "comp_dong_open_4q") == 0
+    assert val(t, "OPEN_T", "comp_pnu_cnt") == 0 and val(t, "OPEN_T", "comp_pnu_same_type_cnt") == 0
+    assert val(t, "OPEN_T", "comp_dong_same_type_cnt") == 0
+
+
 def test_after_origin_events_excluded():
     lic = licenses([lic_row("S"), lic_row("LATE", lic="2025-07-01"), lic_row("D", close="2025-07-01")])
     t = feat(lic)
