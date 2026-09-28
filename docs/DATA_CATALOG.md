@@ -364,6 +364,7 @@ B-3가 아래 산출물로 파생한다. 소진공 소멸은 주 폐업 라벨�
 - **축B(블로그 월별): 110,347/110,347건 완료 (100%), 오류 0건.** 월별 행수 622,088건. `first_date_truncated=True`(200건 상한 도달): 3,931건 (3.56%) — 사전 표본(300건) 실측 2.0%로 `MAX_PAGES=2` 유지 결정, 실측치도 일관됨.
   - 원본(raw) 전량 보존: `data/raw/online/blog_items.jsonl.gz` (229MB, git 미추적) — 매칭 기준 변경 시 오프라인 재적용, 절단 지점 재계산에 사용. 카페는 원본 미보존, 재적용 대상 아님.
   - run manifest: `data/raw/online/collection_manifest.jsonl`에 `collection_run_id`/설정값/git SHA/시작·종료시간/input checksum 기록.
+    `input_checksum_sha256`은 **수집 입력 대상 목록**(`all_targets.csv` 등)의 해시이고, raw(`blog_items.jsonl.gz`)의 해시가 아니다.
 
 ### 알려진 한계
 
@@ -373,7 +374,14 @@ B-3가 아래 산출물로 파생한다. 소진공 소멸은 주 폐업 라벨�
   - 축A(`online_presence.parquet`): `feature_asof` = `available_at` = **수집 시각**(KST 기준 tz-naive). 수집 시점의 현재값이라 모든 origin보다 늦고, 따라서 master 조인의 as-of 규칙에서 **과거 origin에서는 자동으로 NA**가 된다 — "현재 진단 표시용" 결정이 규칙으로 강제된다.
   - 축B(`online_mentions_monthly.parquet`): `feature_asof` = `available_at` = **해당 게시월의 말일**.
   - as-of 컷오프(`available_at > origin_end` → NA)는 이 스크립트가 아니라 **W2-0 master 조인의 기존 규칙**(`src/data/master.py`)이 적용한다.
-  - `source_snapshot`은 날짜값이 아니라 원천 식별자다 — 축B는 `raw 파일명@collection_run_id#git SHA`, 축A는 원천 CSV 식별자. (`label_schema.py` 관례)
+  - `source_snapshot`은 날짜값이 아니라 원천 식별자다 — 축A는 원천 CSV 식별자. (`label_schema.py` 관례)
+    축B는 `blog_items.jsonl.gz@sha256:<64자>#run:<collection_run_id>#git:<git SHA 12자>`:
+    - `sha256` = export가 참조한 raw 파일 **바이트 자체**의 해시(gzip 해제 전). 같은 내용이라도 다시 압축하면 값이 바뀐다.
+    - `--resume` 수집은 같은 raw에 이어 쓰고 run별 중간 raw는 남지 않으므로, run 종료 시점이 아니라 **export 시점의 최종 raw 전체**를
+      해시한다(현재 파일로 언제든 재검증 가능). 행별 run·SHA는 `#run:`/`#git:`과 `collection_run_id`·`git_sha` 컬럼이 맡는다.
+    - run id나 manifest SHA가 없는 행이 있으면 export를 멈춘다(`unknown`으로 내보내지 않음).
+    - 2026-09-29 실측: raw 239,968,176바이트, sha256 `3a7fc8db94b0e834…`, run 1개(`20260923T143942Z-a589611d`), 월별 622,088행 전부
+      raw의 매칭 글 수와 일치.
 - **카페 언급은 매칭 기준 변경의 재적용 대상이 아님.** 축B(블로그 월별) 수집만 원본을 보존한다. 카페 언급 수는 모델 feature로도 화면 표시(등록 여부 2개 + 축B 최근 12개월 블로그 수)에도 쓰이지 않아 원본을 저장하지 않으며, 향후 이름 매칭 기준이 바뀌어도 카페는 현행 규칙을 그대로 유지한다.
 - `naver_blog_total`/`naver_cafe_total`(축A)은 **관련도순 상위 100건(1페이지) 안에서 상호명이 매칭된 건수**일 뿐 전체 언급 수가 아니며, API 원본 total과도 다르다. **모델·화면은 축B(월별)를 쓰고 축A의 총량 컬럼은 QA 용도로만 쓴다.** 기존 100,879건은 이 원본 total(`*_api_total`)을 보존하지 않음 — 절단(100건 상한) 도달 행이 **기존 100,879건 기준** 0.061%(블로그)/0.106%(카페)뿐이라 재수집하지 않기로 결정 (전체 110,347건 기준으로는 0.064%/0.112%) (`DECISIONS.md` 2026-09-23).
 - 모든 수집 레코드에 `collected_at`, `query_used` 기록. 축B는 `collection_run_id`, `oldest_raw_postdate` 추가.

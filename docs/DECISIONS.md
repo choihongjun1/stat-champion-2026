@@ -542,3 +542,12 @@ W2-4 이벤트 스터디(마지막 언급일-폐업일 갭)와 함께 설계한�
     원천 최종 관측일(`comp_raw_last_observed`)은 raw 추출 시점의 하한이다.
   - 날짜 기반 부분은 미래 원천 행에 불변이다(t 이후 인허가 행 삭제·t 이후 폐업일 제거 후 재계산 결과 동일, 실측·테스트).
     원천 스냅샷에서 사라진 과거 레코드(말소 등)는 확인할 수 없다.
+
+## 2026-09-29 — 온라인 축B `source_snapshot` 원천 식별 (Issue #23 마무리)
+- 축B(`online_mentions_monthly.parquet`) `source_snapshot` = raw 파일명 + **raw 파일 바이트 sha256** + `collection_run_id` + 수집 당시 git SHA.
+  `feature_asof` = `available_at` = 게시월 말일, 축A 정의, as-of 규칙(`available_at > origin_end` → NA)은 그대로다.
+- raw checksum은 **export 시점의 최종 raw 전체**로 계산한다. `--resume`은 같은 raw에 이어 쓰므로 run 종료 시점 checksum은
+  나중에 검증할 파일이 남지 않는다. manifest `input_checksum_sha256`은 입력 대상 목록의 해시라 raw 식별에 쓰지 않는다.
+  manifest 형식은 바꾸지 않았다(기존 수집분 재수집 불필요).
+- run id·git SHA를 찾지 못한 행이 있으면 export를 멈춘다. git SHA는 run의 모든 manifest 기록에서 읽는다(중단 후 이어 받은 run 대응).
+- 한계는 그대로: 축B는 과거 글을 수집 시점에 관측한 값이라 삭제된 글이 빠져 있다(#26). 구현·실측은 `DATA_CATALOG.md` §6.
