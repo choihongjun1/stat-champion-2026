@@ -290,3 +290,57 @@ def test_end_to_end(tmp_path, panel):
     # 산출물에 점포 식별 열이 없다
     for f in (tmp_path / "out").glob("*.csv"):
         assert "store_id" not in pd.read_csv(f, nrows=0).columns
+
+
+# ---------------------------------------------------------------------------- 짧은 상호 처리 (#28)
+@pytest.mark.parametrize("raw, norm", [("요즘", "요즘"), ("카페 오늘", "카페오늘"), ("BHC-치킨!", "bhc치킨"),
+                                       ("밥&술", "밥술"), ("커피２", "커피"), ("ㅋㅋ", ""), (None, "")])
+def test_match_name_norm_pinned_to_pr21(raw, norm):
+    assert bm.match_name_norm(raw) == norm
+
+
+def _licenses_for(panel, tmp_path):
+    ids = sorted(panel["store_id"].unique())
+    names = ["밥" if i % 4 == 0 else f"가게이름{i}" for i in range(len(ids))]  # 4곳 중 1곳 짧은 상호
+    p = tmp_path / "lic.parquet"
+    pd.DataFrame({"store_id": ids, "name_raw": names}).to_parquet(p, index=False)
+    return p, {s for s, n in zip(ids, names) if len(bm.match_name_norm(n)) <= 2}
+
+
+def test_short_name_policy_na_masks_only_short_store_online_columns(tmp_path, panel):
+    lic, short = _licenses_for(panel, tmp_path)
+    assert bm.short_name_store_ids(lic) == short
+    cols = features.select_features(panel.columns, "base")
+    X = features.build_X(panel, cols)
+    for c in bm.ONLINE_COLS:
+        X[c] = 1.0
+    Xn = bm.apply_short_name_policy(panel, X, "na", short)
+    m = panel["store_id"].isin(short).to_numpy()
+    assert Xn.loc[m, bm.ONLINE_COLS].isna().all().all()                 # 짧은 상호: 전 origin NA
+    assert (Xn.loc[~m, bm.ONLINE_COLS] == 1.0).all().all()               # 나머지 그대로
+    pd.testing.assert_frame_equal(Xn[cols], X[cols])                      # base 열은 그대로
+    assert not any(c.endswith("_isna") for c in Xn.columns)             # 결측 지시자 없음
+    pd.testing.assert_frame_equal(bm.apply_short_name_policy(panel, X, "keep", short), X)
+    with pytest.raises(ValueError):
+        bm.apply_short_name_policy(panel, X, "strict", short)
+
+
+def test_short_name_sensitivity_end_to_end(tmp_path, panel):
+    master = tmp_path / "master.parquet"
+    panel.to_parquet(master, index=False)
+    online = panel[["store_id", "origin"]].copy()
+    rng = np.random.default_rng(12)
+    for c in bm.ONLINE_COLS:
+        online[c] = rng.poisson(1, len(online)).astype(float)
+    online.to_parquet(tmp_path / "online.parquet", index=False)
+    lic, short = _licenses_for(panel, tmp_path)
+    r = bm.short_name_sensitivity(master, tmp_path / "online.parquet", tmp_path / "out", n_boot=10, licenses_path=lic)
+    s = r["summary"].set_index("model")
+    assert set(s.index) == {"hgb_base_tuned", "logit_base", "hgb_enriched_tuned_keep", "hgb_enriched_tuned_na",
+                            "logit_enriched_keep", "logit_enriched_na"}
+    assert (s["all_n"] == s["short_n"] + s["long_n"]).all()
+    assert s.loc["hgb_enriched_tuned_na", "gain_vs_base_auc_mean"] == pytest.approx(
+        s.at["hgb_enriched_tuned_na", "auc_mean"] - s.at["hgb_base_tuned", "auc_mean"])
+    assert len(r["bootstrap"]) == 6 and (r["bootstrap"]["n_clusters"] == panel["store_id"].nunique()).all()
+    for f in ("short_name_policy_summary.csv", "short_name_policy_bootstrap.csv", "short_name_policy_meta.json"):
+        assert (tmp_path / "out" / f).exists()

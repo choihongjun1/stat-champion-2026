@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import itertools
 import json
+import re
 import time
 from pathlib import Path
 
@@ -375,7 +376,36 @@ def calibration_candidates(df: pd.DataFrame, X: pd.DataFrame, y: np.ndarray, col
 
 
 # ---------------------------------------------------------------------------
-def load_inputs(master_path: Path, online_path: Path | None):
+# PR #21 (origin/feature/online-presence-collection, 커밋 f026602) src/data/collect_online_presence.py의
+# normalize_name과 똑같이 맞춘다 — 블로그 언급 매칭에 쓴 정규화라야 "짧은 상호"가 매칭 규칙과 같은 뜻이 된다
+# (#39 name_match_review.match_name_norm과 같은 식).
+def match_name_norm(name: str) -> str:
+    return re.sub(r"[^0-9a-zA-Z가-힣]", "", name or "").lower()
+
+
+SHORT_NAME_MAX = 2
+SHORT_NAME_POLICIES = ("keep", "na")
+DEFAULT_LICENSES = config.REPO_ROOT / "outputs" / "standardized" / "licenses_3gu.parquet"
+
+
+def short_name_store_ids(licenses_path: Path) -> set[str]:
+    """정규화 상호 길이 ≤ SHORT_NAME_MAX인 점포 (#28 짧은 상호, 매칭 오탐률이 높은 집단)."""
+    lic = pd.read_parquet(licenses_path, columns=["store_id", "name_raw"])
+    return set(lic.loc[lic["name_raw"].map(lambda s: len(match_name_norm(s)) <= SHORT_NAME_MAX), "store_id"])
+
+
+def apply_short_name_policy(df: pd.DataFrame, X: pd.DataFrame, policy: str, short_ids: set[str]) -> pd.DataFrame:
+    """na: 짧은 상호 점포의 온라인 feature 6개를 전 origin NA로 (결측 지시자는 만들지 않는다). keep: 그대로."""
+    if policy not in SHORT_NAME_POLICIES:
+        raise ValueError(f"알 수 없는 short-name policy: {policy}")
+    X = X.copy()
+    if policy == "na":
+        X.loc[df["store_id"].isin(short_ids).to_numpy(), ONLINE_COLS] = np.nan
+    return X
+
+
+def load_inputs(master_path: Path, online_path: Path | None, short_name_policy: str = "keep",
+                licenses_path: Path | None = None):
     df = train_detect.load_master(master_path)
     y = df["event_12m"].astype(int).to_numpy()
     base_cols = features.select_features(df.columns, "base")
@@ -391,14 +421,17 @@ def load_inputs(master_path: Path, online_path: Path | None):
         for c in ONLINE_COLS:
             X[c] = pd.to_numeric(m[c]).astype("Float64").astype("float64").to_numpy()
         enriched_cols = base_cols + ONLINE_COLS
+        if short_name_policy != "keep":
+            X = apply_short_name_policy(df, X, short_name_policy, short_name_store_ids(licenses_path or DEFAULT_LICENSES))
     return df, X, y, base_cols, enriched_cols
 
 
 def run(master_path: Path, online_path: Path | None, out: Path, n_boot: int, do_hpo: bool,
-        band_cutoffs: Path | None = None, do_calib: bool = True) -> dict:
+        band_cutoffs: Path | None = None, do_calib: bool = True, short_name_policy: str = "keep",
+        licenses_path: Path | None = None) -> dict:
     t0 = time.time()
     out.mkdir(parents=True, exist_ok=True)
-    df, X, y, base_cols, enriched_cols = load_inputs(master_path, online_path)
+    df, X, y, base_cols, enriched_cols = load_inputs(master_path, online_path, short_name_policy, licenses_path)
     log(f"master {len(df):,}행 · base {len(base_cols)}개 · enriched {len(enriched_cols) or '없음'}")
 
     oofs = {}
@@ -520,10 +553,11 @@ def band_rule_values(oof: pd.DataFrame, origins: list[str]) -> tuple[dict, pd.Da
 
 
 def pre_adoption(master_path: Path, online_path: Path, out: Path, n_boot: int,
-                 current_cutoffs: Path | None = None) -> dict:
+                 current_cutoffs: Path | None = None, short_name_policy: str = "keep",
+                 licenses_path: Path | None = None) -> dict:
     t0 = time.time()
     out.mkdir(parents=True, exist_ok=True)
-    df, X, y, base_cols, enriched_cols = load_inputs(master_path, online_path)
+    df, X, y, base_cols, enriched_cols = load_inputs(master_path, online_path, short_name_policy, licenses_path)
     if not enriched_cols:
         raise ValueError("적용 전 검정에는 온라인 feature(--online)가 필요하다")
     tuned = {**detect.DEFAULT_PARAMS, **TUNED_PARAMS}
@@ -648,10 +682,11 @@ def cutoff_window_rows(oofs: dict[str, pd.DataFrame], stores: np.ndarray, origin
     return pd.DataFrame(rows)
 
 
-def cutoff_window(master_path: Path, online_path: Path, out: Path, n_boot: int) -> pd.DataFrame:
+def cutoff_window(master_path: Path, online_path: Path, out: Path, n_boot: int, short_name_policy: str = "keep",
+                  licenses_path: Path | None = None) -> pd.DataFrame:
     t0 = time.time()
     out.mkdir(parents=True, exist_ok=True)
-    df, X, y, base_cols, enriched_cols = load_inputs(master_path, online_path)
+    df, X, y, base_cols, enriched_cols = load_inputs(master_path, online_path, short_name_policy, licenses_path)
     if not enriched_cols:
         raise ValueError("보정 기간 민감도에는 온라인 feature(--online)가 필요하다")
     tuned = {**detect.DEFAULT_PARAMS, **TUNED_PARAMS}
@@ -668,6 +703,84 @@ def cutoff_window(master_path: Path, online_path: Path, out: Path, n_boot: int) 
     return tab
 
 
+# ---------------------------------------------------------------------------
+# 짧은 상호 처리 민감도 (#28) — keep vs na. 서빙 모형은 바꾸지 않는다
+# ---------------------------------------------------------------------------
+def pooled_metrics(oof: pd.DataFrame, mask: np.ndarray | None = None) -> dict:
+    g = oof if mask is None else oof[mask]
+    y, p = g["y"].to_numpy(), g["p_oof"].to_numpy()
+    return {"pooled_auc": roc_auc_score(y, p), "pooled_ap": average_precision_score(y, p), "n": len(g),
+            "obs_rate": float(y.mean())}
+
+
+def short_name_sensitivity(master_path: Path, online_path: Path, out: Path, n_boot: int,
+                           licenses_path: Path | None = None) -> dict:
+    """튜닝 hgb_enriched·logit_enriched를 keep/na로 rolling OOF (10개 origin). base 모형은 온라인 열이 없어 정책과 무관."""
+    t0 = time.time()
+    out.mkdir(parents=True, exist_ok=True)
+    df, X_keep, y, base_cols, enriched_cols = load_inputs(master_path, online_path)
+    if not enriched_cols:
+        raise ValueError("짧은 상호 민감도에는 온라인 feature(--online)가 필요하다")
+    short_ids = short_name_store_ids(licenses_path or DEFAULT_LICENSES)
+    X_na = apply_short_name_policy(df, X_keep, "na", short_ids)
+    tuned = {**detect.DEFAULT_PARAMS, **TUNED_PARAMS}
+    logit_enr = make_fitters(base_cols, enriched_cols)["logit_enriched"]
+    runs = {  # 이름 → (X, fit_predict)
+        "hgb_base_tuned": (X_keep, lambda a, b, c: detect.fit_predict(a[base_cols], b, c[base_cols], tuned)),
+        "logit_base": (X_keep, make_fitters(base_cols, enriched_cols)["logit_base"]),
+        "hgb_enriched_tuned_keep": (X_keep, lambda a, b, c: detect.fit_predict(a[enriched_cols], b, c[enriched_cols], tuned)),
+        "hgb_enriched_tuned_na": (X_na, lambda a, b, c: detect.fit_predict(a[enriched_cols], b, c[enriched_cols], tuned)),
+        "logit_enriched_keep": (X_keep, logit_enr),
+        "logit_enriched_na": (X_na, logit_enr),
+    }
+    oofs = {}
+    for n, (Xm, fp) in runs.items():
+        oofs[n] = calibration.rolling_oof_predictions(df, Xm, y, fp, min_train_origins=MIN_TRAIN_ORIGINS,
+                                                      embargo=EMBARGO).sort_values(["origin", "idx"], ignore_index=True)
+        log(f"{n}: 평균 AUC {train_detect.metrics_by_origin(oofs[n])['auc'].mean():.4f}")
+    ref = oofs["hgb_base_tuned"]
+    assert all((o["idx"].to_numpy() == ref["idx"].to_numpy()).all() for o in oofs.values())
+    stores = df.loc[ref["idx"], "store_id"].to_numpy()
+    is_short = np.isin(stores, list(short_ids))
+
+    rows = []
+    for n, oof in oofs.items():
+        bo = train_detect.metrics_by_origin(oof)
+        slope, icpt = calibration_slope_intercept(oof["y"], oof["p_oof"])
+        rows.append({"model": n, "auc_mean": bo["auc"].mean(), "ap_mean": bo["ap"].mean(), "ece_mean": bo["ece"].mean(),
+                     "calib_slope_pooled": slope, "calib_intercept_pooled": icpt,
+                     **{f"all_{k}": v for k, v in pooled_metrics(oof).items()},
+                     **{f"short_{k}": v for k, v in pooled_metrics(oof, is_short).items()},
+                     **{f"long_{k}": v for k, v in pooled_metrics(oof, ~is_short).items()}})
+    summ = pd.DataFrame(rows)
+    s = summ.set_index("model")
+    for fam, base in (("hgb_enriched_tuned", "hgb_base_tuned"), ("logit_enriched", "logit_base")):
+        for pol in ("keep", "na"):
+            s.loc[f"{fam}_{pol}", "gain_vs_base_auc_mean"] = s.at[f"{fam}_{pol}", "auc_mean"] - s.at[base, "auc_mean"]
+            s.loc[f"{fam}_{pol}", "gain_vs_base_short_auc"] = s.at[f"{fam}_{pol}", "short_pooled_auc"] - s.at[base, "short_pooled_auc"]
+    summ = s.reset_index()
+    summ.to_csv(out / "short_name_policy_summary.csv", index=False, encoding="utf-8-sig")
+
+    pairs = [("hgb_enriched_tuned_na", "hgb_enriched_tuned_keep"), ("logit_enriched_na", "logit_enriched_keep"),
+             ("hgb_enriched_tuned_keep", "hgb_base_tuned"), ("hgb_enriched_tuned_na", "hgb_base_tuned"),
+             ("logit_enriched_keep", "logit_base"), ("logit_enriched_na", "logit_base")]
+    boot = []
+    for a, b in pairs:
+        boot.append({"model_a": a, "model_b": b, "scope": "10개 origin 합산",
+                     **cluster_bootstrap_diff(ref["y"], oofs[a]["p_oof"], oofs[b]["p_oof"], stores, n_boot)})
+        log(f"클러스터 부트스트랩 {a} − {b} 완료")
+    boot = pd.DataFrame(boot)
+    boot.to_csv(out / "short_name_policy_bootstrap.csv", index=False, encoding="utf-8-sig")
+    meta = {"short_name_max": SHORT_NAME_MAX, "normalize": "PR #21 f026602 normalize_name",
+            "n_short_stores_licenses": len(short_ids), "short_rows_in_oof": int(is_short.sum()),
+            "short_stores_in_oof": int(len(set(stores[is_short]))), "tuned_params": TUNED_PARAMS, "n_boot": n_boot,
+            "master_sha256": train_detect.sha256(Path(master_path)), "online_sha256": train_detect.sha256(Path(online_path)),
+            "seconds": round(time.time() - t0, 1)}
+    (out / "short_name_policy_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    log(f"짧은 상호 민감도 완료 ({meta['seconds']}초) → {out}")
+    return {"summary": summ, "bootstrap": boot}
+
+
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(description="W2-2 단순 기준 모형 비교")
     ap.add_argument("--master", type=Path, default=config.MASTER_BASE_PATH)
@@ -682,14 +795,23 @@ def main(argv=None) -> None:
                     help="튜닝 hgb_enriched 적용 전 검정만 (합산 OOF 클러스터 부트스트랩, 새 컷오프 값)")
     ap.add_argument("--cutoff-window", action="store_true",
                     help="등급 컷오프 보정 기간 민감도만 (현·튜닝 hgb_enriched × 보정 기간 3가지)")
+    ap.add_argument("--short-name-policy", choices=SHORT_NAME_POLICIES, default="keep",
+                    help="na = 정규화 상호 ≤2자 점포의 온라인 feature 6개를 전 origin NA (#28)")
+    ap.add_argument("--licenses", type=Path, default=DEFAULT_LICENSES, help="짧은 상호 판정용 인허가 표준화 테이블")
+    ap.add_argument("--short-name-sensitivity", action="store_true",
+                    help="튜닝 hgb_enriched·logit_enriched를 keep/na 두 정책으로 비교만")
     a = ap.parse_args(argv)
+    if a.short_name_sensitivity:
+        short_name_sensitivity(a.master, a.online, a.out, a.n_boot, a.licenses)
+        return
     if a.cutoff_window:
-        cutoff_window(a.master, a.online, a.out, a.n_boot)
+        cutoff_window(a.master, a.online, a.out, a.n_boot, a.short_name_policy, a.licenses)
         return
     if a.pre_adoption:
-        pre_adoption(a.master, a.online, a.out, a.n_boot, a.band_cutoffs)
+        pre_adoption(a.master, a.online, a.out, a.n_boot, a.band_cutoffs, a.short_name_policy, a.licenses)
         return
-    run(a.master, a.online, a.out, a.n_boot, not a.skip_hpo, a.band_cutoffs, not a.skip_calib)
+    run(a.master, a.online, a.out, a.n_boot, not a.skip_hpo, a.band_cutoffs, not a.skip_calib,
+        a.short_name_policy, a.licenses)
 
 
 if __name__ == "__main__":
