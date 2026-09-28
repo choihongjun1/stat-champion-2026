@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import hashlib
 import html
 import json
 import math
@@ -73,6 +74,24 @@ def assert_blind(columns) -> None:
         raise ValueError(f"blind 원칙 위반 — 위험도·등급·폐업 관련 열: {bad}")
 
 
+def sha256_file(path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def serve_meta_near(path) -> dict:
+    """diagnosis.parquet 등 serve 출력 폴더 옆의 serve_meta.json (M4: 재현성용 serve 기준 정보). 없으면 빈 dict."""
+    p = Path(path).parent / "serve_meta.json"
+    if not p.exists():
+        return {}
+    m = json.loads(p.read_text(encoding="utf-8"))
+    return {"serve_score_origin": m.get("score_origin"), "serve_as_of": m.get("as_of"),
+            "serve_meta_sha256": sha256_file(p)}
+
+
 # ---------------------------------------------------------------------------- targets
 # PR #21 (origin/feature/online-presence-collection, 커밋 f026602) src/data/collect_online_presence.py의
 # normalize_name과 똑같이 맞춘다 — 블로그 언급 매칭에 쓴 정규화라야 "짧은 상호"가 DATA_CATALOG §6과 같은 뜻이 된다.
@@ -91,10 +110,17 @@ def blog_mention_totals(mentions: pd.DataFrame) -> pd.Series:
     return pd.to_numeric(m["mention_count"]).groupby(m["store_id"]).sum()
 
 
-def short_name_pool(licenses: pd.DataFrame, mention_totals: pd.Series) -> pd.DataFrame:
-    """짧은 상호이면서 블로그 언급이 1건 이상인 점포 (언급이 없으면 판정할 글이 없다). 층(영업/폐업) 포함."""
+def short_name_pool(licenses: pd.DataFrame, mention_totals: pd.Series,
+                    master_store_ids: set[str] | None = None) -> pd.DataFrame:
+    """짧은 상호이면서 블로그 언급이 1건 이상인 점포 (언급이 없으면 판정할 글이 없다). 층(영업/폐업) 포함.
+
+    master_store_ids가 있으면 그 점포로만 한정한다 (#39 리뷰 M2: 모델이 실제로 쓰는 master_base 대상 점포 —
+    검수 결과가 모델 feature 처리(NA 여부)에 쓰일 대상과 일치해야 한다).
+    """
     lic = licenses[licenses["name_raw"].map(is_short_name)]
     lic = lic[mention_totals.reindex(lic["store_id"]).fillna(0).to_numpy() >= 1]
+    if master_store_ids is not None:
+        lic = lic[lic["store_id"].isin(master_store_ids)]
     stratum = lic["status_code"].map(STATUS_STRATUM)
     if stratum.isna().any():
         raise ValueError(f"영업/폐업으로 나눌 수 없는 status_code: {sorted(lic.loc[stratum.isna(), 'status_code'].unique())}")
@@ -116,10 +142,72 @@ def sample_strata(short_pool: pd.DataFrame, n_per_stratum: int, seed: int) -> pd
 
 
 def review_pool(diagnosis: pd.DataFrame) -> pd.DataFrame:
-    """온라인 요인이 검토 대기(display=false, data_missing=false)인 점포."""
+    """온라인 요인이 검토 대기인 점포 (#39 리뷰 M3: hold_reason으로 명시 — display=false·data_missing=false
+    조합보다 그 사유 자체를 직접 쓴다. diagnose.py 불변식상 두 조건은 같은 집합이어야 한다)."""
     d = diagnosis[diagnosis["factor_id"] == "online_attention"]
-    held = d[(~d["display"].astype(bool)) & (~d["data_missing"].astype(bool))]
+    held = d[d["hold_reason"] == "online_review"]
     return held[["store_id", "gu", "biz_type"]].drop_duplicates("store_id").reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------- M1: 날짜 필터
+def master_base_span(master: pd.DataFrame) -> pd.DataFrame:
+    """점포별 master_base 등장 구간: 첫 origin_start − 3개월 ~ 마지막 origin_end.
+    #39 리뷰 M1 — short_name 글은 이 구간 안(모형이 실제로 그 점포를 보는 기간)으로 한정한다."""
+    g = master.groupby("store_id").agg(span_start=("origin_start", "min"), span_end=("origin_end", "max"))
+    g["span_start"] = g["span_start"] - pd.DateOffset(months=3)
+    return g.reset_index()
+
+
+def date_bounds(licenses: pd.DataFrame, key: pd.DataFrame, *, master_span: pd.DataFrame | None = None,
+               serve_as_of: str | None = None) -> dict[str, tuple]:
+    """#39 리뷰 M1: store_id별 허용 게시일 구간 (하한, 상한) — 양끝 포함, 없으면 None.
+
+    - short_name 점포: 인허가일 ~ 폐업일(영업 중이면 무제한), master_span이 있으면 그 구간과 교집합
+      (모형이 그 점포를 실제로 보는 기간 안의 글만 — 폐업 이후 다른 가게 글이 폐업 층 오탐률을 구조적으로
+      높이는 문제, 인허가 이전 글이 다른 가게/동명이인일 위험을 막는다).
+    - priority/random 점포: 하한 없음, serve_as_of가 상한 (예측 기준일 이후 글은 아직 모형이 못 본 정보).
+    - 두 그룹 모두면 교집합(더 좁은 쪽)을 쓴다. serve_as_of는 모든 그룹의 상한에 공통으로 적용한다
+      (짧은 상호도 미래 글을 쓰지 않는다 — 보통 폐업일/구간 상한이 이미 더 좁아 영향이 없다).
+    """
+    lic = licenses.set_index("store_id")[["license_date", "close_date"]].to_dict("index")
+    span = master_span.set_index("store_id")[["span_start", "span_end"]].to_dict("index") \
+        if master_span is not None else {}
+    cutoff = pd.Timestamp(serve_as_of) if serve_as_of else None
+    groups_by_store = key.drop_duplicates("store_id").set_index("store_id")["groups"]
+    out: dict[str, tuple] = {}
+    for sid, groups in groups_by_store.items():
+        parts = str(groups).split(GROUP_SEP)
+        lo = hi = None
+        if SHORT in parts:
+            l = lic.get(sid, {})
+            lo, hi = l.get("license_date"), l.get("close_date")
+            if pd.isna(lo):
+                lo = None
+            if pd.isna(hi):
+                hi = None
+            sp = span.get(sid)
+            if sp is not None:
+                lo = sp["span_start"] if lo is None else max(lo, sp["span_start"])
+                hi = sp["span_end"] if hi is None else min(hi, sp["span_end"])
+        if cutoff is not None:
+            hi = cutoff if hi is None else min(hi, cutoff)
+        out[sid] = (lo, hi)
+    return out
+
+
+def _within_bounds(dates: pd.Series, store_ids: pd.Series, bounds: dict[str, tuple]) -> pd.Series:
+    """dates가 bounds[store_id]의 [하한, 상한](포함) 안인지. bounds에 없는 store_id는 제한 없음. 날짜 결측은 제외."""
+    lo = pd.to_datetime(store_ids.map(lambda s: bounds.get(s, (None, None))[0]))
+    hi = pd.to_datetime(store_ids.map(lambda s: bounds.get(s, (None, None))[1]))
+    return dates.notna() & (lo.isna() | (dates >= lo)) & (hi.isna() | (dates <= hi))
+
+
+def apply_date_bounds(items: pd.DataFrame, bounds: dict[str, tuple], *, date_col: str = "postdate",
+                      fmt: str = "%Y%m%d") -> tuple[pd.DataFrame, int]:
+    """items에서 date_bounds 밖의 행을 뺀다 (M1). 반환: (남은 items, 제외된 행 수)."""
+    dates = pd.to_datetime(items[date_col].astype(str), format=fmt, errors="coerce")
+    keep = _within_bounds(dates, items["store_id"], bounds)
+    return items[keep].reset_index(drop=True), int((~keep).sum())
 
 
 def _probabilities(diagnosis_path: Path, risk_path: Path | None) -> pd.Series:
@@ -187,19 +275,31 @@ def key_meta_path(key_path: Path) -> Path:
 
 
 def cmd_targets(a) -> pd.DataFrame:
-    diagnosis = pd.read_parquet(a.diagnosis, columns=["store_id", "gu", "biz_type", "factor_id", "display",
-                                                      "data_missing"])
+    diagnosis = pd.read_parquet(a.diagnosis, columns=["store_id", "gu", "biz_type", "factor_id", "hold_reason"])
     pool = review_pool(diagnosis)
     prob = _probabilities(Path(a.diagnosis), a.risk)
     lic = pd.read_parquet(a.licenses, columns=["store_id", "name_raw", "name_norm", "dong"]
                           + (["gu", "business_type", "status_code"] if a.mentions else []))
+    master_ids = None
+    n_short_before = None
+    if a.mentions and a.master:
+        master_ids = set(pd.read_parquet(a.master, columns=["store_id"])["store_id"].unique())
     short_pool = None
     if a.mentions:
-        short_pool = short_name_pool(lic, blog_mention_totals(pd.read_parquet(
-            a.mentions, columns=["store_id", "platform", "mention_count"])))
+        mention_totals = blog_mention_totals(pd.read_parquet(a.mentions, columns=["store_id", "platform",
+                                                                                  "mention_count"]))
+        if master_ids is not None:  # M2: master_base 제한 전후 모집단 크기를 함께 보고
+            before = short_name_pool(lic, mention_totals)
+            n_short_before = before["stratum"].value_counts()
+        short_pool = short_name_pool(lic, mention_totals, master_store_ids=master_ids)
         n_s = short_pool["stratum"].value_counts()
-        print(f"짧은 상호(정규화 후 {SHORT_NAME_MAX}자 이하)·블로그 언급 1건 이상 {len(short_pool):,}점포 "
-              f"(영업 {int(n_s.get(OPEN, 0)):,}, 폐업 {int(n_s.get(CLOSED, 0)):,})")
+        if n_short_before is not None:
+            print(f"짧은 상호·블로그 언급 1건 이상 {len(before):,}점포 (영업 {int(n_short_before.get(OPEN, 0)):,}, "
+                  f"폐업 {int(n_short_before.get(CLOSED, 0)):,}) → master_base 대상으로 한정 {len(short_pool):,}점포 "
+                  f"(영업 {int(n_s.get(OPEN, 0)):,}, 폐업 {int(n_s.get(CLOSED, 0)):,})")
+        else:
+            print(f"짧은 상호(정규화 후 {SHORT_NAME_MAX}자 이하)·블로그 언급 1건 이상 {len(short_pool):,}점포 "
+                  f"(영업 {int(n_s.get(OPEN, 0)):,}, 폐업 {int(n_s.get(CLOSED, 0)):,}) — --master 없어 미제한")
     else:
         print("--mentions가 없어 짧은 상호(short_name) 그룹은 뽑지 않는다")
     out, key = select_targets(pool, prob, lic, n_priority=a.n_priority, n_random=a.n_random, seed=a.seed,
@@ -209,10 +309,17 @@ def cmd_targets(a) -> pd.DataFrame:
     Path(key_out).parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(a.out, index=False, encoding="utf-8-sig")
     key.to_csv(key_out, index=False, encoding="utf-8-sig")
-    # 집계 때 short_name 가중치(층별 모집단 크기)로 쓴다. 점포 식별 정보 없이 수만 둔다
-    meta = {"seed": a.seed, "diagnosis": Path(a.diagnosis).as_posix(), "online_review_pool_n": len(pool),
+    # 집계 때 short_name 가중치(층별 모집단 크기)로 쓴다. 점포 식별 정보 없이 수만 둔다.
+    # #39 리뷰 M4: 입력 파일 해시와 serve 기준(score_origin/as_of)을 남긴다 — 재현성.
+    meta = {"seed": a.seed, "diagnosis": Path(a.diagnosis).as_posix(), "diagnosis_sha256": sha256_file(a.diagnosis),
+            "licenses_sha256": sha256_file(a.licenses), "mentions_sha256": sha256_file(a.mentions) if a.mentions else None,
+            "master_sha256": sha256_file(a.master) if a.master else None,
+            "online_review_pool_n": len(pool),
             "short_pool_n": ({s: int((short_pool["stratum"] == s).sum()) for s in (OPEN, CLOSED)}
-                             if short_pool is not None else None)}
+                             if short_pool is not None else None),
+            "short_pool_n_before_master_restriction": ({s: int(n_short_before.get(s, 0)) for s in (OPEN, CLOSED)}
+                                                        if n_short_before is not None else None),
+            **serve_meta_near(a.diagnosis)}
     key_meta_path(Path(key_out)).write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     m = {g: in_group(key["groups"], g) for g in GROUPS}
     short = key[m[SHORT]]
@@ -327,11 +434,42 @@ def cmd_sheet(a) -> pd.DataFrame:
                          "targets가 만든 name_match_targets.csv(그룹 없음)를 쓴다 (name_match_key.csv 아님)")
     assert_blind(targets.columns)
     items = read_items(a.items, set(targets["store_id"]))
+
+    # #39 리뷰 M1: 인허가일 이전/폐업일 이후(짧은 상호), serve 기준일 이후(priority/random) 글 제외.
+    # --key(groups) 없이는 그룹을 몰라 필터를 적용할 수 없다 — 그때는 생략하고 경고한다.
+    filter_meta = {"applied": False}
+    if a.key is not None:
+        key = pd.read_csv(a.key, dtype=str, keep_default_na=False, encoding="utf-8-sig")
+        lic = pd.read_parquet(a.licenses, columns=["store_id", "license_date", "close_date"]) if a.licenses else None
+        master_span = master_base_span(pd.read_parquet(a.master, columns=["store_id", "origin_start", "origin_end"])) \
+            if a.master else None
+        serve_as_of = a.serve_as_of or serve_meta_near(a.targets).get("serve_as_of")
+        if lic is None:
+            print("경고: --licenses가 없어 short_name 날짜 필터(인허가일·폐업일)를 생략한다")
+            lic = pd.DataFrame({"store_id": [], "license_date": [], "close_date": []})
+        bounds = date_bounds(lic, key, master_span=master_span, serve_as_of=serve_as_of)
+        before = items.merge(key[["store_id", "groups", "stratum"]].drop_duplicates("store_id"),
+                             on="store_id", how="left")
+        dates = pd.to_datetime(before["postdate"].astype(str), format="%Y%m%d", errors="coerce")
+        keep = _within_bounds(dates, before["store_id"], bounds)
+        bucket = np.where(before["stratum"].fillna("") != "", SHORT + ":" + before["stratum"].fillna(""),
+                          before["groups"].fillna("").str.split(GROUP_SEP).str[0])
+        excl_by = pd.Series(bucket[~keep.to_numpy()]).value_counts().to_dict()
+        items = before[keep].drop(columns=["groups", "stratum"]).reset_index(drop=True)
+        filter_meta = {"applied": True, "items_before": len(before), "items_excluded": int((~keep).sum()),
+                      "items_excluded_by_group": excl_by, "serve_as_of": str(serve_as_of) if serve_as_of else None}
+        print(f"M1 날짜 필터: {len(before):,}건 중 {int((~keep).sum()):,}건 제외 (그룹·층별 {excl_by}) → {len(items):,}건")
+    else:
+        print("경고: --key가 없어 M1 날짜 필터를 생략한다 (인허가일·폐업일·serve 기준일 확인 안 됨)")
+
     sheet = build_sheet(targets, items, a.per_store, a.seed)
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     sheet.to_csv(out, index=False, encoding="utf-8-sig")
     (out.parent / f"{out.stem}_README.md").write_text(SHEET_README.format(sheet=out.name), encoding="utf-8")
+    meta = {"per_store": a.per_store, "seed": a.seed, "items_sha256": {str(p): sha256_file(p) for p in a.items},
+            "date_filter": filter_meta}
+    (out.parent / f"{out.stem}_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     n0 = int((sheet["item_no"] == 0).sum())
     print(f"판정표 {len(sheet)}줄 (대상 {targets['review_id'].nunique()}곳, 매칭 글 없음 {n0}곳) → {out}")
     return sheet
@@ -390,7 +528,10 @@ def judge(sheet: pd.DataFrame, targets: pd.DataFrame, key: pd.DataFrame | None =
     if bad.any():
         raise ValueError(f"verdict 값은 {VERDICTS} 중 하나: {sorted(s.loc[bad, 'verdict'].unique())}")
     n_blank = int(blank.sum())
-    s = s[~blank]
+    if n_blank:
+        # #39 리뷰 M3: 미입력을 조용히 빼지 않는다 — 사람이 판단불가로 정한 것과 아직 안 채운 것은 다르다.
+        raise ValueError(f"verdict 미입력 글 {n_blank}건 — 모두 채운 뒤 다시 시도한다 (판단할 수 없으면 "
+                         f"빈칸이 아니라 '{UNKNOWN}'으로 채운다)")
     s = s.merge(targets[["review_id", "store_id", "groups", "stratum"]], on="review_id", how="left")
     rows = []
     for t in targets.itertuples(index=False):
@@ -486,6 +627,16 @@ def stratum_gap(items: pd.DataFrame, stores: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(out)
 
 
+def stratum_biz_composition(targets: pd.DataFrame, key: pd.DataFrame) -> pd.DataFrame:
+    """#39 리뷰 M2: short_name 표본의 영업/폐업 층별 업종 구성 — 업종 차이가 층 비교(오탐률 격차)에
+    섞여 들어오는지 확인용. targets의 biz_type + key의 stratum을 review_id로 잇는다."""
+    strat = key[in_group(key["groups"], SHORT)][["review_id", "stratum"]]
+    m = targets[["review_id", "biz_type"]].merge(strat, on="review_id", how="inner")
+    tab = m.groupby(["stratum", "biz_type"]).size().rename("n").reset_index()
+    tab["share"] = tab["n"] / tab.groupby("stratum")["n"].transform("sum")
+    return tab.sort_values(["stratum", "biz_type"]).reset_index(drop=True)
+
+
 def _pp(x) -> str:
     return "—" if x is None or (isinstance(x, float) and math.isnan(x)) else f"{x * 100:+.1f}%p"
 
@@ -500,9 +651,7 @@ def cmd_summarize(a) -> pd.DataFrame:
     key = pd.read_csv(a.key, dtype=str, encoding="utf-8-sig") if a.key else None
     if key is None:
         print("경고: --key(선정 그룹 키)가 없어 그룹 구분 없이 전체만 집계한다 (신뢰구간 없음)")
-    items, stores, n_blank = judge(sheet, targets, key)
-    if n_blank:
-        print(f"경고: verdict가 빈 글 {n_blank}건은 집계에서 뺐다")
+    items, stores, n_blank = judge(sheet, targets, key)  # n_blank는 항상 0 — 미입력이 있으면 judge()가 멈춘다
     meta_path = a.key_meta or (key_meta_path(Path(a.key)) if a.key else None)
     short_pool_n = None
     if meta_path is not None and Path(meta_path).exists():
@@ -538,6 +687,9 @@ def cmd_summarize(a) -> pd.DataFrame:
     if in_group(stores["groups"], SHORT).any():
         gap = stratum_gap(items, stores)
         gap.to_csv(out / "name_match_short_strata.csv", index=False, encoding="utf-8-sig")
+        if key is not None and "biz_type" in targets.columns:
+            comp = stratum_biz_composition(targets, key)
+            comp.to_csv(out / "name_match_short_biz_composition.csv", index=False, encoding="utf-8-sig")
         lines += ["", "## 짧은 상호: 폐업 − 영업 오탐률 차이", "",
                   "| 단위 | 영업 | 폐업 | 차이 (폐업−영업) | 95% CI (Newcombe) |", "|---|---|---|---|---|"]
         for r in gap.itertuples(index=False):
@@ -555,6 +707,85 @@ def cmd_summarize(a) -> pd.DataFrame:
     return tab
 
 
+# ---------------------------------------------------------------------------- 회차 간 판정 재사용 (재검수 부담 축소)
+def carry_over(old_sheet: pd.DataFrame, old_key: pd.DataFrame, new_targets: pd.DataFrame, new_key: pd.DataFrame,
+               bounds: dict[str, tuple] | None = None) -> tuple[pd.DataFrame, list[str], dict]:
+    """이전 회차 판정표(old_sheet+old_key, store_id는 old_key로만 안다)에서 새 회차(new_targets+new_key) 대상과
+    겹치는 (store_id, link) 판정을 재사용한다. bounds가 있으면 M1 날짜 필터도 옛 판정에 다시 적용한다
+    (필터로 빠지는 글은 재사용하지 않는다 — 회차가 바뀌어도 같은 규칙을 적용해야 하므로).
+
+    반환
+    - reused: [review_id(새 회차), store_id, link, verdict, note] — summarize 입력으로 그대로 합칠 수 있다
+    - blocked: 재사용 가능한 판정이 하나도 없는 새 회차 store_id 목록 (원본 blog_items.jsonl.gz 없이는
+      새 글을 뽑을 수 없어 검수가 막힌 점포)
+    - stats: 그룹별 재사용 건수 등 (점포 식별 정보 없음)
+    """
+    old = old_sheet.merge(old_key[["review_id", "store_id"]], on="review_id", how="left")
+    old = old[pd.to_numeric(old["item_no"], errors="coerce").fillna(0) > 0]
+    old = old[old["verdict"] != ""]
+    if bounds is not None:
+        dates = pd.to_datetime(old["post_date"], format="%Y-%m-%d", errors="coerce")
+        old = old[_within_bounds(dates, old["store_id"], bounds)]
+    new_map = new_key.drop_duplicates("store_id").set_index("store_id")["review_id"]
+    old = old[old["store_id"].isin(new_map.index)].copy()
+    old["review_id"] = old["store_id"].map(new_map)
+    reused = (old[["review_id", "store_id", "link", "verdict", "note"]]
+              .drop_duplicates(["store_id", "link"]).reset_index(drop=True))
+
+    all_new = new_key.drop_duplicates("store_id")
+    covered = set(reused["store_id"])
+    blocked_df = all_new[~all_new["store_id"].isin(covered)]
+    blocked = sorted(blocked_df["store_id"])
+
+    def _n(g):
+        return int(all_new.loc[in_group(all_new["groups"], g), "store_id"].isin(covered).sum())
+
+    stats = {"n_reused_items": len(reused), "n_stores_total": len(all_new), "n_stores_covered": len(covered),
+             "n_stores_blocked": len(blocked),
+             "covered_by_group": {g: _n(g) for g in GROUPS},
+             "blocked_by_group": {g: int(in_group(blocked_df["groups"], g).sum()) for g in GROUPS}}
+    return reused, blocked, stats
+
+
+def cmd_round2(a) -> dict:
+    old_sheet = pd.read_csv(a.old_sheet, dtype=str, keep_default_na=False, encoding="utf-8-sig")
+    old_key = pd.read_csv(a.old_key, dtype=str, keep_default_na=False, encoding="utf-8-sig")
+    new_targets = pd.read_csv(a.new_targets, dtype=str, encoding="utf-8-sig")
+    new_key = pd.read_csv(a.new_key, dtype=str, keep_default_na=False, encoding="utf-8-sig")
+    bounds = None
+    if a.licenses:
+        lic = pd.read_parquet(a.licenses, columns=["store_id", "license_date", "close_date"])
+        master_span = master_base_span(pd.read_parquet(a.master, columns=["store_id", "origin_start", "origin_end"])) \
+            if a.master else None
+        # --serve-as-of가 없으면 새 회차 key의 메타(name_match_key_meta.json, cmd_targets가 diagnosis 옆
+        # serve_meta.json에서 읽어 둔 값)에서 가져온다 — targets.csv 옆에는 serve_meta.json이 없다.
+        serve_as_of = a.serve_as_of
+        if serve_as_of is None and key_meta_path(a.new_key).exists():
+            serve_as_of = json.loads(key_meta_path(a.new_key).read_text(encoding="utf-8")).get("serve_as_of")
+        bounds = date_bounds(lic, new_key, master_span=master_span, serve_as_of=serve_as_of)
+    reused, blocked, stats = carry_over(old_sheet, old_key, new_targets, new_key, bounds)
+
+    to_judge_ids = sorted(set(new_key["review_id"]) - set(reused["review_id"]))
+    targets2 = new_targets[new_targets["review_id"].isin(to_judge_ids)][TARGET_COLS].reset_index(drop=True)
+    # 재사용 못한 review_id라도, 그 점포에 실제로 새로 뽑을 수 있는 글이 없다(원본 미접근) — 판정표는 지금 0행이다.
+    # NO_POSTS(매칭 글 없음) sentinel을 쓰지 않는다: "매칭 0건"이 아니라 "원본에 접근할 수 없어 모른다"이기 때문이다.
+    sheet2 = pd.DataFrame(columns=SHEET_COLS)
+    assert_blind(targets2.columns)
+    assert_blind(sheet2.columns)
+
+    out = Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
+    targets2.to_csv(out / "name_match_targets_round2.csv", index=False, encoding="utf-8-sig")
+    sheet2.to_csv(out / "name_match_sheet_round2.csv", index=False, encoding="utf-8-sig")
+    report = {**stats, "n_new_items_to_judge": 0, "n_stores_pending_raw_access": len(to_judge_ids),
+             "note": "원본 blog_items.jsonl.gz 없이는 새 글을 뽑을 수 없다 — 재사용 가능한 기존 판정만 반영했다."}
+    (out / "round2_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"재사용 {stats['n_reused_items']}건 (점포 {stats['n_stores_covered']}/{stats['n_stores_total']}) · "
+          f"새로 판정할 글 0건 · 원본 필요(대기) 점포 {len(to_judge_ids)}곳")
+    print(f"  그룹별 재사용 점포: {stats['covered_by_group']} / 대기 점포: {stats['blocked_by_group']}")
+    return {"reused": reused, "targets2": targets2, "sheet2": sheet2, "report": report}
+
+
 # ---------------------------------------------------------------------------- CLI
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(description="#28 상호 매칭 검수 보조 (blind 판정표)")
@@ -565,6 +796,8 @@ def main(argv=None) -> None:
     t.add_argument("--licenses", type=Path, required=True)
     t.add_argument("--mentions", type=Path, default=None,
                    help="online_mentions_monthly.parquet (짧은 상호 그룹 모집단: 블로그 언급 1건 이상). 없으면 그룹 생략")
+    t.add_argument("--master", type=Path, default=None,
+                   help="master_base.parquet (M2: 짧은 상호 모집단을 모형 대상 점포로 한정). 없으면 미제한")
     t.add_argument("--n-short-per-stratum", type=int, default=50, help="짧은 상호 층(영업/폐업)별 대상 수")
     t.add_argument("--n-random", type=int, default=20)
     t.add_argument("--n-priority", type=int, default=3)
@@ -577,6 +810,12 @@ def main(argv=None) -> None:
     s.add_argument("--per-store", type=int, default=3)
     s.add_argument("--seed", type=int, default=20260927)
     s.add_argument("--out", type=Path, required=True)
+    s.add_argument("--key", type=Path, default=None,
+                   help="M1 날짜 필터용 선정 그룹 키 (groups·stratum 열). 없으면 필터 생략")
+    s.add_argument("--licenses", type=Path, default=None, help="M1 필터용 (license_date/close_date)")
+    s.add_argument("--master", type=Path, default=None, help="M1 필터용 master_base (짧은 상호 등장 구간)")
+    s.add_argument("--serve-as-of", default=None,
+                   help="M1 상한(YYYY-MM-DD). 기본: --targets 옆 serve_meta.json에서 읽음")
     m = sub.add_parser("summarize", help="판정 결과 집계 (분석 쪽)")
     m.add_argument("--targets", type=Path, required=True)
     m.add_argument("--sheet", type=Path, required=True)
@@ -584,8 +823,17 @@ def main(argv=None) -> None:
     m.add_argument("--key-meta", type=Path, default=None,
                    help="선정 그룹 키 메타 (기본: --key 옆 name_match_key_meta.json, short_name 가중치)")
     m.add_argument("--out", type=Path, required=True)
+    r = sub.add_parser("round2", help="회차 간 판정 재사용 — 새로 판정할 글만 추려낸다 (분석 쪽)")
+    r.add_argument("--old-sheet", type=Path, required=True)
+    r.add_argument("--old-key", type=Path, required=True)
+    r.add_argument("--new-targets", type=Path, required=True)
+    r.add_argument("--new-key", type=Path, required=True)
+    r.add_argument("--licenses", type=Path, default=None, help="M1 날짜 필터를 옛 판정에도 다시 적용 (없으면 생략)")
+    r.add_argument("--master", type=Path, default=None)
+    r.add_argument("--serve-as-of", default=None)
+    r.add_argument("--out", type=Path, required=True)
     a = ap.parse_args(argv)
-    {"targets": cmd_targets, "sheet": cmd_sheet, "summarize": cmd_summarize}[a.cmd](a)
+    {"targets": cmd_targets, "sheet": cmd_sheet, "summarize": cmd_summarize, "round2": cmd_round2}[a.cmd](a)
 
 
 if __name__ == "__main__":
