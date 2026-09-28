@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from scipy.optimize import brentq
+from scipy.special import expit, logit
 from sklearn.isotonic import IsotonicRegression
+from sklearn.linear_model import LogisticRegression
 
 
 def brier_score(y: np.ndarray, p: np.ndarray) -> float:
@@ -87,6 +90,64 @@ class IsotonicCalibrator:
         if not self.fitted_:
             raise RuntimeError("fit을 먼저 호출한다")
         return np.clip(self.iso.predict(np.asarray(p, dtype=float)), 0.0, 1.0)
+
+
+class PlattCalibrator:
+    """로지스틱(Platt) 보정. logit(p)에 기울기·절편을 적합해 확률 수준을 맞춘다.
+    Isotonic과 달리 단조 계단이 아니라 매끄러운 곡선이고, 표본이 적을 때 덜 흔들린다."""
+
+    def __init__(self) -> None:
+        self.model_: LogisticRegression | None = None
+
+    def fit(self, p_cal: np.ndarray, y_cal: np.ndarray) -> "PlattCalibrator":
+        lp = logit(np.clip(np.asarray(p_cal, dtype=float), 1e-6, 1 - 1e-6))
+        self.model_ = LogisticRegression(C=np.inf, max_iter=1000).fit(lp[:, None], np.asarray(y_cal))
+        return self
+
+    def predict(self, p: np.ndarray) -> np.ndarray:
+        if self.model_ is None:
+            raise RuntimeError("fit을 먼저 호출한다")
+        lp = logit(np.clip(np.asarray(p, dtype=float), 1e-6, 1 - 1e-6))
+        return self.model_.predict_proba(lp[:, None])[:, 1]
+
+    @property
+    def slope(self) -> float:
+        return float(self.model_.coef_[0, 0])
+
+    @property
+    def intercept(self) -> float:
+        return float(self.model_.intercept_[0])
+
+
+def calibration_slope_intercept(y: np.ndarray, p: np.ndarray) -> tuple[float, float]:
+    """logit 척도 보정 기울기(y ~ logit p)와 절편(calibration-in-the-large: 기울기 1 고정,
+    logit p에 더하는 offset). 기울기 < 1이면 예측이 실제보다 극단적이다(과신)."""
+    y = np.asarray(y, dtype=float)
+    lp = logit(np.clip(np.asarray(p, dtype=float), 1e-6, 1 - 1e-6))
+    slope = float(LogisticRegression(C=np.inf, max_iter=1000).fit(lp[:, None], y).coef_[0, 0])
+    intercept = float(brentq(lambda a: expit(a + lp).mean() - y.mean(), -10, 10))
+    return slope, intercept
+
+
+def bootstrap_brier_diff(y: np.ndarray, p_a: np.ndarray, p_b: np.ndarray, store_ids: np.ndarray, *,
+                         n_boot: int = 1000, seed: int = 20260928) -> dict:
+    """Brier(a) − Brier(b)와 점포 단위 클러스터 부트스트랩 95% 구간. 같은 점포의 여러 origin 행을 정수
+    가중치로 함께 리샘플한다 — 뽑힌 횟수만큼 행을 실제로 복제하지 않고 가중 평균으로 계산해(=Brier가
+    제곱오차의 평균이라 가능) 부트스트랩 1회가 O(행 수)로 끝난다(점포별로 훑는 O(점포 수 × 행 수)보다 훨씬 빠르다).
+    Brier는 작을수록 좋으므로 diff < 0이면 a가 더 낫다."""
+    y, p_a, p_b = np.asarray(y, dtype=float), np.asarray(p_a, dtype=float), np.asarray(p_b, dtype=float)
+    sq_diff = (p_a - y) ** 2 - (p_b - y) ** 2  # 점(행) 단위 Brier 차이 — 가중합/가중치합이 곧 가중 평균 차이
+    codes, uniq = pd.factorize(pd.Series(store_ids))
+    n = len(uniq)
+    rng = np.random.default_rng(seed)
+    diffs = np.empty(n_boot)
+    for b in range(n_boot):
+        w = np.bincount(rng.integers(0, n, n), minlength=n)[codes].astype(float)
+        diffs[b] = (w * sq_diff).sum() / w.sum()
+    obs = brier_score(y, p_a) - brier_score(y, p_b)
+    lo, hi = np.percentile(diffs, [2.5, 97.5])
+    return {"diff": float(obs), "ci_low": float(lo), "ci_high": float(hi), "n_boot": n_boot,
+            "significant": bool(lo > 0 or hi < 0)}
 
 
 def calibration_report(
