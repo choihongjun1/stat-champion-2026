@@ -2,6 +2,8 @@
 """W2-2 탐지 모형 코드 테스트 (합성 패널, 실데이터 불필요)."""
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -186,7 +188,129 @@ def test_end_to_end(tmp_path, panel):
     assert "[group] trdar" in set(imp["feature"]) and "er_matched" not in set(imp["feature"])
     sc = pd.read_csv(out / "split_comparison.csv")
     assert {"time_split(embargo=4)", "time_split(embargo=0)"} <= set(sc["setting"])
-    for f in ("calibration_report.csv", "band_cutoffs.csv", "band_profile.csv", "run_meta.json",
-              "oof_metrics_by_origin.csv", "missing_by_origin.csv", "reliability.png",
-              "feature_importance.csv"):
+    assert set(sc["params"]) == {"현 설정", "튜닝"}
+    assert {"test_scope", "auc_last_origin", "n_last_origin"} <= set(sc.columns)
+    assert (sc.loc[sc["setting"] == "random_split(금지·대조군)", "test_scope"] == "전체 origin 무작위 ~20% 표본").all()
+    for f in ("calibration_window_report.csv", "calibration_decision.json", "band_cutoffs.csv", "band_profile.csv",
+              "run_meta.json", "oof_metrics_by_origin.csv", "missing_by_origin.csv", "reliability.png",
+              "reliability_select.png", "feature_importance.csv", "oof_predictions.parquet"):
         assert (out / f).exists(), f
+
+    cwr = pd.read_csv(out / "calibration_window_report.csv")
+    assert set(cwr["params"]) == {"현 설정", "튜닝"}
+    assert set(cwr["window"]) == {"select", "test"} and set(cwr["candidate"]) == {"raw", "isotonic", "platt"}
+    decision = json.loads((out / "calibration_decision.json").read_text(encoding="utf-8"))
+    assert set(decision) == {"현 설정", "튜닝"} and decision["현 설정"]["chosen"] in ("raw", "isotonic", "platt")
+
+    oof = pd.read_parquet(out / "oof_predictions.parquet")
+    assert set(oof["config"]) == {"현 설정", "튜닝"} and set(oof.columns) == {"store_id", "origin", "config", "p_oof", "y"}
+    assert not oof["store_id"].isna().any()
+
+    meta = json.loads((out / "run_meta.json").read_text(encoding="utf-8"))
+    assert meta["oof_predictions_sha256"] == train_detect.sha256(out / "oof_predictions.parquet")
+    assert meta["oof_predictions_rows"] == len(oof)
+    assert meta["calibration_candidate"] in ("raw", "isotonic", "platt")
+    assert meta["calibration_applied"] == (meta["calibration_candidate"] != "raw")
+
+
+# ---------------------------------------------------------------- #32 리뷰: 보정 3구간 · Platt · 분할 비교
+def test_platt_calibrator_recovers_known_slope():
+    rng = np.random.default_rng(0)
+    true = rng.uniform(0.03, 0.4, 50_000)
+    y = (rng.random(len(true)) < true).astype(int)
+    from scipy.special import expit, logit
+    p_overconf = expit(2.0 * logit(true) + 1.0)  # 기울기 0.5·절편 -0.5짜리 과신 예측
+    cal = calibration.PlattCalibrator().fit(p_overconf, y)
+    fixed = cal.predict(p_overconf)
+    slope, intercept = calibration.calibration_slope_intercept(y, fixed)
+    assert slope == pytest.approx(1, abs=0.03)
+    from sklearn.metrics import roc_auc_score
+    assert roc_auc_score(y, fixed) == pytest.approx(roc_auc_score(y, p_overconf))  # 단조 변환 — 순위 불변
+
+
+def test_calibration_slope_intercept_true_probabilities_near_one_zero():
+    rng = np.random.default_rng(1)
+    p = rng.uniform(0.02, 0.5, 200_000)
+    y = (rng.random(len(p)) < p).astype(int)
+    slope, intercept = calibration.calibration_slope_intercept(y, p)
+    assert slope == pytest.approx(1, abs=0.03) and intercept == pytest.approx(0, abs=0.02)
+
+
+def test_bootstrap_brier_diff_detects_real_gap_and_null():
+    rng = np.random.default_rng(2)
+    stores = np.repeat([f"S{i}" for i in range(1500)], 2)
+    y = (rng.random(len(stores)) < 0.2).astype(int)
+    good = np.clip(y * 0.6 + rng.normal(0.1, 0.05, len(stores)), 0.01, 0.99)
+    bad = np.clip(rng.uniform(0, 1, len(stores)), 0.01, 0.99)
+    r = calibration.bootstrap_brier_diff(y, good, bad, stores, n_boot=300, seed=1)
+    assert r["significant"] and r["diff"] < 0 and r["ci_low"] < r["diff"] < r["ci_high"]
+    same = calibration.bootstrap_brier_diff(y, good, good, stores, n_boot=50)
+    assert same["diff"] == 0 and not same["significant"]
+
+
+def test_calibration_windows_split_dont_overlap_and_match_today_quarters():
+    w = train_detect.calibration_windows(ORIGINS)
+    assert w["fit"] == ["2023Q1", "2023Q2", "2023Q3", "2023Q4"]
+    assert w["select"] == ["2024Q1", "2024Q2", "2024Q3", "2024Q4"]
+    assert w["test"] == ["2025Q1", "2025Q2"]
+    allo = w["fit"] + w["select"] + w["test"]
+    assert len(allo) == len(set(allo))  # 겹치지 않음
+    with pytest.raises(ValueError):
+        train_detect.calibration_windows(ORIGINS[:5])
+
+
+def _synthetic_oof(seed=0, n_per_origin=300, slope=1.0, origins=ORIGINS[8:]):
+    """select+test 구간 OOF를 직접 합성 — calibration_analysis를 빠르게 단위 테스트하기 위함."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for i, o in enumerate(origins):
+        true_p = rng.uniform(0.03, 0.4, n_per_origin)
+        y = (rng.random(n_per_origin) < true_p).astype(int)
+        from scipy.special import expit, logit
+        p_oof = expit(slope * logit(true_p))  # slope<1이면 과신(원 확률이 극단적)
+        rows.append(pd.DataFrame({"origin": o, "idx": np.arange(n_per_origin) + i * n_per_origin,
+                                  "p_oof": p_oof, "y": y}))
+    return pd.concat(rows, ignore_index=True)
+
+
+def test_choose_calibration_picks_raw_when_already_well_calibrated():
+    oof = _synthetic_oof(slope=1.0)
+    df = pd.DataFrame({"store_id": [f"S{i}" for i in range(len(oof))]})
+    windows = train_detect.calibration_windows(ORIGINS)
+    chosen, decision, cands, sel_metrics = train_detect.choose_calibration(oof, df, windows, n_boot=200)
+    assert chosen == "raw" and decision["chosen"] == "raw"
+    assert set(sel_metrics["candidate"]) == {"raw", "isotonic", "platt"}
+
+
+def test_choose_calibration_picks_candidate_when_overconfident():
+    oof = _synthetic_oof(slope=0.3)  # 뚜렷하게 과신 — 보정이 유의하게 나아야 한다
+    df = pd.DataFrame({"store_id": [f"S{i}" for i in range(len(oof))]})
+    windows = train_detect.calibration_windows(ORIGINS)
+    chosen, decision, cands, sel_metrics = train_detect.choose_calibration(oof, df, windows, n_boot=200)
+    assert chosen in ("isotonic", "platt")
+    assert decision["boot_vs_raw"]["significant"] and decision["boot_vs_raw"]["diff"] < 0
+
+
+def test_calibration_analysis_reports_both_windows_and_marks_chosen():
+    oof = _synthetic_oof(slope=0.3)
+    df = pd.DataFrame({"store_id": [f"S{i}" for i in range(len(oof))]})
+    a = train_detect.calibration_analysis(oof, df, ORIGINS, n_boot=200)
+    assert set(a["report"]["window"]) == {"select", "test"}
+    assert set(a["report"]["candidate"]) == {"raw", "isotonic", "platt"}
+    assert a["report"]["chosen"].sum() == 2  # select·test 각 1행씩 chosen=True
+    assert a["chosen"] in ("raw", "isotonic", "platt")
+    assert len(a["test_y"]) == len(a["test_preds"]["raw"]) == len(a["test_preds"][a["chosen"]])
+
+
+def test_split_comparison_has_last_origin_columns_and_scope_note(panel):
+    cols = features.select_features(panel.columns, "base")
+    X = features.build_X(panel, cols)
+    y = panel["event_12m"].to_numpy()
+    sc = train_detect.split_comparison(panel, X, y, {"현 설정": None, "튜닝": {"learning_rate": 0.1}})
+    assert set(sc["params"]) == {"현 설정", "튜닝"}
+    assert {"auc_last_origin", "ap_last_origin", "n_last_origin"} <= set(sc.columns)
+    ts4 = sc[(sc["setting"] == "time_split(embargo=4)") & (sc["params"] == "현 설정")].iloc[0]
+    assert ts4["test"] == ORIGINS[-1] and ts4["auc"] == pytest.approx(ts4["auc_last_origin"])  # test가 이미 최신 origin
+    rnd = sc[sc["setting"].str.startswith("random_split")].iloc[0]
+    assert rnd["test_scope"] == "전체 origin 무작위 ~20% 표본"
+    assert rnd["n_last_origin"] < rnd["n_train"]  # 최신 origin 부분만 추린 쪽이 더 작다

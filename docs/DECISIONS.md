@@ -446,9 +446,10 @@ row 부재 패턴 실측. 상세 수치는 `outputs/master/qa_report.md` "업종
   상권 polygon 스냅샷(2023-10-23) 이후 origin(2023Q4~)만의 성능을 따로 보고한다.
 - **민감도 feature set**: base / no_trdar / no_land_price / no_gu / license_only. T-2 상권은
   `attach_trdar_features(lag_quarters=2)`로 만든 master를 `--master`로 넣어 같은 평가를 돌린다.
-- **보정(isotonic)은 첫 검증 origin 기준 학습 가능 구간의 OOF 예측으로 적합**하고, 검증 구간 ECE가
-  개선될 때만 적용한다. raw·calibrated 지표를 둘 다 남긴다 (origin별 base rate 변동이 커서 보정이
-  오히려 나빠질 수 있다 — 실측 상대 27% 변동).
+- **보정은 첫 검증 origin 기준 학습 가능 구간의 OOF 예측으로 적합**하고, 검증 구간 ECE가 개선될 때만
+  적용한다. raw·calibrated 지표를 둘 다 남긴다 (origin별 base rate 변동이 커서 보정이 오히려 나빠질 수
+  있다 — 실측 상대 27% 변동). → **2026-09-28 갱신**: 선택(적용 여부 판단)과 최종 평가에 같은 구간을 쓰는
+  절차는 선택 편향이 생긴다(#32 리뷰) — 아래 "보정 3구간·후보 비교" 항목의 fit/select/test 분리로 바뀌었다.
 - **불확실성 구간 = 점포 단위 부트스트랩 재학습의 5~95 백분위** (기본 B=20). Venn-ABERS는 보정 표본이
   크면 폭이 사실상 0이라(평균 0.0013, 구간 커버 0/10) 화면에 쓰지 않는다. 화면 문구는 "예측이 얼마나
   흔들리는가"의 구간이며 "폐업 확률의 범위"가 아니다. 점추정이 구간 밖에 놓이면 구간을 넓혀 포함시킨다.
@@ -456,7 +457,82 @@ row 부재 패턴 실측. 상세 수치는 `outputs/master/qa_report.md` "업종
   낮은 컷오프, mid = 예측 확률이 평균의 1.2배 이상. (mid를 구간 평균 lift로 찾으면 평균 미만 점포가 섞여
   컷오프가 base rate 아래로 내려가 mid가 61%가 됐다 — 실데이터 첫 실행.) 백분위 컷오프는 isotonic 동점 때문에 의도한 비율을 만들지 못하고(q90 → 15.1%),
   "상위 N%" 동어반복이라 쓰지 않는다. 상대 위치는 `percentile`(같은 origin·자치구·업종 내)이 맡는다.
+  **high 등급의 예측 확률은 실제보다 높게 나오는 경향이 있다** — 정의상 "실측이 평균의 2배 이상"인
+  가장 낮은 컷오프를 잡으므로, high로 잡히는 점포들의 개별 예측 평균은 그 실측보다 흔히 높다
+  (2026-09-28 실측, base·현 설정·platt 적용 후: high 등급 test 구간 평균 예측 0.248 vs 실측 0.240 —
+  적용 전(raw) 기준으로는 평균 예측 0.297 vs 실측 0.240으로 격차가 더 컸다. 아래 "보정 3구간" 항목).
+  화면에 "high 등급의
+  확률 수치는 실제보다 높게 표시되는 경향이 있다"는 설명을 함께 보여준다.
 - **공시지가(`land_price`)는 시간 분할 검증에서 학습에 한 번도 들어가지 못한다.** 값이 있는 origin이
   2024Q2~2025Q2뿐이고, 검증 가능한 마지막 origin(2025Q2)의 학습 구간이 2024Q1까지이기 때문이다.
   검증되지 않은 feature를 서빙 모형에만 넣지 않도록, **서빙 모형은 검증과 같은 feature set으로 학습**하고
   land_price는 라벨이 쌓여 검증 가능해질 때까지 Base 서빙 입력에서 제외한다.
+
+## 2026-09-28 — W2-2 PR #32 리뷰 반영: 분할 비교·보정 3구간·확률 계약·OOF 저장
+근거: choihongjun1 PR #32 리뷰(2026-09-26 18:26, 2026-09-27 00:25). 최종 모형 설정(base HGB 기본 하이퍼파라미터)은
+바꾸지 않는다 — 튜닝 설정(`learning_rate=0.03, max_leaf_nodes=15`, feat/w2-2-benchmark HPO) 채택은 Issue #45
+결정 대기다. 아래 비교는 두 설정 모두로 냈다.
+
+- **분할 비교표(`split_comparison.csv`)에 평가 모집단을 명시한다.** `random_split`·점포 홀드아웃은 전체 18개
+  origin에서 무작위로 뽑은 **약 20%**(`splits.random_split_baseline`/`store_holdout_split`의 `test_frac=0.2`)를
+  평가한 값이라 "2025Q2 검증 결과"가 아니다 — `test_scope` 열에 이를 적는다. 네 분할 모두 최신 origin(오늘
+  데이터는 2025Q2)만 추린 성능(`*_last_origin` 열)도 함께 낸다 — `time_split` 두 설정은 test가 이미 그 origin
+  하나뿐이라 전체 성능과 같게 나오고, `random_split`·점포 홀드아웃은 이 열로 비로소 2025Q2만의 성능을 볼 수
+  있다. 현 설정·튜닝 설정 모두로 돌려 `params` 열로 구분한다 (`src/models/train_detect.split_comparison`).
+- **보정을 fit/select/test 3구간으로 분리한다** (`train_detect.calibration_windows`) — 선택과 최종 평가를
+  같은 구간에서 하면 선택 편향이 생긴다(위 리뷰). 3구간은 서로 겹치지 않고 순서대로 이어진다:
+  - **fit**(보정기 학습, 4개 origin) → **select**(적용 여부 선택, 4개 origin) → **test**(최종 보고,
+    `TEST_SIZE`=2개 origin, 화면에 실제로 나가는 검증 구간).
+  - 오늘 데이터(2021Q1~2025Q2, 18개 origin)에서는 fit=2023Q1–Q4, select=2024Q1–Q4, test=2025Q1–Q2와 같다.
+  - **select 구간(2024Q1–Q4)의 라벨은 모형 개발 시점(오늘)에는 이미 확정돼 있다** — origin_end + 12개월
+    성숙 기준으로 2025Q4까지의 사건을 알아야 하는데 오늘(2026-09)이 이미 그 뒤이기 때문이다. 이건 **서빙
+    시점 규칙(embargo 4분기, 서빙 당시 아직 안 지난 origin은 못 쓴다)과는 별개**다 — 모형을 "지금" 개발·평가할
+    때는 과거 origin의 라벨을 다 볼 수 있지만, 서빙은 그 시점에 성숙한 라벨까지만으로 학습한 모형을 쓴다.
+- **후보 3개: raw(원 확률) / isotonic / Platt(로지스틱 재보정, `calibration.PlattCalibrator`).** Platt은
+  logit(p)에 기울기·절편을 적합하는 매끄러운 보정으로, isotonic(계단형)보다 select 구간처럼 표본이 작을 때
+  덜 흔들릴 수 있어 후보에 넣었다.
+- **선택 규칙(미리 고정, `train_detect.choose_calibration`):** fit 구간으로 세 후보를 적합하고, **select
+  구간 Brier가 가장 낮은 후보**를 고른다. raw가 아닌 후보를 골랐어도, raw 대비 Brier 차이가 점포 단위
+  클러스터 부트스트랩(`calibration.bootstrap_metric_diff`, 기본 1,000회) 95% CI상 **유의하지 않으면
+  (0을 포함하면) raw를 유지한다** — select 구간(4개 origin)은 표본이 상대적으로 작아 우연한 차이로
+  잘못 채택할 수 있어서다. 선택 이유는 `calibration_decision.json`에 사람이 읽을 수 있는 문장으로 남긴다.
+- **결과(2025Q2 master_base, base feature set, 2026-09-28 실측):**
+  - **현 설정: `platt` 채택.** select 구간(2024Q1–Q4, 118,006행) Brier 0.10649(raw) → 0.10608(platt),
+    차이 −0.00041, 부트스트랩 95% CI [−0.00059, −0.00022] (유의). test 구간(2025Q1–Q2, 58,319행)에서는
+    Brier 0.10113(raw) → 0.10137(platt·근소 악화), ECE 0.0117 → 0.0207(악화), 보정 기울기 0.730 → 1.254(1을
+    지나쳐 과잉보정). **select 구간에서 유의했던 개선이 held-out test 구간에서는 재현되지 않는다** — Brier가
+    작은 확률 대다수(폐업 안 함)에 덜 민감해, 꼬리(고위험) 쪽 재보정 오류를 못 잡아낼 수 있다. 미리 고정한
+    규칙을 그대로 따랐지만 이 한계는 남는다.
+    - **화면에 미치는 영향**: high 등급(2,019곳, 3.46%)은 platt이 단조 변환이라 raw 기준과 **완전히 같은
+      점포 집합**이지만, mid로 잡히는 점포가 raw 기준 16.8%(9,776곳) → platt 기준 28.9%(16,838곳)로 크게
+      늘고 low는 79.8% → 67.7%로 줄었다(raw에서 mid 문턱 바로 아래였던 점포들이 platt의 확대(기울기>1)로
+      문턱을 넘음). **등급 분포가 실무적으로 크게 바뀌므로, 이 채택을 최종 반영할지는 위 held-out 한계와
+      함께 팀 판단이 필요하다** (Issue #45와 별개로 남기는 열린 질문).
+  - **튜닝 설정: `raw` 유지.** select 구간에서 platt의 Brier가 raw보다 낮아 보였지만(0.105847 vs 0.105975)
+    부트스트랩 95% CI [−0.00030, +0.00004]가 0을 포함해 유의하지 않았다.
+  - 전체 표는 `outputs/models/detect_v0/calibration_window_report.csv`, 선택 근거는 `calibration_decision.json`.
+- **high 등급의 평균 예측 확률이 실측 폐업률보다 높게 나오는 경향은 platt 적용 후에도 남는다** (다만
+  격차는 줄었다): test 구간 high 행 평균 예측 0.248 vs 실측 0.240(platt 적용, 실제 서빙 값) — 같은 fit
+  구간을 raw로 컷오프를 잡으면 0.297 vs 0.240으로 격차가 더 크다. `band_profile.csv`의 high 행
+  (`pred_mean` vs `obs_rate`). 화면에는 이 경향을 설명하는 문구를 함께 보여준다 (위 "band" 항목 참고).
+- **`probability_12m`/`ci_low`/`ci_high`/`band`/`calibrated` 계약** (필드명은 W2-5 PR #41
+  `report_schema.json` `$defs/risk`와 대조해 맞춤 — 사용자 요청의 "calibration_applied"는 실제 스키마
+  필드명이 아니라 `calibrated`다):
+
+  | 필드 | 정의 | 산출식 |
+  |---|---|---|
+  | `probability_12m` | 12개월 내 폐업 예측 확률(점추정) | `calibrated=true`면 선택된 보정기(`chosen.predict`)를 원 모형 확률(`p_oof`)에 적용한 값, `false`면 원 모형 확률 그대로 |
+  | `ci_low`/`ci_high` | 점포 단위 부트스트랩 재학습(B회) 예측의 5/95 백분위 — **신뢰구간이 아니라 "학습 데이터가 달랐다면 예측이 얼마나 흔들렸을지"의 범위** | 부트스트랩 원값에 `calibrated=true`면 같은 보정기를 적용. 점추정이 구간 밖에 놓이면 구간을 넓혀 포함시킨다(좁히지 않음) |
+  | `band` | low/mid/high 절대 확률 등급 | `probability_12m`(보정 적용 여부 반영된 값)에 `bands.assign_bands_absolute` — 컷오프는 **fit 구간** OOF(선택된 보정기 적용)로 `bands.suggest_cutoffs`가 정함 |
+  | `calibrated` | 보정을 적용했는지 (`chosen != "raw"`) | 위 선택 규칙의 결과. `false`면 `probability_12m`은 원 모형 확률과 같다 |
+
+  **보정을 적용하면(`calibrated=true`) 진단(W2-3 Shapley)은 여전히 보정 *전* 모형 확률을 분해한다** —
+  `diagnose.factor_shapley`가 `model.predict_proba`(원 모형)를 직접 쓰고, `serve.py`가
+  `res["meta"]["probability_12m"] == p_raw`(보정 전)임을 어서션으로 확인한다. **이미 서빙 쪽에
+  `serve_meta.diagnosis_scale`** 필드로 이 관계를 기록해 둔다("calibrated와 다름 (보정 전 확률)" /
+  "risk 확률과 같음") — 이 PR에서 새로 만들 필요는 없다. 화면 문구는 이 필드를 근거로 "위험요인
+  기여도의 합은 보정 전 확률 기준이며, 화면에 보이는 위험도(%)와 다를 수 있습니다"를 위험도 표시
+  근처에 각주로 보여주는 방향을 제안한다 (기여도 목록이 아니라 위험도 수치 옆).
+- **OOF 예측을 저장한다** (`outputs/models/detect_v0.../oof_predictions.parquet`, gitignore) —
+  `store_id, origin, config(현 설정/튜닝), p_oof, y`. `run_meta.json`에 파일 sha256과 행 수를 남긴다.
+  생존분석(C-index 등)은 이 PR 범위 밖이며 **후속 PR**로 진행한다.
