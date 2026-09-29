@@ -43,6 +43,8 @@ from src.data import config
 from src.models import bands, detect, diagnose, features, train_detect, uncertainty
 
 SCHEMA_VERSION = "0.2"  # 0.2: score_origin, factors[].missing_reason·hold_reason, direction "영향 미미"
+# 2026-09-30(#34/#41): factors[].driver_code 추가 — #41 report_schema.json $defs/online_driver_code와 같은 선택
+# 필드라 버전은 올리지 않는다(없거나 null이면 구버전 입력과 같다). online_attention에만 값이 있다.
 DISCLAIMER = "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다."
 INTERVAL_NOTE = "학습 데이터가 달랐다면 예측이 얼마나 흔들렸을지의 범위이며, 폐업 확률 자체의 범위가 아닙니다."
 DEFAULT_LICENSES = config.REPO_ROOT / "outputs" / "standardized" / "licenses_3gu.parquet"
@@ -118,7 +120,7 @@ def read_detect_run(detect_dir: Path) -> tuple[dict, dict, object | None]:
 
 def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *, primary: str,
         online_path: Path | None = None, online_score_path: Path | None = None,
-        licenses_path: Path | None = None,
+        licenses_path: Path | None = None, qa_path: Path | None = None, background_index_path: Path | None = None,
         n_boot: int = 20, n_background: int = 16, seed: int = 20260925) -> pd.DataFrame:
     t0 = time.time()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -181,9 +183,24 @@ def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *,
     risk.to_parquet(out_dir / "risk_scores.parquet", index=False)
 
     rng = np.random.default_rng(seed)
-    bg = rng.choice(len(Xtr), n_background, replace=False)
+    truncated_stores = None
+    if online_score_path is not None and qa_path is not None:
+        truncated_stores = diagnose.load_truncated_stores(qa_path)
+        train_detect.log(f"절단 점포 {len(truncated_stores):,}곳 (QA {qa_path})")
+    if background_index_path is not None:
+        bg = diagnose.load_background_index(background_index_path, lab)
+        outside_tr = ~np.isin(bg, np.flatnonzero(tr))
+        if outside_tr.any():
+            raise ValueError(f"배경 인덱스 중 {int(outside_tr.sum())}건이 이 학습 구간(tr) 밖이다")
+        train_detect.log(f"배경 {len(bg)}개 — 저장된 인덱스 재현 ({background_index_path})")
+        Xb = features.build_X(lab.iloc[bg], cols, categories=cats)
+    else:
+        bg = rng.choice(len(Xtr), n_background, replace=False)
+        Xb = Xtr.iloc[bg]
+    bg_fp = diagnose.background_fingerprint(lab, bg) if background_index_path is not None \
+        else diagnose.background_fingerprint(lab.loc[tr].reset_index(drop=True), bg)
     meta = sc[["store_id", "origin", "biz_type", "gu", "age_months"]]
-    res = diagnose.explain(model, Xs, Xtr.iloc[bg], meta, sc)
+    res = diagnose.explain(model, Xs, Xb, meta, sc, truncated_stores=truncated_stores)
     long = res["long"]
     long.to_parquet(out_dir / "diagnosis.parquet", index=False)
     res["by_category"].to_parquet(out_dir / "diagnosis_by_category.parquet", index=False)
@@ -220,6 +237,9 @@ def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *,
         "score_origin": s, "as_of": as_of, "n_stores": int(len(sc)), "primary_feature_set": primary,
         "train_origins": [train_origins[0], train_origins[-1]], "n_train_rows": int(tr.sum()),
         "band_cutoffs": cut, "n_boot": n_boot, "n_background": n_background,
+        "background": {"source": str(background_index_path) if background_index_path else "random",
+                       **bg_fp},
+        "qa": str(qa_path) if qa_path else None, "n_truncated_stores": len(truncated_stores) if truncated_stores else 0,
         "detect_run": str(detect_dir), "detect_master_sha256": run_meta.get("master_sha256"),
         "master": str(master_path), "master_sha256": train_detect.sha256(master_path),
         "score": str(score_path), "score_sha256": train_detect.sha256(score_path),
@@ -257,6 +277,10 @@ def main(argv=None) -> None:
                     help=f"인허가 표준화 테이블 (기본: {DEFAULT_LICENSES.relative_to(config.REPO_ROOT)}가 있으면 사용)")
     ap.add_argument("--n-boot", type=int, default=20)
     ap.add_argument("--n-background", type=int, default=16)
+    ap.add_argument("--qa", type=Path, default=None,
+                    help="온라인 QA csv — 있으면 절단 점포를 온라인 요인 data_missing으로 보류 (#34)")
+    ap.add_argument("--background-index", type=Path, default=None,
+                    help="shapley_background_stability가 저장한 배경(store_id,origin) csv — 있으면 재현, 없으면 무작위")
     ap.add_argument("--out", type=Path, default=None)
     a = ap.parse_args(argv)
     licenses = a.licenses
@@ -270,7 +294,8 @@ def main(argv=None) -> None:
     origin = str(pd.read_parquet(a.score, columns=["origin"])["origin"].iloc[0])
     out = a.out or (config.REPO_ROOT / "outputs" / "serve" / f"{origin}_{a.primary}")
     run(a.master, a.score, detect_dir, out, primary=a.primary, online_path=a.online,
-        online_score_path=a.online_score, licenses_path=licenses, n_boot=a.n_boot, n_background=a.n_background)
+        online_score_path=a.online_score, licenses_path=licenses, qa_path=a.qa,
+        background_index_path=a.background_index, n_boot=a.n_boot, n_background=a.n_background)
 
 
 if __name__ == "__main__":

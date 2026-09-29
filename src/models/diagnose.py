@@ -22,6 +22,7 @@ import argparse
 import itertools
 import json
 import math
+import re
 import time
 from pathlib import Path
 
@@ -185,7 +186,7 @@ def online_driver_text(feature: str, v, has_ever=None) -> str:
 
     #34 리뷰: months_since_last가 NA인 두 경우를 구분한다 — `has_ever`가 확정 0이면(관측 구간 전체에서
     언급을 찾지 못함) "이력 없음", `has_ever`도 NA면(절단 점포라 관측 시작 이전을 모름, `online_features`
-    `unknown` 마스크) "관측 불가"다. 이전엔 NA면 무조건 "이력 없음"이라 절단 사례를 오독했다. 새 텍스트를
+    `unknown` 마스크) "관측 불가"다. 이전엔 NA면 무조건 "이력 없음"이라 절단 사례를 오독했다. 새 문구를
     만들지 않고 다른 온라인 feature의 NA와 같은 "관측 불가(검색 결과 상한)" 문구를 그대로 재사용한다 —
     #41 `_ONLINE_DRIVER_PATTERNS`가 이미 이 문구를 unobservable로 분류하므로 그 계약을 건드리지 않는다."""
     if v is None or pd.isna(v):
@@ -224,6 +225,43 @@ def online_signal_is_presence(feature: str, v) -> bool:
     if feature == "online_blog_months_since_last":
         return v <= 3
     return False
+
+
+# #41 driver_code — 온라인 factor의 근거 문구를 구조화 코드로 분류한다. #41 브랜치
+# (feature/w2-report-serving, 커밋 6342a82·eae0531) `report_validation._ONLINE_DRIVER_PATTERNS`의
+# 사본이다 — serve 입력 계약이 그 표(전체 일치, 부분 문자열 아님)로 검증하므로 **여기서 이 문구를 바꾸면
+# 그 표도 같이 바꿔야 한다.** lapse 경계(마지막 언급 후 3개월 이하 = presence)는 `online_signal_is_presence`
+# 와 같다.
+ONLINE_LAPSE_MAX_PRESENT_MONTHS = 3
+_ONLINE_DRIVER_PATTERNS: list[tuple[re.Pattern, object]] = [
+    (re.compile(r"최근 6개월 블로그 언급이 그 전 6개월보다 (\d+)건 줄어듦"), "decline"),
+    (re.compile(r"최근 6개월 블로그 언급이 그 전 6개월보다 (\d+)건 늘어남"), "presence"),
+    (re.compile(r"최근 1년 블로그 언급 수 변화 없음"), "no_change"),
+    (re.compile(r"최근 12개월 블로그 언급 (\d+)건"), lambda n: "absent" if n == 0 else "presence"),
+    (re.compile(r"최근 3개월 블로그 언급 (\d+)건"), lambda n: "absent" if n == 0 else "presence"),
+    (re.compile(r"최근 12개월 블로그 언급 있음"), "presence"),
+    (re.compile(r"최근 12개월 블로그 언급 없음"), "absent"),
+    (re.compile(r"과거 블로그 언급 이력 있음"), "presence"),
+    (re.compile(r"블로그 언급 이력 없음"), "absent"),
+    (re.compile(r"이번 달에도 블로그 언급 있음"), "presence"),
+    (re.compile(r"마지막 블로그 언급 이후 (\d+)개월"),
+     lambda n: "lapse" if n > ONLINE_LAPSE_MAX_PRESENT_MONTHS else "presence"),
+    (re.compile(r"관측 불가\(검색 결과 상한\)"), "unobservable"),
+]
+# $defs/online_driver_code(#41 report_schema.json)와 같은 enum. 정책 연결 대상은 decline·lapse·absent뿐이며
+# unobservable은 "언급 없음"이 아니다(#38).
+ONLINE_DRIVER_CODES = ("decline", "lapse", "absent", "unobservable", "no_change", "presence")
+
+
+def classify_online_driver(text: str | None) -> str | None:
+    """온라인 driver 문구 → decline/lapse/absent/presence/no_change/unobservable. 템플릿에 없으면 None."""
+    if text is None:
+        return None
+    for pat, cls in _ONLINE_DRIVER_PATTERNS:
+        m = pat.fullmatch(text)
+        if m:
+            return cls(int(m.group(1))) if callable(cls) else cls
+    return None
 
 
 def online_drivers(model, Xt: pd.DataFrame, Xb: pd.DataFrame, online_cols: list[str],
@@ -330,6 +368,7 @@ def factors_json(long: pd.DataFrame, store_id: str, origin: str, values: dict | 
         "peer_percentile": None if pd.isna(r["peer_percentile"]) else int(r["peer_percentile"]),
         "actionability": r["actionability"], "explanation": r["explanation"],
         "driver": r["driver_text"] or None,
+        "driver_code": r.get("driver_code") or None,
         "display": bool(r["display"]), "display_note": r["display_note"] or None,
         "data_missing": bool(r.get("data_missing", False)),
         "missing_reason": r.get("missing_reason_code") or None,
@@ -340,11 +379,13 @@ def factors_json(long: pd.DataFrame, store_id: str, origin: str, values: dict | 
 
 # ---------------------------------------------------------------------------
 def explain(model: detect.DetectModel, Xt: pd.DataFrame, Xb: pd.DataFrame, meta: pd.DataFrame,
-            raw: pd.DataFrame) -> dict:
+            raw: pd.DataFrame, *, truncated_stores: set | None = None) -> dict:
     """학습된 모형 하나로 대상 점포들의 요인 진단을 만든다 (진단·서빙 공용).
 
     meta: 대상 행의 store_id, origin, biz_type, gu, age_months (Xt와 같은 순서)
     raw : 대상 행의 원래 값 (판단 근거 `values` 출력용, Xt와 같은 순서)
+    truncated_stores: #33 절단 점포(QA first_date_truncated) store_id 집합. 온라인 요인이 전부든
+        일부든 결측이면(#34 리뷰) data_missing으로 보류한다 — 절단 자체가 없거나 결측이 없으면 그대로 둔다.
     반환: long(점포×요인), by_category, active(요인 목록), base, meta(확률 포함), values(함수)
     """
     meta = meta.reset_index(drop=True).copy()
@@ -373,6 +414,7 @@ def explain(model: detect.DetectModel, Xt: pd.DataFrame, Xb: pd.DataFrame, meta:
         long.append(part)
     long = pd.concat(long, ignore_index=True)
     long["driver_feature"], long["driver_text"] = "", ""
+    long["driver_code"] = None
     long["display"], long["display_note"], long["hold_reason"] = True, "", ""
     on = next((k for k, f in enumerate(active) if f["id"] == "online_attention"), None)
     if on is not None:
@@ -382,10 +424,18 @@ def explain(model: detect.DetectModel, Xt: pd.DataFrame, Xb: pd.DataFrame, meta:
         train_detect.log(f"온라인 요인 세부 근거 계산 (참가자 {1 + len(online_cols)}명)")
         drv, _ = online_drivers(model, Xt, Xb, online_cols, other_cols, sign)
         vals = Xt[online_cols].reset_index(drop=True)
-        texts = [online_driver_text(f, vals.at[i, f]) for i, f in enumerate(drv)]
+        has_ever_col = "online_blog_has_ever" if "online_blog_has_ever" in vals.columns else None
+        texts = [online_driver_text(f, vals.at[i, f], vals.at[i, has_ever_col] if has_ever_col else None)
+                for i, f in enumerate(drv)]
+        codes = [classify_online_driver(t) for t in texts]
+        unknown = sorted({t for t, c in zip(texts, codes) if c is None})
+        if unknown:
+            raise RuntimeError(f"#41 driver_code 분류표에 없는 driver 문구: {unknown} — "
+                              "_ONLINE_DRIVER_PATTERNS와 online_driver_text 템플릿을 맞춘다")
         m = (long["factor_id"] == "online_attention").to_numpy()
         long.loc[m, "driver_feature"] = drv
         long.loc[m, "driver_text"] = texts
+        long.loc[m, "driver_code"] = codes
         # 화면 표시 보류: 온라인 요인이 위험을 올리는데 주된 근거가 "언급이 있음/많음"인 경우.
         # 사업자가 할 수 있는 일로 번역되지 않고(언급을 줄이라는 뜻이 아니다), 이름 오탐(#28)이나
         # 유행 상권 인기 점포 효과일 수 있어 검증 전까지 진단문에 내보내지 않는다. 기여값은 그대로 둔다.
@@ -403,19 +453,25 @@ def explain(model: detect.DetectModel, Xt: pd.DataFrame, Xb: pd.DataFrame, meta:
     long["data_missing"] = False
     long["missing_reason"], long["missing_reason_code"] = "", ""
     n = len(meta)
+    is_truncated = raw["store_id"].isin(truncated_stores).to_numpy() if truncated_stores else np.zeros(n, dtype=bool)
     for k, f in enumerate(active):
-        allna = Xt[factor_cols[k]].isna().all(axis=1).to_numpy()
-        if not allna.any():
+        bad = Xt[factor_cols[k]].isna().all(axis=1).to_numpy()
+        # #34 리뷰: 온라인 요인은 전부 결측이 아니어도(절단 창만 일부 NA) 절단 점포면 보류한다 — 그
+        # feature들의 결측 자체가 절단(수집 시점 기준 미래 정보)에서 온 것이라 부분 관측값만으로 판단할
+        # 근거가 못 된다. 절단이 있어도 이 origin의 창에 결측이 전혀 없으면(경계보다 한참 이전 절단) 그대로 둔다.
+        if f["id"] == "online_attention":
+            bad = bad | (is_truncated & Xt[factor_cols[k]].isna().any(axis=1).to_numpy())
+        if not bad.any():
             continue
-        idx = np.flatnonzero((long["factor_id"] == f["id"]).to_numpy())[allna]
-        why = missing_reasons(f["id"], raw)[allna]
+        idx = np.flatnonzero((long["factor_id"] == f["id"]).to_numpy())[bad]
+        why = missing_reasons(f["id"], raw)[bad]
         long.loc[idx, ["data_missing", "display"]] = [True, False]
         long.loc[idx, "display_note"] = MISSING_NOTE
         long.loc[idx, "missing_reason"] = why
         long.loc[idx, "missing_reason_code"] = [MISSING_REASON_CODES[w] for w in why]
         long.loc[idx, "hold_reason"] = "data_missing"
         by_reason = pd.Series(why).value_counts().to_dict()
-        train_detect.log(f"데이터 없음 표시 보류 [{f['id']}]: {int(allna.sum()):,} / {n:,}점포 {by_reason}")
+        train_detect.log(f"데이터 없음 표시 보류 [{f['id']}]: {int(bad.sum()):,} / {n:,}점포 {by_reason}")
     unknown_hold = set(long["hold_reason"]) - set(HOLD_REASONS) - {""}
     if unknown_hold or ((~long["display"]) != (long["hold_reason"] != "")).any():
         raise RuntimeError(f"display=false ⇔ hold_reason 규칙이 깨졌다 (미등록 사유: {unknown_hold or '없음'})")
@@ -437,8 +493,39 @@ def explain(model: detect.DetectModel, Xt: pd.DataFrame, Xb: pd.DataFrame, meta:
     return {"long": long, "by_category": cat, "active": active, "base": base, "meta": meta, "values": values}
 
 
+def load_truncated_stores(qa_path: Path) -> set:
+    """#33/#34: QA에서 절단 점포 store_id 집합을 얻는다 (`online_truncation_sensitivity`의 정의를 그대로 쓴다)."""
+    from src.analysis.online_truncation_sensitivity import truncated_store_ids
+    from src.data.online_features import load_qa
+
+    return truncated_store_ids(load_qa(qa_path))
+
+
+def load_background_index(path: Path, df: pd.DataFrame) -> np.ndarray:
+    """#34 리뷰: Shapley 배경 안정성 연구(`shapley_background_stability`)가 고른 배경(store_id×origin)을
+    그대로 재현한다 — df에서 그 (store_id, origin)의 위치를 찾는다. 학습 구간(tr) 안에 있는지는 호출자가 확인한다."""
+    idx_df = pd.read_csv(path, dtype=str)
+    key = pd.Series(np.arange(len(df)), index=pd.MultiIndex.from_frame(df[["store_id", "origin"]].astype(str)))
+    want = pd.MultiIndex.from_frame(idx_df[["store_id", "origin"]].astype(str))
+    missing = want.difference(key.index)
+    if len(missing):
+        raise ValueError(f"배경 인덱스에 이 df에 없는 (store_id, origin) {len(missing)}건: {list(missing[:5])}")
+    return key.loc[want].to_numpy()
+
+
+def background_fingerprint(df: pd.DataFrame, bg_idx: np.ndarray) -> dict:
+    """배경(store_id×origin)의 재현 정보. `shapley_background_stability.save_background_index`와 같은
+    해시 방식이라, `--background-index`로 그 산출물을 그대로 쓰면 sha256이 정확히 같다(재현 확인용)."""
+    import hashlib
+
+    idx_df = df.iloc[bg_idx][["store_id", "origin"]].reset_index(drop=True)
+    h = hashlib.sha256(idx_df.to_csv(index=False).encode("utf-8")).hexdigest()
+    return {"n": len(idx_df), "sha256": h}
+
+
 def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: str, origin: str | None,
-        n_background: int, max_stores: int | None, seed: int = 20260925) -> pd.DataFrame:
+        n_background: int, max_stores: int | None, seed: int = 20260925,
+        qa_path: Path | None = None, background_index_path: Path | None = None) -> pd.DataFrame:
     t0 = time.time()
     out_dir.mkdir(parents=True, exist_ok=True)
     df = train_detect.load_master(master_path)
@@ -460,9 +547,22 @@ def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: 
                      f"· feature set {primary}")
     model = detect.DetectModel().fit(X[tr], y[tr])
 
-    bg_idx = rng.choice(np.flatnonzero(tr), n_background, replace=False)
+    truncated_stores = None
+    if online_path is not None and qa_path is not None:
+        truncated_stores = load_truncated_stores(qa_path)
+        train_detect.log(f"절단 점포 {len(truncated_stores):,}곳 (QA {qa_path})")
+
+    if background_index_path is not None:
+        bg_idx = load_background_index(background_index_path, df)
+        outside_tr = ~np.isin(bg_idx, np.flatnonzero(tr))
+        if outside_tr.any():
+            raise ValueError(f"배경 인덱스 중 {int(outside_tr.sum())}건이 이 학습 구간(tr) 밖이다")
+        train_detect.log(f"배경 {len(bg_idx)}개 — 저장된 인덱스 재현 ({background_index_path})")
+    else:
+        bg_idx = rng.choice(np.flatnonzero(tr), n_background, replace=False)
     meta = df.iloc[te_idx][["store_id", "origin", "biz_type", "gu", "age_months"]].reset_index(drop=True)
-    res = explain(model, X.iloc[te_idx], X.iloc[bg_idx], meta, df.iloc[te_idx].reset_index(drop=True))
+    res = explain(model, X.iloc[te_idx], X.iloc[bg_idx], meta, df.iloc[te_idx].reset_index(drop=True),
+                 truncated_stores=truncated_stores)
     long, cat, active, base, meta = res["long"], res["by_category"], res["active"], res["base"], res["meta"]
     long.to_parquet(out_dir / "diagnosis.parquet", index=False)
 
@@ -500,11 +600,16 @@ def main(argv=None) -> None:
     ap.add_argument("--origin", default=None, help="진단할 origin (기본: 마지막)")
     ap.add_argument("--n-background", type=int, default=16)
     ap.add_argument("--max-stores", type=int, default=None, help="동작 확인용 표본 점포 수")
+    ap.add_argument("--qa", type=Path, default=None,
+                    help="온라인 QA csv — 있으면 절단 점포를 온라인 요인 data_missing으로 보류 (#34)")
+    ap.add_argument("--background-index", type=Path, default=None,
+                    help="shapley_background_stability가 저장한 배경(store_id,origin) csv — 있으면 재현, 없으면 무작위")
     ap.add_argument("--out", type=Path, default=None)
     a = ap.parse_args(argv)
     out = a.out or (config.REPO_ROOT / "outputs" / "models" / f"diagnosis_{a.primary}")
     run(a.master, out, online_path=a.online, primary=a.primary, origin=a.origin,
-        n_background=a.n_background, max_stores=a.max_stores)
+        n_background=a.n_background, max_stores=a.max_stores, qa_path=a.qa,
+        background_index_path=a.background_index)
 
 
 if __name__ == "__main__":

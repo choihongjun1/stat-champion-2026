@@ -254,6 +254,106 @@ def test_direction_label_negligible(c, label):
     assert ("거의 영향을 주지 않았습니다" in text) == (label == "영향 미미")
 
 
+@pytest.mark.parametrize("age,expect", [
+    (0, "1년 미만"), (11, "1년 미만"), (12, "1~3년"), (35, "1~3년"), (36, "3~5년"),
+    (59, "3~5년"), (60, "5~10년"), (119, "5~10년"), (120, "10년 이상"), (10**7, "10년 이상"),
+])
+def test_age_band_boundaries_are_half_open(age, expect):
+    """#34 리뷰: 경계를 [lo, hi)로 — 정확히 12·36·60·120개월인 점포는 아래 밴드가 아니라 다음 밴드다."""
+    assert diagnose.age_band(pd.Series([age])).iloc[0] == expect
+
+
+def test_age_band_unknown_for_missing():
+    assert diagnose.age_band(pd.Series([np.nan])).iloc[0] == "미상"
+
+
+def test_months_since_last_na_distinguishes_no_history_from_truncated_unknown():
+    """#34 리뷰: months_since_last NA도 has_ever가 확정 0이면 '이력 없음', has_ever도 NA면(절단으로 관측
+    시작 이전을 모름) 다른 온라인 feature NA와 같은 '관측 불가' 문구를 쓴다(새 문구를 만들지 않는다 —
+    #41 driver_code 계약을 건드리지 않기 위해)."""
+    assert diagnose.online_driver_text("online_blog_months_since_last", float("nan"), has_ever=0.0) \
+        == "블로그 언급 이력 없음"
+    assert diagnose.online_driver_text("online_blog_months_since_last", float("nan"), has_ever=float("nan")) \
+        == "관측 불가(검색 결과 상한)"
+    assert diagnose.online_driver_text("online_blog_months_since_last", float("nan")) == "블로그 언급 이력 없음"
+
+
+@pytest.mark.parametrize("feature,v,has_ever,expect_code", [
+    ("online_blog_trend_6m", -37, None, "decline"), ("online_blog_trend_6m", 5, None, "presence"),
+    ("online_blog_trend_6m", 0, None, "no_change"),
+    ("online_blog_cnt_12m", 101, None, "presence"), ("online_blog_cnt_12m", 0, None, "absent"),
+    ("online_blog_cnt_3m", 4, None, "presence"), ("online_blog_cnt_3m", 0, None, "absent"),
+    ("online_blog_has_12m", 1, None, "presence"), ("online_blog_has_12m", 0, None, "absent"),
+    ("online_blog_has_ever", 1, None, "presence"), ("online_blog_has_ever", 0, None, "absent"),
+    ("online_blog_months_since_last", 0, None, "presence"), ("online_blog_months_since_last", 2, None, "presence"),
+    ("online_blog_months_since_last", 4, None, "lapse"),
+    ("online_blog_months_since_last", float("nan"), 0.0, "absent"),
+    ("online_blog_months_since_last", float("nan"), float("nan"), "unobservable"),
+    ("online_blog_cnt_3m", float("nan"), None, "unobservable"),
+])
+def test_driver_code_matches_text_classification(feature, v, has_ever, expect_code):
+    """#41 _ONLINE_DRIVER_PATTERNS(6342a82·eae0531)와 같은 분류가 나오는지 — 모든 온라인 factor 문구 템플릿."""
+    text = diagnose.online_driver_text(feature, v, has_ever)
+    assert diagnose.classify_online_driver(text) == expect_code
+    assert expect_code in diagnose.ONLINE_DRIVER_CODES
+
+
+def test_classify_online_driver_unknown_text_is_none():
+    assert diagnose.classify_online_driver("알 수 없는 문구") is None
+    assert diagnose.classify_online_driver(None) is None
+
+
+def test_truncated_store_online_factor_held_even_when_partially_missing(panel):
+    """#34 리뷰: 절단 점포는 온라인 요인이 전부 결측이든 일부만 결측이든 data_missing/online_unobservable로
+    보류한다 — 관측되지 않은 창을 근거로 "관측 불가를 위험 감소"처럼 잘못 설명하지 않기 위해서다."""
+    cols = features.select_features(panel.columns, "base")
+    X = features.build_X(panel, cols)
+    model = detect.DetectModel().fit(X, panel["event_12m"].to_numpy().astype(int))
+    last = (panel["origin"] == panel["origin"].max()).to_numpy()
+    raw = panel[last].reset_index(drop=True)
+    Xt = X[last].reset_index(drop=True)
+    for c in features.ONLINE_PREDICTORS:
+        Xt[c] = 1.0  # base 모형엔 온라인 feature가 없으니 요인 판정용으로 직접 붙인다
+        raw[c] = 1.0
+    trunc_row, other_row = 0, 1
+    online_cols = list(features.ONLINE_PREDICTORS)
+    Xt.loc[trunc_row, ["online_blog_cnt_3m", "online_blog_cnt_12m", "online_blog_has_12m", "online_blog_trend_6m"]] = np.nan
+    raw.loc[trunc_row, ["online_blog_cnt_3m", "online_blog_cnt_12m", "online_blog_has_12m", "online_blog_trend_6m"]] = np.nan
+    Xt.loc[other_row, ["online_blog_cnt_3m", "online_blog_cnt_12m", "online_blog_has_12m", "online_blog_trend_6m"]] = np.nan
+    raw.loc[other_row, ["online_blog_cnt_3m", "online_blog_cnt_12m", "online_blog_has_12m", "online_blog_trend_6m"]] = np.nan
+    # online_attention을 활성 요인으로 만들려면 model.columns_에 온라인 컬럼이 있어야 하지만 base로 학습했으니
+    # 없다 — factor_shapley가 요인별 컬럼을 그대로 쓰므로 explain을 우회해 핵심 로직만 검사한다.
+    active = diagnose.FACTORS + []
+    factor_cols = [[c for c in f["features"] if c in list(Xt.columns) + online_cols] for f in active]
+    on = next(k for k, f in enumerate(active) if f["id"] == "online_attention")
+    factor_cols[on] = online_cols
+    meta = raw[["store_id", "origin", "biz_type", "gu", "age_months"]]
+    trunc_stores = {raw.at[trunc_row, "store_id"]}
+
+    class _StubModel:
+        columns_ = list(Xt.columns) + online_cols
+
+        def predict_proba(self, Xin):
+            return model.predict_proba(Xin[[c for c in Xin.columns if c in X.columns]])
+
+    res = diagnose.explain(_StubModel(), Xt, X.sample(4, random_state=0).assign(**{c: 1.0 for c in online_cols}),
+                           meta, raw, truncated_stores=trunc_stores)
+    long = res["long"]
+    sid_trunc, sid_other, org = raw.at[trunc_row, "store_id"], raw.at[other_row, "store_id"], raw.at[trunc_row, "origin"]
+
+    trunc_row_long = long[(long["store_id"] == sid_trunc) & (long["factor_id"] == "online_attention")].iloc[0]
+    assert trunc_row_long["data_missing"] and trunc_row_long["hold_reason"] == "data_missing"
+    assert trunc_row_long["missing_reason"] == "관측 불가" and not trunc_row_long["display"]
+    fj = diagnose.factors_json(long, sid_trunc, org, res["values"](sid_trunc, org))
+    online_fj = next(f for f in fj if f["factor_id"] == "online_attention")
+    assert online_fj["missing_reason"] == "online_unobservable" and online_fj["display"] is False
+    assert "관측 불가" in online_fj["explanation"] or "이 요인은 진단하지 않습니다" in online_fj["explanation"]
+    assert "위험" not in online_fj["explanation"] or "낮추는" not in online_fj["explanation"]
+
+    other_row_long = long[(long["store_id"] == sid_other) & (long["factor_id"] == "online_attention")].iloc[0]
+    assert not other_row_long["data_missing"]  # 같은 결측 패턴이라도 절단 점포가 아니면 그대로 진단한다
+
+
 def test_online_review_hold_reason(tmp_path, panel):
     mp, op = tmp_path / "master.parquet", tmp_path / "online.parquet"
     panel.to_parquet(mp, index=False)
@@ -266,3 +366,76 @@ def test_online_review_hold_reason(tmp_path, panel):
     review = long[long["hold_reason"] == "online_review"]
     assert (review["factor_id"] == "online_attention").all() and not review["data_missing"].any()
     assert (long.loc[long["data_missing"], "hold_reason"] == "data_missing").all()
+
+
+def _qa_csv(tmp_path, rows):
+    """rows: (store_id, error, first_date_truncated, oldest_raw_postdate) 튜플 목록."""
+    p = tmp_path / "qa.csv"
+    pd.DataFrame(rows, columns=["store_id", "error", "first_date_truncated", "oldest_raw_postdate"]).to_csv(
+        p, index=False)
+    return p
+
+
+def test_load_truncated_stores_reads_qa_csv(tmp_path):
+    p = _qa_csv(tmp_path, [("A", "", "True", "20200101"), ("B", "", "False", ""), ("C", "err", "False", "")])
+    assert diagnose.load_truncated_stores(p) == {"A"}
+
+
+def test_load_background_index_maps_positions_and_rejects_missing(tmp_path):
+    df = pd.DataFrame({"store_id": ["A", "B", "C"], "origin": ["2024Q1", "2024Q1", "2024Q1"]})
+    idx_path = tmp_path / "bg.csv"
+    pd.DataFrame({"store_id": ["C", "A"], "origin": ["2024Q1", "2024Q1"]}).to_csv(idx_path, index=False)
+    assert list(diagnose.load_background_index(idx_path, df)) == [2, 0]
+
+    bad_path = tmp_path / "bg_bad.csv"
+    pd.DataFrame({"store_id": ["Z"], "origin": ["2024Q1"]}).to_csv(bad_path, index=False)
+    with pytest.raises(ValueError):
+        diagnose.load_background_index(bad_path, df)
+
+
+def test_background_fingerprint_matches_save_background_index_hash(tmp_path):
+    """diagnose.background_fingerprint와 shapley_background_stability.save_background_index는 같은 해시를
+    내야 한다 — #34가 저장한 배경을 서빙이 그대로 썼는지 sha256으로 대조할 수 있게."""
+    from src.analysis.shapley_background_stability import save_background_index
+
+    df = pd.DataFrame({"store_id": [f"S{i}" for i in range(5)], "origin": ["2024Q1"] * 5})
+    bg_idx = np.array([1, 3])
+    fp = diagnose.background_fingerprint(df, bg_idx)
+    h = save_background_index(df, bg_idx, tmp_path / "bg.csv")
+    assert fp["sha256"] == h and fp["n"] == 2
+
+
+def test_run_reproduces_saved_background_index(tmp_path, panel):
+    """#34: --background-index로 저장된 배경을 주면 무작위 대신 그 (store_id, origin)을 그대로 쓴다."""
+    mp, op = tmp_path / "master.parquet", tmp_path / "online.parquet"
+    panel.to_parquet(mp, index=False)
+    _online_table(panel).to_parquet(op, index=False)
+    origins = sorted(panel["origin"].unique())
+    train_pool = panel[panel["origin"] < origins[-5]]  # run()의 학습 구간(origins[:t-EMBARGO])보다 넉넉히 이전
+    bg_rows = train_pool[["store_id", "origin"]].drop_duplicates().head(4)
+    bg_path = tmp_path / "bg.csv"
+    bg_rows.to_csv(bg_path, index=False)
+
+    long = diagnose.run(mp, tmp_path / "diag", online_path=op, primary="enriched", origin=None,
+                        n_background=4, max_stores=30, background_index_path=bg_path)
+    assert len(long) > 0  # 배경 인덱스가 학습 구간과 맞지 않으면 run()이 이미 예외로 멈춘다
+
+
+def test_run_with_qa_holds_truncated_stores_end_to_end(tmp_path, panel):
+    """#34: --qa를 주면 절단 점포의 온라인 요인이 data_missing/online_unobservable로 보류된다."""
+    mp, op = tmp_path / "master.parquet", tmp_path / "online.parquet"
+    panel.to_parquet(mp, index=False)
+    online = _online_table(panel)
+    online.to_parquet(op, index=False)
+    last_origin = panel["origin"].max()
+    trunc_store = panel.loc[panel["origin"] == last_origin, "store_id"].iloc[0]
+    qa_rows = [(s, "", "True" if s == trunc_store else "False", "20200101" if s == trunc_store else "")
+              for s in panel["store_id"].unique()]
+    qa_path = _qa_csv(tmp_path, qa_rows)
+
+    long = diagnose.run(mp, tmp_path / "diag", online_path=op, primary="enriched", origin=None,
+                        n_background=4, max_stores=60, qa_path=qa_path)
+    row = long[(long["store_id"] == trunc_store) & (long["factor_id"] == "online_attention")]
+    if len(row):  # 진단 대상 표본(max_stores)에 포함됐을 때만 검사한다
+        assert row.iloc[0]["hold_reason"] == "data_missing"
+        assert row.iloc[0]["missing_reason"] == "관측 불가"
