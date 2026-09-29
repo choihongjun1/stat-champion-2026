@@ -223,7 +223,7 @@ def _online_table(panel, seed=1):
         t[c] = rng.poisson(3, len(t)).astype(float)
     t["online_blog_has_12m"] = has
     t.loc[rng.random(len(t)) < 0.1, list(features.ONLINE_PREDICTORS)] = np.nan
-    t["online_available_at"] = t["origin_end"]
+    t["online_feature_asof"] = t["origin_end"]
     return t.drop(columns="origin_end")
 
 
@@ -253,7 +253,7 @@ def test_end_to_end_with_online(tmp_path, panel):
 
 def test_online_time_leak_is_rejected(tmp_path, panel):
     t = _online_table(panel)
-    t["online_available_at"] = t["online_available_at"] + pd.Timedelta(days=1)
+    t["online_feature_asof"] = t["online_feature_asof"] + pd.Timedelta(days=1)
     op = tmp_path / "online.parquet"
     t.to_parquet(op, index=False)
     with pytest.raises(ValueError, match="시점 누수"):

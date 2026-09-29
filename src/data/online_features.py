@@ -12,11 +12,27 @@
 - 그 외 행이 없는 달 → 0건
 
 시점 규칙: origin t의 feature는 origin_end(t)가 속한 달까지의 게시월만 쓴다
-(월별 행의 available_at = 게시월 말일 ≤ origin_end).
+(월별 행의 게시월 말일 ≤ origin_end). 이 경계는 `online_feature_asof`(=origin_end)로 기록하고,
+`attach_online`(train_detect.py)이 이 컬럼으로 "게시물 내용 시점이 origin_end를 넘지 않는지"를 검증한다.
 
 **쓰지 않는 것**: `first_date_truncated` 자체는 predictor로 넘기지 않는다. 절단 여부는 수집 시점(2026-09)의
 누적 게시물 수(api_total > 200)로 정해지므로 origin 이후 인기(=생존)를 반영한 미래 정보다.
-결측 처리에만 쓰고, 이 결측이 라벨과 얼마나 상관되는지는 `online_deletion_bias.py`가 따로 잰다.
+결측 처리에만 쓰고, 이 결측이 라벨과 얼마나 상관되는지는 `online_deletion_bias.py`가 따로 잰다. 절단 여부가
+결측 패턴을 거쳐 정보 경로로 쓰이는지는 `online_truncation_sensitivity.py`(#33)가 잰다.
+
+**시점 메타 두 가지는 서로 다른 것을 잰다 (#33 리뷰, 2026-09-26)**:
+- `online_feature_asof`(=origin_end) — feature 창 정의의 경계. **보장하는 것**: 창에 들어간 게시물의
+  "내용 시점"(게시월)이 이 날짜를 넘지 않는다(`attach_online`이 검증). 이 값은 origin마다 다르며
+  구조상 항상 origin_end와 같다.
+- `online_available_at`(≈2026-09, QA `collected_at`) — 원문을 실제로 수집한 시점. **보장하지 않는 것**:
+  이 온라인 데이터 소스가 그 historical origin 시점에 실제로(운영상) 존재/조회 가능했다는 것. 블로그 원문은
+  2026-09에 딱 한 번 수집했으므로, 모든 과거 origin에 대해 `online_available_at > origin_end`가 항상
+  성립한다 — 이 자체는 시점 누수가 아니라 **회고적 재구성**(retrospective reconstruction)이라는 뜻이다.
+  검증(백테스트) 목적엔 게시물의 내용 시점만 origin_end 이전이면 충분하지만, "그 시점에 이 feature를 실제로
+  쓸 수 있었는가"는 별개 질문이며 이 필드로만 답할 수 없다(수집원이 그 시점에 존재했는지, 삭제된 글을
+  볼 수 있었는지는 알 수 없다 — #26이 삭제 편향으로 그 위험의 일부만 진단한다). **미래 origin(수집일
+  이후)에 대해서만** `online_available_at ≤ origin_end`가 실제 실시간 가용성을 뜻한다.
+  이전에는 이 컬럼에 origin_end를 그대로 넣어 두 의미를 섞어 썼다 — 지금은 분리했다.
 
 실행:
     python -m src.data.online_features --monthly <월별 parquet> --qa <QA csv>
@@ -67,6 +83,8 @@ def load_qa(path: Path) -> pd.DataFrame:
     bad = out["ok"] & out["truncated"] & out["trunc_month"].isna()
     if bad.any():
         raise ValueError(f"절단 점포인데 oldest_raw_postdate가 없다: {int(bad.sum())}건")
+    if "collected_at" in qa.columns:
+        out["collected_at"] = pd.to_datetime(qa["collected_at"], utc=True, errors="coerce").dt.tz_localize(None)
     return out
 
 
@@ -160,7 +178,9 @@ def build_online_features(panel: pd.DataFrame, monthly: pd.DataFrame, qa: pd.Dat
     out.loc[unknown, ["online_blog_has_ever", "online_blog_months_since_last"]] = np.nan
 
     out["online_feature_asof"] = pd.to_datetime(panel["origin_end"]).to_numpy()
-    out["online_available_at"] = out["online_feature_asof"]
+    # online_available_at = 실제 원문 수집 시점(점포별 QA collected_at, ≈2026-09). origin_end를 넣지 않는다 —
+    # 위 docstring "시점 메타 두 가지" 참고. QA에 collected_at이 없으면(합성 테스트 등) NaT.
+    out["online_available_at"] = q["collected_at"].to_numpy() if "collected_at" in q.columns else pd.NaT
     out["online_source_snapshot"] = source_snapshot
     assert len(out) == len(panel)
     return out
