@@ -65,7 +65,8 @@ FACTORS: list[dict] = [
 ]
 CATEGORIES = ("입지·수요", "경쟁", "비용", "사업체 구조")
 ACTIONABILITY = ("owner", "policy", "external")
-AGE_BANDS = [(-1, 12, "1년 미만"), (12, 36, "1~3년"), (36, 60, "3~5년"), (60, 120, "5~10년"), (120, 10**6, "10년 이상")]
+# 경계는 [lo, hi) — 예: age_months == 12는 "1년 미만"이 아니라 "1~3년" (#34 리뷰, 2026-09-30 이전엔 (lo, hi]였다).
+AGE_BANDS = [(0, 12, "1년 미만"), (12, 36, "1~3년"), (36, 60, "3~5년"), (60, 120, "5~10년"), (120, math.inf, "10년 이상")]
 MIN_PEER_N = 30
 PEER_SENTENCE_MIN = 70  # peer 비교 문장은 상위 30% 이내일 때만 붙인다 ("상위 85%" 같은 문장은 오해를 부른다)
 
@@ -138,7 +139,7 @@ def factor_shapley(model: detect.DetectModel, X: pd.DataFrame, background: pd.Da
 def age_band(age_months: pd.Series) -> pd.Series:
     out = pd.Series("미상", index=age_months.index, dtype=object)
     for lo, hi, name in AGE_BANDS:
-        out[(age_months > lo) & (age_months <= hi)] = name
+        out[(age_months >= lo) & (age_months < hi)] = name
     return out
 
 
@@ -179,10 +180,18 @@ def _josa(word: str, with_final: str, without_final: str) -> str:
     return word + with_final + "(" + without_final + ")"
 
 
-def online_driver_text(feature: str, v) -> str:
-    """온라인 요인 안에서 가장 크게 작용한 신호를 사람이 읽는 말로 바꾼다 (관측값 서술, 인과 표현 없음)."""
+def online_driver_text(feature: str, v, has_ever=None) -> str:
+    """온라인 요인 안에서 가장 크게 작용한 신호를 사람이 읽는 말로 바꾼다 (관측값 서술, 인과 표현 없음).
+
+    #34 리뷰: months_since_last가 NA인 두 경우를 구분한다 — `has_ever`가 확정 0이면(관측 구간 전체에서
+    언급을 찾지 못함) "이력 없음", `has_ever`도 NA면(절단 점포라 관측 시작 이전을 모름, `online_features`
+    `unknown` 마스크) "관측 불가"다. 이전엔 NA면 무조건 "이력 없음"이라 절단 사례를 오독했다. 새 텍스트를
+    만들지 않고 다른 온라인 feature의 NA와 같은 "관측 불가(검색 결과 상한)" 문구를 그대로 재사용한다 —
+    #41 `_ONLINE_DRIVER_PATTERNS`가 이미 이 문구를 unobservable로 분류하므로 그 계약을 건드리지 않는다."""
     if v is None or pd.isna(v):
-        return "블로그 언급 이력 없음" if feature == "online_blog_months_since_last" else "관측 불가(검색 결과 상한)"
+        if feature == "online_blog_months_since_last" and not (has_ever is not None and pd.isna(has_ever)):
+            return "블로그 언급 이력 없음"
+        return "관측 불가(검색 결과 상한)"
     v = float(v)
     if feature == "online_blog_trend_6m":
         if v < 0:

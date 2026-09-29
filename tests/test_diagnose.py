@@ -34,6 +34,19 @@ def test_mapping_rejects_unmapped_predictor():
         diagnose.check_mapping(ms.predictor_columns() + ["new_feature_x"])
 
 
+@pytest.mark.parametrize("age,expect", [
+    (0, "1년 미만"), (11, "1년 미만"), (12, "1~3년"), (35, "1~3년"), (36, "3~5년"),
+    (59, "3~5년"), (60, "5~10년"), (119, "5~10년"), (120, "10년 이상"), (10**7, "10년 이상"),
+])
+def test_age_band_boundaries_are_half_open(age, expect):
+    """#34 리뷰: 경계를 [lo, hi)로 — 정확히 12·36·60·120개월인 점포는 아래 밴드가 아니라 다음 밴드다."""
+    assert diagnose.age_band(pd.Series([age])).iloc[0] == expect
+
+
+def test_age_band_unknown_for_missing():
+    assert diagnose.age_band(pd.Series([np.nan])).iloc[0] == "미상"
+
+
 def test_shapley_is_exact_on_additive_model():
     """f(x) = Σ g_k(x_k)인 모형에서 요인 Shapley = g_k(x_k) − E_b g_k(b_k)."""
     class Additive:
@@ -127,6 +140,17 @@ def test_peer_sentence_only_for_top30():
 ])
 def test_online_driver_text(feature, v, expect):
     assert diagnose.online_driver_text(feature, v) == expect
+
+
+def test_months_since_last_na_distinguishes_no_history_from_truncated_unknown():
+    """#34 리뷰: months_since_last NA도 has_ever가 확정 0이면 '이력 없음', has_ever도 NA면(절단으로 관측
+    시작 이전을 모름) 다른 온라인 feature NA와 같은 '관측 불가' 문구를 쓴다(새 문구를 만들지 않는다 —
+    #41 driver_code 계약을 건드리지 않기 위해)."""
+    assert diagnose.online_driver_text("online_blog_months_since_last", float("nan"), has_ever=0.0) \
+        == "블로그 언급 이력 없음"
+    assert diagnose.online_driver_text("online_blog_months_since_last", float("nan"), has_ever=float("nan")) \
+        == "관측 불가(검색 결과 상한)"
+    assert diagnose.online_driver_text("online_blog_months_since_last", float("nan")) == "블로그 언급 이력 없음"
 
 
 @pytest.mark.parametrize("feature,v,presence", [
