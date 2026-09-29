@@ -158,40 +158,47 @@ def master_base_span(master: pd.DataFrame) -> pd.DataFrame:
     return g.reset_index()
 
 
-def date_bounds(licenses: pd.DataFrame, key: pd.DataFrame, *, master_span: pd.DataFrame | None = None,
-               serve_as_of: str | None = None) -> dict[str, tuple]:
-    """#39 리뷰 M1: store_id별 허용 게시일 구간 (하한, 상한) — 양끝 포함, 없으면 None.
+def date_bounds_by_group(licenses: pd.DataFrame, key: pd.DataFrame, *, master_span: pd.DataFrame | None = None,
+                         serve_as_of: str | None = None) -> dict[str, dict[str, tuple]]:
+    """#39 리뷰 M1 + 추가 리뷰(겹침 점포): store_id → {그룹: (하한, 상한)} — 양끝 포함, 없으면 None.
 
-    - short_name 점포: 인허가일 ~ 폐업일(영업 중이면 무제한), master_span이 있으면 그 구간과 교집합
+    그룹마다 자기 구간을 따로 갖는다(겹치는 점포는 그룹별로 다른 구간). 한 점포가 여러 그룹에 속하면
+    이 함수는 각 그룹의 구간을 그대로 반환한다 — 합치는 건(추출용 합집합) `_within_union`이, 그룹별로
+    거르는 건(집계용) `_group_view`가 한다. 이 함수 자체는 교집합·합집합을 계산하지 않는다.
+
+    - short_name 그룹: 인허가일 ~ 폐업일(영업 중이면 무제한), master_span이 있으면 그 구간과 교집합
       (모형이 그 점포를 실제로 보는 기간 안의 글만 — 폐업 이후 다른 가게 글이 폐업 층 오탐률을 구조적으로
       높이는 문제, 인허가 이전 글이 다른 가게/동명이인일 위험을 막는다).
-    - priority/random 점포: 하한 없음, serve_as_of가 상한 (예측 기준일 이후 글은 아직 모형이 못 본 정보).
-    - 두 그룹 모두면 교집합(더 좁은 쪽)을 쓴다. serve_as_of는 모든 그룹의 상한에 공통으로 적용한다
-      (짧은 상호도 미래 글을 쓰지 않는다 — 보통 폐업일/구간 상한이 이미 더 좁아 영향이 없다).
+    - priority/random 그룹: 하한 없음, serve_as_of가 상한 (예측 기준일 이후 글은 아직 모형이 못 본 정보).
+    - serve_as_of는 모든 그룹의 상한에 공통으로 적용한다(짧은 상호도 미래 글을 쓰지 않는다 — 보통
+      폐업일/구간 상한이 이미 더 좁아 영향이 없다).
     """
     lic = licenses.set_index("store_id")[["license_date", "close_date"]].to_dict("index")
     span = master_span.set_index("store_id")[["span_start", "span_end"]].to_dict("index") \
         if master_span is not None else {}
     cutoff = pd.Timestamp(serve_as_of) if serve_as_of else None
     groups_by_store = key.drop_duplicates("store_id").set_index("store_id")["groups"]
-    out: dict[str, tuple] = {}
+    out: dict[str, dict[str, tuple]] = {}
     for sid, groups in groups_by_store.items():
         parts = str(groups).split(GROUP_SEP)
-        lo = hi = None
-        if SHORT in parts:
-            l = lic.get(sid, {})
-            lo, hi = l.get("license_date"), l.get("close_date")
-            if pd.isna(lo):
-                lo = None
-            if pd.isna(hi):
-                hi = None
-            sp = span.get(sid)
-            if sp is not None:
-                lo = sp["span_start"] if lo is None else max(lo, sp["span_start"])
-                hi = sp["span_end"] if hi is None else min(hi, sp["span_end"])
-        if cutoff is not None:
-            hi = cutoff if hi is None else min(hi, cutoff)
-        out[sid] = (lo, hi)
+        per_group: dict[str, tuple] = {}
+        for g in parts:
+            lo = hi = None
+            if g == SHORT:
+                l = lic.get(sid, {})
+                lo, hi = l.get("license_date"), l.get("close_date")
+                if pd.isna(lo):
+                    lo = None
+                if pd.isna(hi):
+                    hi = None
+                sp = span.get(sid)
+                if sp is not None:
+                    lo = sp["span_start"] if lo is None else max(lo, sp["span_start"])
+                    hi = sp["span_end"] if hi is None else min(hi, sp["span_end"])
+            if cutoff is not None:
+                hi = cutoff if hi is None else min(hi, cutoff)
+            per_group[g] = (lo, hi)
+        out[sid] = per_group
     return out
 
 
@@ -200,6 +207,22 @@ def _within_bounds(dates: pd.Series, store_ids: pd.Series, bounds: dict[str, tup
     lo = pd.to_datetime(store_ids.map(lambda s: bounds.get(s, (None, None))[0]))
     hi = pd.to_datetime(store_ids.map(lambda s: bounds.get(s, (None, None))[1]))
     return dates.notna() & (lo.isna() | (dates >= lo)) & (hi.isna() | (dates <= hi))
+
+
+def _within_union(dates: pd.Series, store_ids: pd.Series, bounds_by_group: dict[str, dict[str, tuple]]) -> pd.Series:
+    """추출용(합집합): dates가 그 점포가 속한 그룹 중 하나라도의 구간 안이면 True. 겹치는 점포는 두 그룹
+    구간의 합집합이 된다 — 교집합이 아니다(추가 리뷰). store_id가 bounds_by_group에 없으면 제한 없음."""
+    def ok(d, sid):
+        if pd.isna(d):
+            return False
+        groups = bounds_by_group.get(sid)
+        if groups is None:
+            return True
+        for lo, hi in groups.values():
+            if (lo is None or d >= lo) and (hi is None or d <= hi):
+                return True
+        return False
+    return pd.Series([ok(d, s) for d, s in zip(dates, store_ids)], index=dates.index)
 
 
 def apply_date_bounds(items: pd.DataFrame, bounds: dict[str, tuple], *, date_col: str = "postdate",
@@ -447,11 +470,13 @@ def cmd_sheet(a) -> pd.DataFrame:
         if lic is None:
             print("경고: --licenses가 없어 short_name 날짜 필터(인허가일·폐업일)를 생략한다")
             lic = pd.DataFrame({"store_id": [], "license_date": [], "close_date": []})
-        bounds = date_bounds(lic, key, master_span=master_span, serve_as_of=serve_as_of)
+        bounds_by_group = date_bounds_by_group(lic, key, master_span=master_span, serve_as_of=serve_as_of)
         before = items.merge(key[["store_id", "groups", "stratum"]].drop_duplicates("store_id"),
                              on="store_id", how="left")
         dates = pd.to_datetime(before["postdate"].astype(str), format="%Y%m%d", errors="coerce")
-        keep = _within_bounds(dates, before["store_id"], bounds)
+        # 추출은 합집합 — 겹치는 점포는 두 그룹 구간 중 하나라도 통과하면 글을 남긴다(추가 리뷰). 집계
+        # 단계(summarize)에서 그룹마다 자기 구간으로 다시 거른다.
+        keep = _within_union(dates, before["store_id"], bounds_by_group)
         bucket = np.where(before["stratum"].fillna("") != "", SHORT + ":" + before["stratum"].fillna(""),
                           before["groups"].fillna("").str.split(GROUP_SEP).str[0])
         excl_by = pd.Series(bucket[~keep.to_numpy()]).value_counts().to_dict()
@@ -555,6 +580,33 @@ def _rows_of(df: pd.DataFrame, grp: str) -> pd.DataFrame:
     return df[m & (df["stratum"] == stratum)] if stratum else df[m]
 
 
+def _store_verdicts_from_items(items_subset: pd.DataFrame) -> dict[str, str]:
+    """review_id별 점포 판정(다수결, FP_SHARE 기준)을 주어진 글 부분집합에서 다시 계산한다."""
+    out = {}
+    for rid, g in items_subset.groupby("review_id"):
+        n_same = int((g["verdict"] == SAME).sum())
+        n_other = int((g["verdict"] == OTHER).sum())
+        dec = n_same + n_other
+        out[rid] = "판정불가" if not dec else ("오탐" if n_other / dec >= FP_SHARE else "정상")
+    return out
+
+
+def _group_view(items: pd.DataFrame, stores: pd.DataFrame, grp: str,
+                bounds_by_group: dict[str, dict[str, tuple]] | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """그룹(또는 그룹:층) 부분집합. bounds_by_group이 있으면(grp가 "전체"가 아닐 때) 그 그룹 자기 구간으로
+    글을 다시 걸러 점포 판정도 그 글로 다시 계산한다 — 겹치는 점포는 그룹마다 판정이 다를 수 있다(추가 리뷰)."""
+    it, st = _rows_of(items, grp), _rows_of(stores, grp)
+    if bounds_by_group is None or grp == "전체":
+        return it, st
+    g, _, _ = grp.partition(":")
+    g_bounds = {sid: gb[g] for sid, gb in bounds_by_group.items() if g in gb}
+    dates = pd.to_datetime(it["post_date"], errors="coerce")
+    it = it[_within_bounds(dates, it["store_id"], g_bounds)]
+    sv = _store_verdicts_from_items(it)
+    st = st.assign(store_verdict=st["review_id"].map(sv).fillna("판정불가"))
+    return it, st
+
+
 def _counts(it: pd.DataFrame, st: pd.DataFrame) -> tuple[int, int, int, int]:
     return (int((it["verdict"] == OTHER).sum()), int(it["verdict"].isin([SAME, OTHER]).sum()),
             int((st["store_verdict"] == "오탐").sum()), int(st["store_verdict"].isin(["오탐", "정상"]).sum()))
@@ -582,9 +634,13 @@ def weighted_rate(counts: dict[str, tuple[int, int]], pool_n: dict[str, int]) ->
     return est, max(0.0, est - math.sqrt(lo_sq)), min(1.0, est + math.sqrt(hi_sq))
 
 
-def rates(items: pd.DataFrame, stores: pd.DataFrame, short_pool_n: dict[str, int] | None = None) -> pd.DataFrame:
+def rates(items: pd.DataFrame, stores: pd.DataFrame, short_pool_n: dict[str, int] | None = None,
+         bounds_by_group: dict[str, dict[str, tuple]] | None = None) -> pd.DataFrame:
     """그룹별 오탐률. short_pool_n(층 → 모집단 점포 수)이 있으면 short_name 행은 층별 모집단 비율로 가중한 값이고,
-    비가중(표본 그대로, 층별 같은 수) 값은 *_unweighted 열에 참고로 둔다."""
+    비가중(표본 그대로, 층별 같은 수) 값은 *_unweighted 열에 참고로 둔다.
+
+    bounds_by_group이 있으면(추가 리뷰: 겹침 점포) 그룹별 행은 그 그룹 자기 구간을 통과한 글만 세고
+    점포 판정도 그 글로 다시 계산한다 — "전체" 행은 그대로(추출 때 이미 합집합으로 걸러졌다)."""
     out = []
     groups = [g for g in GROUPS if in_group(stores["groups"], g).any()]
     if SHORT in groups:
@@ -592,7 +648,7 @@ def rates(items: pd.DataFrame, stores: pd.DataFrame, short_pool_n: dict[str, int
         groups[i:i] = [f"{SHORT}:{s}" for s in (OPEN, CLOSED) if len(_rows_of(stores, f"{SHORT}:{s}"))]
     nan = float("nan")
     for grp in groups + ["전체"]:
-        it, st = _rows_of(items, grp), _rows_of(stores, grp)
+        it, st = _group_view(items, stores, grp, bounds_by_group)
         ki, ni, ks, ns = _counts(it, st)
         lo_i, hi_i = wilson(ki, ni) if _has_ci(grp) else (nan, nan)
         lo_s, hi_s = wilson(ks, ns) if _has_ci(grp) else (nan, nan)
@@ -603,7 +659,7 @@ def rates(items: pd.DataFrame, stores: pd.DataFrame, short_pool_n: dict[str, int
                "stores_undecided": int((st["store_verdict"] == "판정불가").sum()),
                "weighted": False, "item_fp_rate_unweighted": nan, "store_fp_rate_unweighted": nan}
         if grp == SHORT and short_pool_n:
-            by = {s: _counts(_rows_of(items, f"{SHORT}:{s}"), _rows_of(stores, f"{SHORT}:{s}")) for s in short_pool_n}
+            by = {s: _counts(*_group_view(items, stores, f"{SHORT}:{s}", bounds_by_group)) for s in short_pool_n}
             row.update(weighted=True, item_fp_rate_unweighted=row["item_fp_rate"],
                        store_fp_rate_unweighted=row["store_fp_rate"])
             row["item_fp_rate"], row["item_ci_low"], row["item_ci_high"] = weighted_rate(
@@ -614,10 +670,11 @@ def rates(items: pd.DataFrame, stores: pd.DataFrame, short_pool_n: dict[str, int
     return pd.DataFrame(out)
 
 
-def stratum_gap(items: pd.DataFrame, stores: pd.DataFrame) -> pd.DataFrame:
+def stratum_gap(items: pd.DataFrame, stores: pd.DataFrame,
+               bounds_by_group: dict[str, dict[str, tuple]] | None = None) -> pd.DataFrame:
     """짧은 상호 그룹 안에서 폐업 − 영업 오탐률 차이 (점포·글 단위). 양수면 폐업 쪽 오탐이 더 높다."""
     (ki_o, ni_o, ks_o, ns_o), (ki_c, ni_c, ks_c, ns_c) = (
-        _counts(_rows_of(items, f"{SHORT}:{s}"), _rows_of(stores, f"{SHORT}:{s}")) for s in (OPEN, CLOSED))
+        _counts(*_group_view(items, stores, f"{SHORT}:{s}", bounds_by_group)) for s in (OPEN, CLOSED))
     out = []
     for level, (ko, no, kc, nc) in (("store", (ks_o, ns_o, ks_c, ns_c)), ("item", (ki_o, ni_o, ki_c, ni_c))):
         d, lo, hi = newcombe_diff(kc, nc, ko, no)
@@ -658,7 +715,17 @@ def cmd_summarize(a) -> pd.DataFrame:
         short_pool_n = json.loads(Path(meta_path).read_text(encoding="utf-8")).get("short_pool_n")
     if in_group(stores["groups"], SHORT).any() and not short_pool_n:
         print("경고: 선정 그룹 키 메타(short_pool_n)가 없어 short_name 전체 오탐률을 가중하지 못했다 (비가중 값만)")
-    tab = rates(items, stores, short_pool_n)
+    bounds_by_group = None
+    if a.licenses and key is not None:
+        lic = pd.read_parquet(a.licenses, columns=["store_id", "license_date", "close_date"])
+        master_span = master_base_span(pd.read_parquet(a.master, columns=["store_id", "origin_start", "origin_end"])) \
+            if a.master else None
+        serve_as_of = a.serve_as_of
+        if serve_as_of is None and meta_path is not None and Path(meta_path).exists():
+            serve_as_of = json.loads(Path(meta_path).read_text(encoding="utf-8")).get("serve_as_of")
+        bounds_by_group = date_bounds_by_group(lic, key, master_span=master_span, serve_as_of=serve_as_of)
+        print("겹침 점포는 그룹마다 자기 구간을 통과한 글로 다시 집계한다 (추가 리뷰)")
+    tab = rates(items, stores, short_pool_n, bounds_by_group)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     tab.to_csv(out / "name_match_rates.csv", index=False, encoding="utf-8-sig")
@@ -685,7 +752,7 @@ def cmd_summarize(a) -> pd.DataFrame:
               "- 두 그룹에 속한 점포는 두 그룹 모두에 센다. `전체`는 점포당 한 번.",
               "- `false_positive_stores.csv`(store_id)는 온라인 feature를 NA로 두는 재실행(#33·#34)에 쓴다. 저장소에 올리지 않는다."]
     if in_group(stores["groups"], SHORT).any():
-        gap = stratum_gap(items, stores)
+        gap = stratum_gap(items, stores, bounds_by_group)
         gap.to_csv(out / "name_match_short_strata.csv", index=False, encoding="utf-8-sig")
         if key is not None and "biz_type" in targets.columns:
             comp = stratum_biz_composition(targets, key)
@@ -708,43 +775,123 @@ def cmd_summarize(a) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------- 회차 간 판정 재사용 (재검수 부담 축소)
+TOP_N_PER_GROUP = 3  # 점포×그룹의 목표 유효 판정 글 수 (추가 리뷰)
+
+
 def carry_over(old_sheet: pd.DataFrame, old_key: pd.DataFrame, new_targets: pd.DataFrame, new_key: pd.DataFrame,
-               bounds: dict[str, tuple] | None = None) -> tuple[pd.DataFrame, list[str], dict]:
+              bounds_by_group: dict[str, dict[str, tuple]] | None = None
+              ) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """이전 회차 판정표(old_sheet+old_key, store_id는 old_key로만 안다)에서 새 회차(new_targets+new_key) 대상과
-    겹치는 (store_id, link) 판정을 재사용한다. bounds가 있으면 M1 날짜 필터도 옛 판정에 다시 적용한다
+    겹치는 (store_id, link) 판정을 재사용한다. bounds_by_group이 있으면 M1 날짜 필터도 옛 판정에 다시 적용한다
     (필터로 빠지는 글은 재사용하지 않는다 — 회차가 바뀌어도 같은 규칙을 적용해야 하므로).
+
+    재사용은 점포×그룹 단위로 판단한다(추가 리뷰) — 겹치는 점포는 그룹마다 유효한 재사용 글 수가 다를 수
+    있다. `reused`는 store 기준 합집합(그룹 구분 없이 저장, summarize가 그룹별로 다시 거른다)이고,
+    `need`가 그룹별로 몇 건이 더 필요한지(TOP_N_PER_GROUP=3 미만) 알려준다.
 
     반환
     - reused: [review_id(새 회차), store_id, link, verdict, note] — summarize 입력으로 그대로 합칠 수 있다
-    - blocked: 재사용 가능한 판정이 하나도 없는 새 회차 store_id 목록 (원본 blog_items.jsonl.gz 없이는
-      새 글을 뽑을 수 없어 검수가 막힌 점포)
+    - need: [review_id, group, n_valid, n_needed] — n_needed = max(0, 3 − n_valid). store_id는 없다
+      (review_id로 충분 — 점포 식별 정보 없음).
     - stats: 그룹별 재사용 건수 등 (점포 식별 정보 없음)
     """
     old = old_sheet.merge(old_key[["review_id", "store_id"]], on="review_id", how="left")
     old = old[pd.to_numeric(old["item_no"], errors="coerce").fillna(0) > 0]
     old = old[old["verdict"] != ""]
-    if bounds is not None:
-        dates = pd.to_datetime(old["post_date"], format="%Y-%m-%d", errors="coerce")
-        old = old[_within_bounds(dates, old["store_id"], bounds)]
+
     new_map = new_key.drop_duplicates("store_id").set_index("store_id")["review_id"]
     old = old[old["store_id"].isin(new_map.index)].copy()
     old["review_id"] = old["store_id"].map(new_map)
+
+    if bounds_by_group is not None:
+        dates = pd.to_datetime(old["post_date"], format="%Y-%m-%d", errors="coerce")
+        old = old[_within_union(dates, old["store_id"], bounds_by_group)]
+
     reused = (old[["review_id", "store_id", "link", "verdict", "note"]]
               .drop_duplicates(["store_id", "link"]).reset_index(drop=True))
 
     all_new = new_key.drop_duplicates("store_id")
+    need_rows = []
+    for r in all_new.itertuples(index=False):
+        sid, rid = r.store_id, r.review_id
+        for g in str(r.groups).split(GROUP_SEP):
+            g_items = old[old["store_id"] == sid]
+            gb = bounds_by_group.get(sid, {}).get(g) if bounds_by_group is not None else None
+            if gb is not None:
+                d2 = pd.to_datetime(g_items["post_date"], format="%Y-%m-%d", errors="coerce")
+                lo, hi = gb
+                g_items = g_items[d2.notna() & (lo is None or d2 >= lo) & (hi is None or d2 <= hi)]
+            n_valid = g_items["link"].nunique()
+            need_rows.append({"review_id": rid, "group": g, "n_valid": int(n_valid),
+                             "n_needed": max(0, TOP_N_PER_GROUP - int(n_valid))})
+    need = pd.DataFrame(need_rows, columns=["review_id", "group", "n_valid", "n_needed"])
+
     covered = set(reused["store_id"])
-    blocked_df = all_new[~all_new["store_id"].isin(covered)]
-    blocked = sorted(blocked_df["store_id"])
 
     def _n(g):
         return int(all_new.loc[in_group(all_new["groups"], g), "store_id"].isin(covered).sum())
 
+    blocked_by_group = {g: int(((need["group"] == g) & (need["n_valid"] == 0)).sum()) for g in GROUPS}
     stats = {"n_reused_items": len(reused), "n_stores_total": len(all_new), "n_stores_covered": len(covered),
-             "n_stores_blocked": len(blocked),
+             "n_stores_blocked": len(all_new) - len(covered),
              "covered_by_group": {g: _n(g) for g in GROUPS},
-             "blocked_by_group": {g: int(in_group(blocked_df["groups"], g).sum()) for g in GROUPS}}
-    return reused, blocked, stats
+             "blocked_by_group": blocked_by_group,
+             "n_store_group_needing_more": int((need["n_needed"] > 0).sum())}
+    return reused, need, stats
+
+
+def _sheet_rows(base: dict, posts: pd.DataFrame, start_no: int = 1) -> list[dict]:
+    """post_date·blog_name·title·description을 판정표 형식으로 (build_sheet의 행 하나 만들기와 같은 규칙)."""
+    return [{**base, "item_no": start_no + i, "post_date": _post_date(p.postdate),
+            "blog_name": blog_name_from_link(p.link), "title": clean_text(p.title),
+            "description": clean_text(p.description)[:DESC_LEN], "link": p.link, "verdict": "", "note": ""}
+           for i, p in enumerate(posts.itertuples(index=False))]
+
+
+def fill_from_raw(raw_items: pd.DataFrame, need: pd.DataFrame, new_key: pd.DataFrame, new_targets: pd.DataFrame,
+                  bounds_by_group: dict[str, dict[str, tuple]] | None, exclude_links: dict[str, set[str]],
+                  seed: int) -> tuple[pd.DataFrame, dict]:
+    """#39 추가 리뷰(round2 --raw): need에서 n_needed>0인 점포×그룹마다 그 그룹 구간 안, 이미 판정한 글이
+    아닌 원본 글로 최대 n_needed건을 seed 고정 무작위로 뽑는다. 한 점포가 여러 그룹에서 필요하면
+    합집합(중복 없이)으로 합친다. 구간 안 글이 부족하면 있는 만큼.
+
+    반환: (새 판정표(SHEET_COLS, verdict 빈칸), review_id별 실제로 채운 글 수 meta)
+    """
+    rid_to_sid = new_key.drop_duplicates("review_id").set_index("review_id")["store_id"]
+    targets_by_rid = new_targets.set_index("review_id")
+    rng = np.random.default_rng(seed)
+    picked: dict[str, pd.DataFrame] = {}
+    for row in need.sort_values(["review_id", "group"]).itertuples(index=False):
+        if row.n_needed <= 0:
+            continue
+        sid = rid_to_sid.get(row.review_id)
+        if sid is None:
+            continue
+        already = set(exclude_links.get(sid, ())) | set(picked.get(sid, pd.DataFrame({"link": []}))["link"])
+        cand = raw_items[(raw_items["store_id"] == sid) & (~raw_items["link"].isin(already))]
+        gb = bounds_by_group.get(sid, {}).get(row.group) if bounds_by_group is not None else None
+        if gb is not None:
+            lo, hi = gb
+            d = pd.to_datetime(cand["postdate"], format="%Y%m%d", errors="coerce")
+            cand = cand[d.notna() & (lo is None or d >= lo) & (hi is None or d <= hi)]
+        cand = cand.sort_values("link")
+        k = min(row.n_needed, len(cand))
+        pick = cand.iloc[np.sort(rng.choice(len(cand), k, replace=False))] if k else cand.iloc[:0]
+        picked[sid] = pd.concat([picked.get(sid, cand.iloc[:0]), pick]).drop_duplicates("link")
+
+    rows, actual = [], {}
+    for rid, sid in rid_to_sid.items():
+        need_any = need.loc[need["review_id"] == rid, "n_needed"]
+        if not (need_any > 0).any():
+            continue
+        posts = picked.get(sid, raw_items.iloc[:0])
+        actual[rid] = len(posts)
+        t = targets_by_rid.loc[rid]
+        base = {"review_id": rid, "name_raw": t["name_raw"], "gu": t["gu"], "dong": t["dong"],
+               "biz_type": t["biz_type"]}
+        rows += _sheet_rows(base, posts)
+    sheet = pd.DataFrame(rows, columns=SHEET_COLS)
+    return sheet, actual
 
 
 def cmd_round2(a) -> dict:
@@ -752,7 +899,7 @@ def cmd_round2(a) -> dict:
     old_key = pd.read_csv(a.old_key, dtype=str, keep_default_na=False, encoding="utf-8-sig")
     new_targets = pd.read_csv(a.new_targets, dtype=str, encoding="utf-8-sig")
     new_key = pd.read_csv(a.new_key, dtype=str, keep_default_na=False, encoding="utf-8-sig")
-    bounds = None
+    bounds_by_group = None
     if a.licenses:
         lic = pd.read_parquet(a.licenses, columns=["store_id", "license_date", "close_date"])
         master_span = master_base_span(pd.read_parquet(a.master, columns=["store_id", "origin_start", "origin_end"])) \
@@ -762,28 +909,111 @@ def cmd_round2(a) -> dict:
         serve_as_of = a.serve_as_of
         if serve_as_of is None and key_meta_path(a.new_key).exists():
             serve_as_of = json.loads(key_meta_path(a.new_key).read_text(encoding="utf-8")).get("serve_as_of")
-        bounds = date_bounds(lic, new_key, master_span=master_span, serve_as_of=serve_as_of)
-    reused, blocked, stats = carry_over(old_sheet, old_key, new_targets, new_key, bounds)
-
-    to_judge_ids = sorted(set(new_key["review_id"]) - set(reused["review_id"]))
-    targets2 = new_targets[new_targets["review_id"].isin(to_judge_ids)][TARGET_COLS].reset_index(drop=True)
-    # 재사용 못한 review_id라도, 그 점포에 실제로 새로 뽑을 수 있는 글이 없다(원본 미접근) — 판정표는 지금 0행이다.
-    # NO_POSTS(매칭 글 없음) sentinel을 쓰지 않는다: "매칭 0건"이 아니라 "원본에 접근할 수 없어 모른다"이기 때문이다.
-    sheet2 = pd.DataFrame(columns=SHEET_COLS)
-    assert_blind(targets2.columns)
-    assert_blind(sheet2.columns)
+        bounds_by_group = date_bounds_by_group(lic, new_key, master_span=master_span, serve_as_of=serve_as_of)
+    reused, need, stats = carry_over(old_sheet, old_key, new_targets, new_key, bounds_by_group)
 
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
+    if a.raw:
+        # 이미 판정한 글(재사용 가능 여부와 무관하게 옛 판정표 전체)은 다시 후보로 뽑지 않는다.
+        old_all = old_sheet.merge(old_key[["review_id", "store_id"]], on="review_id", how="left")
+        old_all = old_all[pd.to_numeric(old_all["item_no"], errors="coerce").fillna(0) > 0]
+        exclude_links: dict[str, set[str]] = {sid: set(g["link"]) for sid, g in old_all.groupby("store_id")}
+        raw_items = read_items(a.raw, set(new_key["store_id"]))
+        sheet2, actual = fill_from_raw(raw_items, need, new_key, new_targets, bounds_by_group, exclude_links, a.seed)
+        rid_needed = sorted(set(need.loc[need["n_needed"] > 0, "review_id"]))
+        targets2 = new_targets[new_targets["review_id"].isin(rid_needed)][TARGET_COLS].reset_index(drop=True)
+        n_short = int(sum(1 for rid, n in actual.items()
+                         if n < int(need.loc[need["review_id"] == rid, "n_needed"].max())))
+        note = f"원본에서 {len(actual)}개 점포에 새 글을 채웠다 (부족(구간 안 글 모자람) {n_short}개 점포 — meta 참고)."
+    else:
+        rid_needed = sorted(set(need.loc[need["n_needed"] > 0, "review_id"]))
+        targets2 = new_targets[new_targets["review_id"].isin(rid_needed)][TARGET_COLS].reset_index(drop=True)
+        # --raw 없이는 새로 뽑을 수 없다 — 판정표는 지금 0행이다. NO_POSTS(매칭 글 없음) sentinel은 쓰지
+        # 않는다: "매칭 0건"이 아니라 "원본에 접근할 수 없어 모른다"이기 때문이다.
+        sheet2 = pd.DataFrame(columns=SHEET_COLS)
+        actual = {}
+        note = "원본 blog_items.jsonl.gz 없이는 새 글을 뽑을 수 없다 — 재사용 가능한 기존 판정만 반영했다."
+    assert_blind(targets2.columns)
+    assert_blind(sheet2.columns)
+
     targets2.to_csv(out / "name_match_targets_round2.csv", index=False, encoding="utf-8-sig")
     sheet2.to_csv(out / "name_match_sheet_round2.csv", index=False, encoding="utf-8-sig")
-    report = {**stats, "n_new_items_to_judge": 0, "n_stores_pending_raw_access": len(to_judge_ids),
-             "note": "원본 blog_items.jsonl.gz 없이는 새 글을 뽑을 수 없다 — 재사용 가능한 기존 판정만 반영했다."}
+    report = {**stats, "n_new_items_found": int(sum(actual.values())), "n_stores_pending_raw_access": len(rid_needed),
+             "actual_new_items_by_review_id": actual, "note": note}
     (out / "round2_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"재사용 {stats['n_reused_items']}건 (점포 {stats['n_stores_covered']}/{stats['n_stores_total']}) · "
-          f"새로 판정할 글 0건 · 원본 필요(대기) 점포 {len(to_judge_ids)}곳")
-    print(f"  그룹별 재사용 점포: {stats['covered_by_group']} / 대기 점포: {stats['blocked_by_group']}")
-    return {"reused": reused, "targets2": targets2, "sheet2": sheet2, "report": report}
+          f"새로 찾은 글 {report['n_new_items_found']}건 · 대기(부족) 점포×그룹 {stats['n_store_group_needing_more']}건")
+    print(f"  그룹별 재사용 점포: {stats['covered_by_group']} / 전부 결측 점포×그룹: {stats['blocked_by_group']}")
+    return {"reused": reused, "need": need, "targets2": targets2, "sheet2": sheet2, "report": report}
+
+
+# ---------------------------------------------------------------------------- merge (재사용 + 새 판정 합치기)
+def merge_judgments(reused: pd.DataFrame, new_sheet: pd.DataFrame, new_key: pd.DataFrame
+                    ) -> tuple[pd.DataFrame, dict]:
+    """재사용 판정 파일 + 새 판정표(판정 완료본)를 이번 회차 key 기준으로 합친다. 키는 (store, link) —
+    review_id는 이번 회차 key로 다시 매긴다(재사용 파일의 review_id는 지난 회차 것일 수 있어 믿지 않는다).
+    같은 (store, link)가 양쪽에 있으면 새 판정을 우선한다(사람이 다시 본 것이 더 최신).
+
+    이번 회차 key의 모든 점포×그룹이 판정 글 ≥1건을 갖지 않으면(=하나도 없으면) 에러로 멈춘다. verdict
+    미입력(빈 칸)이 있어도 에러 — summarize까지 가서 judge()가 늦게 잡지 않도록 여기서 먼저 막는다.
+    """
+    new_map = new_key.drop_duplicates("store_id").set_index("store_id")["review_id"]
+    key_cols = ["store_id", "link"]
+    # 재사용 파일의 review_id는 지난 회차 것일 수 있으니 store_id로 이번 회차 review_id를 다시 매긴다.
+    reused = reused[reused["store_id"].isin(new_map.index)].drop_duplicates(key_cols).copy()
+    reused["review_id"] = reused["store_id"].map(new_map)
+    blank_r = reused["verdict"].fillna("").astype(str).str.strip() == ""
+    if blank_r.any():
+        raise ValueError(f"재사용 판정 파일에 verdict 미입력 글 {int(blank_r.sum())}건")
+
+    new_sheet = new_sheet.copy()
+    new_sheet = new_sheet[pd.to_numeric(new_sheet["item_no"], errors="coerce").fillna(0) > 0]
+    new_sheet = new_sheet.merge(new_key[["review_id", "store_id"]].drop_duplicates("review_id"),
+                                on="review_id", how="left").drop_duplicates(key_cols)
+    blank = new_sheet["verdict"].fillna("").astype(str).str.strip() == ""
+    if blank.any():
+        raise ValueError(f"새 판정표에 verdict 미입력 글 {int(blank.sum())}건 — 모두 채운 뒤 다시 시도한다")
+
+    conflict = set(map(tuple, reused[key_cols].to_numpy())) & set(map(tuple, new_sheet[key_cols].to_numpy()))
+    n_conflict = len(conflict)
+    kept_reused = reused[~reused[key_cols].apply(tuple, axis=1).isin(conflict)]
+    merged = pd.concat([kept_reused[["review_id", "store_id", "link", "verdict", "note"]],
+                        new_sheet[["review_id", "store_id", "link", "verdict", "note"]]], ignore_index=True)
+    merged = merged.drop_duplicates(key_cols, keep="last").reset_index(drop=True)
+
+    all_new = new_key.drop_duplicates("store_id")
+    counts = merged.groupby("store_id").size()
+    missing = []
+    for r in all_new.itertuples(index=False):
+        for g in str(r.groups).split(GROUP_SEP):
+            if counts.get(r.store_id, 0) == 0:
+                missing.append((r.review_id, g))
+    if missing:
+        rids = sorted({rid for rid, _ in missing})
+        raise ValueError(f"이번 회차 key에 판정 글이 하나도 없는 점포×그룹 {len(missing)}건 (review_id {rids})")
+
+    n_by_store = merged.groupby("store_id").size()
+    dist = n_by_store.value_counts().reindex([1, 2, 3], fill_value=0).astype(int).to_dict()
+    meta = {"n_reused_kept": len(kept_reused), "n_new": len(new_sheet), "n_conflict": n_conflict,
+           "n_merged_items": len(merged), "n_stores": len(all_new), "items_per_store_distribution": dist}
+    return merged.drop(columns="store_id"), meta
+
+
+def cmd_merge(a) -> pd.DataFrame:
+    reused = pd.read_csv(a.reused, dtype=str, keep_default_na=False, encoding="utf-8-sig")
+    new_sheet = pd.read_csv(a.new_sheet, dtype=str, keep_default_na=False, encoding="utf-8-sig")
+    new_key = pd.read_csv(a.new_key, dtype=str, keep_default_na=False, encoding="utf-8-sig")
+    merged, meta = merge_judgments(reused, new_sheet, new_key)
+    out = Path(a.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    merged.to_csv(out, index=False, encoding="utf-8-sig")
+    (out.with_name(f"{out.stem}_meta.json")).write_text(json.dumps(meta, ensure_ascii=False, indent=2),
+                                                        encoding="utf-8")
+    print(f"merge: 재사용 유지 {meta['n_reused_kept']} + 새 판정 {meta['n_new']} (충돌 {meta['n_conflict']}, "
+          f"새 판정 우선) → {meta['n_merged_items']}건, {meta['n_stores']}개 점포 · 글 수 분포 "
+          f"{meta['items_per_store_distribution']} → {out}")
+    return merged
 
 
 # ---------------------------------------------------------------------------- CLI
@@ -816,14 +1046,18 @@ def main(argv=None) -> None:
     s.add_argument("--master", type=Path, default=None, help="M1 필터용 master_base (짧은 상호 등장 구간)")
     s.add_argument("--serve-as-of", default=None,
                    help="M1 상한(YYYY-MM-DD). 기본: --targets 옆 serve_meta.json에서 읽음")
-    m = sub.add_parser("summarize", help="판정 결과 집계 (분석 쪽)")
+    m = sub.add_parser("summarize", help="판정 결과 집계 (분석 쪽) — merge 결과만 입력으로 받는다")
     m.add_argument("--targets", type=Path, required=True)
-    m.add_argument("--sheet", type=Path, required=True)
+    m.add_argument("--sheet", type=Path, required=True, help="merge 서브커맨드의 출력(재사용+새 판정 합친 것)")
     m.add_argument("--key", type=Path, default=None, help="선정 그룹 키 (targets가 만든 name_match_key.csv)")
     m.add_argument("--key-meta", type=Path, default=None,
                    help="선정 그룹 키 메타 (기본: --key 옆 name_match_key_meta.json, short_name 가중치)")
+    m.add_argument("--licenses", type=Path, default=None,
+                   help="겹침 점포 그룹별 재집계용 (없으면 그룹별 날짜 재필터를 생략 — extraction 시점 합집합 그대로 집계)")
+    m.add_argument("--master", type=Path, default=None)
+    m.add_argument("--serve-as-of", default=None)
     m.add_argument("--out", type=Path, required=True)
-    r = sub.add_parser("round2", help="회차 간 판정 재사용 — 새로 판정할 글만 추려낸다 (분석 쪽)")
+    r = sub.add_parser("round2", help="회차 간 판정 재사용 — 부족분은 --raw로 새로 뽑는다 (분석 쪽)")
     r.add_argument("--old-sheet", type=Path, required=True)
     r.add_argument("--old-key", type=Path, required=True)
     r.add_argument("--new-targets", type=Path, required=True)
@@ -831,9 +1065,18 @@ def main(argv=None) -> None:
     r.add_argument("--licenses", type=Path, default=None, help="M1 날짜 필터를 옛 판정에도 다시 적용 (없으면 생략)")
     r.add_argument("--master", type=Path, default=None)
     r.add_argument("--serve-as-of", default=None)
+    r.add_argument("--raw", type=Path, nargs="+", default=None,
+                   help="blog_items*.jsonl.gz — 있으면 점포×그룹의 유효 판정 글이 3건 미만일 때 새로 채운다")
+    r.add_argument("--seed", type=int, default=20260927)
     r.add_argument("--out", type=Path, required=True)
+    g = sub.add_parser("merge", help="재사용 판정 + 새 판정표(판정 완료본)를 합친다 (분석 쪽)")
+    g.add_argument("--reused", type=Path, required=True, help="round2가 만든 재사용 판정 (review_id,store_id,link,verdict,note)")
+    g.add_argument("--new-sheet", type=Path, required=True, help="round2 sheet를 사람이 판정까지 채운 파일")
+    g.add_argument("--new-key", type=Path, required=True, help="이번 회차 선정 그룹 키")
+    g.add_argument("--out", type=Path, required=True)
     a = ap.parse_args(argv)
-    {"targets": cmd_targets, "sheet": cmd_sheet, "summarize": cmd_summarize, "round2": cmd_round2}[a.cmd](a)
+    {"targets": cmd_targets, "sheet": cmd_sheet, "summarize": cmd_summarize, "round2": cmd_round2,
+     "merge": cmd_merge}[a.cmd](a)
 
 
 if __name__ == "__main__":

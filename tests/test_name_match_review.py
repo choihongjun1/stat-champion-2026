@@ -488,13 +488,27 @@ def test_date_bounds_by_group_and_intersection():
     key = pd.DataFrame({"store_id": ["S", "P", "O"], "groups": ["short_name", "random", "short_name;priority"]})
     span = pd.DataFrame({"store_id": ["S", "O"], "span_start": pd.to_datetime(["2020-06-01", "2018-01-01"]),
                         "span_end": pd.to_datetime(["2022-06-01", "2026-01-01"])})
-    b = nm.date_bounds(lic, key, master_span=span, serve_as_of="2026-06-30")
-    assert b["S"] == (pd.Timestamp("2020-06-01"), pd.Timestamp("2022-06-01"))  # span이 인허가·폐업일보다 좁음
-    assert b["P"] == (None, pd.Timestamp("2026-06-30"))  # priority: 하한 없음, serve_as_of만 상한
-    assert b["O"] == (pd.Timestamp("2019-01-01"), pd.Timestamp("2026-01-01"))  # short_name+priority 교집합
+    b = nm.date_bounds_by_group(lic, key, master_span=span, serve_as_of="2026-06-30")
+    assert b["S"] == {"short_name": (pd.Timestamp("2020-06-01"), pd.Timestamp("2022-06-01"))}  # span이 더 좁음
+    assert b["P"] == {"random": (None, pd.Timestamp("2026-06-30"))}  # priority: 하한 없음, serve_as_of만 상한
+    # 겹침 점포(O)는 그룹마다 자기 구간을 따로 갖는다 — 교집합하지 않는다(추가 리뷰)
+    assert b["O"] == {"short_name": (pd.Timestamp("2019-01-01"), pd.Timestamp("2026-01-01")),
+                      "priority": (None, pd.Timestamp("2026-06-30"))}
 
-    b_nocutoff = nm.date_bounds(lic, key, master_span=span, serve_as_of=None)
-    assert b_nocutoff["P"] == (None, None)  # serve_as_of 없으면 priority는 무제한
+    b_nocutoff = nm.date_bounds_by_group(lic, key, master_span=span, serve_as_of=None)
+    assert b_nocutoff["P"] == {"random": (None, None)}  # serve_as_of 없으면 priority는 무제한
+
+
+def test_within_union_uses_any_group_bound():
+    bounds_by_group = {"O": {"short_name": (pd.Timestamp("2019-01-01"), pd.Timestamp("2020-01-01")),
+                             "priority": (None, pd.Timestamp("2026-06-30"))}}
+    dates = pd.to_datetime(pd.Series(["2019-06-01", "2021-01-01", "2027-01-01"]))
+    store_ids = pd.Series(["O", "O", "O"])
+    # 2019-06-01: 둘 다 통과 / 2021-01-01: short_name 밖이지만 priority 안(합집합) / 2027-01-01: 둘 다 밖
+    assert nm._within_union(dates, store_ids, bounds_by_group).tolist() == [True, True, False]
+    # 정보가 없는 store_id는 제한 없음
+    assert nm._within_union(pd.to_datetime(pd.Series(["2099-01-01"])), pd.Series(["Z"]),
+                            bounds_by_group).tolist() == [True]
 
 
 def test_apply_date_bounds_filters_rows():
@@ -531,13 +545,16 @@ def test_carry_over_reuses_matching_pairs_and_flags_blocked():
                             "groups": ["short_name", "short_name"], "stratum": ["영업", "폐업"]})
     new_targets = pd.DataFrame({"review_id": ["N1", "N2"], "store_id": ["A", "D"]})
 
-    reused, blocked, stats = nm.carry_over(old_sheet, old_key, new_targets, new_key)
+    reused, need, stats = nm.carry_over(old_sheet, old_key, new_targets, new_key)
     assert set(reused["review_id"]) == {"N1"} and len(reused) == 2  # A의 글 2건만 재사용 (B는 new_key에 없음)
     assert set(reused["link"]) == {"a1", "a2"} and "store_id" not in stats
-    assert blocked == ["D"]
+    nd = need.set_index("review_id")
+    assert nd.at["N1", "n_valid"] == 2 and nd.at["N1", "n_needed"] == 1  # 목표 3건에서 1건 부족(추가 리뷰)
+    assert nd.at["N2", "n_valid"] == 0 and nd.at["N2", "n_needed"] == 3  # D는 재사용 글이 하나도 없다
     assert stats == {"n_reused_items": 2, "n_stores_total": 2, "n_stores_covered": 1, "n_stores_blocked": 1,
                      "covered_by_group": {"priority": 0, "random": 0, "short_name": 1},
-                     "blocked_by_group": {"priority": 0, "random": 0, "short_name": 1}}
+                     "blocked_by_group": {"priority": 0, "random": 0, "short_name": 1},
+                     "n_store_group_needing_more": 2}
 
 
 def test_carry_over_applies_date_bounds_to_old_verdicts():
@@ -546,9 +563,10 @@ def test_carry_over_applies_date_bounds_to_old_verdicts():
                               "link": ["old", "new"], "verdict": ["해당가게", "다른가게"], "note": ""})
     new_key = pd.DataFrame({"review_id": ["N1"], "store_id": ["A"], "groups": ["short_name"], "stratum": ["영업"]})
     new_targets = pd.DataFrame({"review_id": ["N1"], "store_id": ["A"]})
-    bounds = {"A": (pd.Timestamp("2020-01-01"), pd.Timestamp("2022-01-01"))}
-    reused, blocked, stats = nm.carry_over(old_sheet, old_key, new_targets, new_key, bounds)
-    assert reused["link"].tolist() == ["new"] and blocked == []  # 인허가일 이전 글(old)은 M1로 제외
+    bounds_by_group = {"A": {"short_name": (pd.Timestamp("2020-01-01"), pd.Timestamp("2022-01-01"))}}
+    reused, need, stats = nm.carry_over(old_sheet, old_key, new_targets, new_key, bounds_by_group)
+    assert reused["link"].tolist() == ["new"]  # 인허가일 이전 글(old)은 M1로 제외
+    assert need.set_index("review_id").at["N1", "n_valid"] == 1
 
 
 def test_cmd_round2_end_to_end(tmp_path):
@@ -571,11 +589,13 @@ def test_cmd_round2_end_to_end(tmp_path):
              "--new-targets", str(paths["new_targets"]), "--new-key", str(paths["new_key"]), "--out", str(out)])
     t2 = pd.read_csv(out / "name_match_targets_round2.csv", encoding="utf-8-sig")
     s2 = pd.read_csv(out / "name_match_sheet_round2.csv", encoding="utf-8-sig")
-    assert list(t2["review_id"]) == ["N2"] and len(s2) == 0  # A는 재사용, C는 원본 필요 → 대상만 남고 판정표는 0행
+    # A는 1건 재사용됐지만 목표(3건)에는 못 미치고, C는 재사용이 전혀 없다 — --raw 없이는 둘 다 대상에 남고
+    # 판정표는 0행이다(추가 리뷰: 점포×그룹 단위 3건 채우기, 원본 없으면 못 채운다).
+    assert set(t2["review_id"]) == {"N1", "N2"} and len(s2) == 0
     assert list(s2.columns) == nm.SHEET_COLS
     report = json.loads((out / "round2_report.json").read_text(encoding="utf-8"))
-    assert report["n_reused_items"] == 1 and report["n_new_items_to_judge"] == 0
-    assert report["n_stores_pending_raw_access"] == 1
+    assert report["n_reused_items"] == 1 and report["n_new_items_found"] == 0
+    assert report["n_stores_pending_raw_access"] == 2
     assert "store_id" not in json.dumps(report)
 
 
@@ -605,3 +625,131 @@ def test_cmd_round2_defaults_serve_as_of_from_new_key_meta(tmp_path):
              "--licenses", str(lic_path), "--out", str(out)])
     report = json.loads((out / "round2_report.json").read_text(encoding="utf-8"))
     assert report["n_reused_items"] == 1  # 2026-09-01 글은 제외되고 1건만 재사용
+
+
+# ---------------------------------------------------------------------------- 추가 리뷰: 겹침 점포·round2 --raw·merge
+def test_rates_group_view_recomputes_verdict_for_overlap_store_with_date_bounds():
+    """겹치는 점포는 그룹마다 자기 구간을 통과한 글로 점포 판정을 다시 낸다 — 같은 점포가 한 그룹에서는
+    오탐, 다른 그룹에서는 정상일 수 있다(추가 리뷰: 추출은 합집합, 집계는 그룹별 구간)."""
+    targets = pd.DataFrame({"review_id": ["R1"], "store_id": ["O"]})
+    key = pd.DataFrame({"review_id": ["R1"], "store_id": ["O"], "groups": ["short_name;random"], "stratum": ["영업"]})
+    sheet = pd.DataFrame({
+        "review_id": ["R1", "R1", "R1"], "item_no": [1, 2, 3],
+        "post_date": ["2019-06-01", "2019-07-01", "2025-01-01"],  # 처음 둘은 short_name 구간, 셋째는 random 구간
+        "verdict": ["다른가게", "다른가게", "해당가게"]})
+    items, stores, _ = nm.judge(sheet, targets, key)
+    # random 구간은 보통 하한이 없지만(#39 M1), 이 테스트는 _group_view가 그룹마다 다른 구간으로 다시
+    # 거르는 매커니즘 자체를 확인하는 것이라 임의의 구간을 쓴다 — 셋째 글(2025-01-01)만 통과시킨다.
+    bounds_by_group = {"O": {"short_name": (pd.Timestamp("2019-01-01"), pd.Timestamp("2020-01-01")),
+                             "random": (pd.Timestamp("2024-01-01"), pd.Timestamp("2026-06-30"))}}
+    tab = nm.rates(items, stores, bounds_by_group=bounds_by_group).set_index("group")
+    assert tab.at["short_name", "stores_fp"] == 1 and tab.at["short_name", "items_decided"] == 2  # 오탐
+    assert tab.at["random", "stores_fp"] == 0 and tab.at["random", "items_decided"] == 1  # 같은 점포, 정상
+    assert tab.at["전체", "items_decided"] == 3  # "전체"는 추출 시점 합집합 그대로, 다시 거르지 않는다
+
+
+def test_fill_from_raw_tops_up_to_three_and_records_shortfall():
+    """점포×그룹의 유효 판정 글이 3건 미만이면 그 그룹 구간 안 원본 글로 3건까지 채운다. 이미 판정한 글은
+    제외하고, 구간 안 글이 부족하면 있는 만큼 쓰고 실제 글 수를 review_id별로 기록한다."""
+    raw = pd.DataFrame({
+        "store_id": ["A", "A", "A", "A", "B"], "link": ["a1", "a2", "a3", "a4", "b1"],
+        "title": ["t"] * 5, "description": ["d"] * 5,
+        "postdate": ["20210101", "20210201", "20210301", "20210401", "20210101"], "matched": [True] * 5})
+    need = pd.DataFrame({"review_id": ["N1", "N2"], "group": ["short_name", "short_name"],
+                        "n_valid": [1, 0], "n_needed": [2, 3]})
+    new_key = pd.DataFrame({"review_id": ["N1", "N2"], "store_id": ["A", "B"],
+                            "groups": ["short_name", "short_name"], "stratum": ["영업", "폐업"]})
+    new_targets = pd.DataFrame({"review_id": ["N1", "N2"], "store_id": ["A", "B"], "name_raw": ["가A", "가B"],
+                                "gu": ["마포구"] * 2, "dong": ["서교동"] * 2, "biz_type": ["일반음식점"] * 2})
+    sheet, actual = nm.fill_from_raw(raw, need, new_key, new_targets, None, {"A": {"a1"}}, seed=20260927)
+    assert actual["N1"] == 2 and "a1" not in set(sheet.loc[sheet["review_id"] == "N1", "link"])  # 이미 판정한 글 제외
+    assert actual["N2"] == 1  # B는 원본에 매칭 글이 1건뿐 — 있는 만큼만
+    assert list(sheet.columns) == nm.SHEET_COLS
+    assert (sheet["verdict"] == "").all() and (sheet["item_no"] >= 1).all()
+
+
+def test_fill_from_raw_respects_group_window():
+    raw = pd.DataFrame({"store_id": ["A", "A"], "link": ["old", "new"], "title": ["t"] * 2, "description": ["d"] * 2,
+                        "postdate": ["20180101", "20210101"], "matched": [True] * 2})
+    need = pd.DataFrame({"review_id": ["N1"], "group": ["short_name"], "n_valid": [0], "n_needed": [3]})
+    new_key = pd.DataFrame({"review_id": ["N1"], "store_id": ["A"], "groups": ["short_name"], "stratum": ["영업"]})
+    new_targets = pd.DataFrame({"review_id": ["N1"], "store_id": ["A"], "name_raw": ["가A"], "gu": ["마포구"],
+                                "dong": ["서교동"], "biz_type": ["일반음식점"]})
+    bounds = {"A": {"short_name": (pd.Timestamp("2020-01-01"), pd.Timestamp("2022-01-01"))}}
+    sheet, actual = nm.fill_from_raw(raw, need, new_key, new_targets, bounds, {}, seed=1)
+    assert sheet["link"].tolist() == ["new"] and actual["N1"] == 1  # old는 구간 밖 — 있는 만큼(1건)만 채움
+
+
+def test_cmd_round2_with_raw_fills_sheet(tmp_path):
+    old_key = pd.DataFrame({"review_id": ["R1"], "store_id": ["A"], "groups": ["short_name"], "stratum": ["영업"]})
+    old_sheet = pd.DataFrame({"review_id": ["R1"], "item_no": [1], "post_date": ["2021-01-01"],
+                              "link": ["a1"], "verdict": ["해당가게"], "note": ""})
+    new_key = pd.DataFrame({"review_id": ["N1"], "store_id": ["A"], "groups": ["short_name"], "stratum": ["영업"]})
+    new_targets = pd.DataFrame({"review_id": ["N1"], "store_id": ["A"], "name_raw": ["가A"], "name_norm": ["가a"],
+                                "gu": ["마포구"], "dong": ["서교동"], "biz_type": ["일반음식점"]})
+    paths = {n: tmp_path / f"{n}.csv" for n in ("old_sheet", "old_key", "new_targets", "new_key")}
+    old_sheet.to_csv(paths["old_sheet"], index=False, encoding="utf-8-sig")
+    old_key.to_csv(paths["old_key"], index=False, encoding="utf-8-sig")
+    new_targets.to_csv(paths["new_targets"], index=False, encoding="utf-8-sig")
+    new_key.to_csv(paths["new_key"], index=False, encoding="utf-8-sig")
+    raw_path = tmp_path / "blog_items.jsonl.gz"
+    with gzip.open(raw_path, "wt", encoding="utf-8") as f:
+        for j, link in enumerate(["a1", "a2", "a3"]):  # a1은 이미 판정됨(재사용) — 새 글은 a2·a3뿐
+            f.write(json.dumps({"store_id": "A", "link": link, "title": f"글{j}", "description": "",
+                                "postdate": "20210201", "matched": True}) + "\n")
+    out = tmp_path / "out"
+    nm.main(["round2", "--old-sheet", str(paths["old_sheet"]), "--old-key", str(paths["old_key"]),
+             "--new-targets", str(paths["new_targets"]), "--new-key", str(paths["new_key"]),
+             "--raw", str(raw_path), "--out", str(out)])
+    s2 = pd.read_csv(out / "name_match_sheet_round2.csv", encoding="utf-8-sig")
+    assert set(s2["link"]) == {"a2", "a3"}  # a1(재사용)은 다시 뽑지 않는다
+    report = json.loads((out / "round2_report.json").read_text(encoding="utf-8"))
+    assert report["n_new_items_found"] == 2
+    assert "store_id" not in json.dumps(report)
+
+
+def test_merge_judgments_new_wins_on_conflict_and_reports_distribution():
+    reused = pd.DataFrame({"review_id": ["R1", "R1"], "store_id": ["A", "A"], "link": ["l1", "l2"],
+                          "verdict": ["해당가게", "다른가게"], "note": ["", ""]})
+    new_sheet = pd.DataFrame({"review_id": ["N1", "N1"], "item_no": [1, 2], "link": ["l2", "l3"],
+                              "verdict": ["판단불가", "해당가게"], "note": ["", ""]})
+    new_key = pd.DataFrame({"review_id": ["N1"], "store_id": ["A"], "groups": ["short_name"], "stratum": ["영업"]})
+    merged, meta = nm.merge_judgments(reused, new_sheet, new_key)
+    m = merged.set_index("link")
+    assert m.at["l2", "verdict"] == "판단불가"  # 양쪽에 있으면 새 판정 우선
+    assert set(merged["link"]) == {"l1", "l2", "l3"}
+    assert meta["n_conflict"] == 1 and meta["n_reused_kept"] == 1 and meta["n_new"] == 2
+    assert meta["items_per_store_distribution"][3] == 1  # A는 최종 3건
+
+
+def test_merge_judgments_raises_when_a_store_group_has_no_items():
+    reused = pd.DataFrame({"review_id": [], "store_id": [], "link": [], "verdict": [], "note": []})
+    new_sheet = pd.DataFrame({"review_id": [], "item_no": [], "link": [], "verdict": [], "note": []})
+    new_key = pd.DataFrame({"review_id": ["N1"], "store_id": ["A"], "groups": ["short_name"], "stratum": ["영업"]})
+    with pytest.raises(ValueError, match="판정 글이 하나도"):
+        nm.merge_judgments(reused, new_sheet, new_key)
+
+
+def test_merge_judgments_raises_on_blank_verdict():
+    reused = pd.DataFrame({"review_id": [], "store_id": [], "link": [], "verdict": [], "note": []})
+    new_sheet = pd.DataFrame({"review_id": ["N1"], "item_no": [1], "link": ["l1"], "verdict": [""], "note": [""]})
+    new_key = pd.DataFrame({"review_id": ["N1"], "store_id": ["A"], "groups": ["short_name"], "stratum": ["영업"]})
+    with pytest.raises(ValueError, match="미입력"):
+        nm.merge_judgments(reused, new_sheet, new_key)
+
+
+def test_cmd_merge_end_to_end(tmp_path):
+    reused = pd.DataFrame({"review_id": ["R1"], "store_id": ["A"], "link": ["l1"], "verdict": ["해당가게"], "note": [""]})
+    new_sheet = pd.DataFrame({"review_id": ["N1"], "item_no": [1], "link": ["l2"], "verdict": ["다른가게"], "note": [""]})
+    new_key = pd.DataFrame({"review_id": ["N1"], "store_id": ["A"], "groups": ["short_name"], "stratum": ["영업"]})
+    paths = {n: tmp_path / f"{n}.csv" for n in ("reused", "new_sheet", "new_key")}
+    reused.to_csv(paths["reused"], index=False, encoding="utf-8-sig")
+    new_sheet.to_csv(paths["new_sheet"], index=False, encoding="utf-8-sig")
+    new_key.to_csv(paths["new_key"], index=False, encoding="utf-8-sig")
+    out = tmp_path / "name_match_sheet_merged.csv"
+    nm.main(["merge", "--reused", str(paths["reused"]), "--new-sheet", str(paths["new_sheet"]),
+             "--new-key", str(paths["new_key"]), "--out", str(out)])
+    merged = pd.read_csv(out, encoding="utf-8-sig")
+    assert set(merged["link"]) == {"l1", "l2"}
+    meta = json.loads(out.with_name("name_match_sheet_merged_meta.json").read_text(encoding="utf-8"))
+    assert meta["n_merged_items"] == 2
