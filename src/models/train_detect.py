@@ -81,21 +81,27 @@ def sha256(path: Path) -> str:
 # 입력
 # ---------------------------------------------------------------------------
 def attach_online(df: pd.DataFrame, path: Path) -> pd.DataFrame:
-    """온라인 Enriched 테이블을 (store_id, origin) m:1로 붙인다. 행 수·순서 불변, 시점 위반 0건을 확인한다."""
+    """온라인 Enriched 테이블을 (store_id, origin) m:1로 붙인다. 행 수 불변, **게시물 내용 시점**이
+    origin_end를 넘지 않는지(`online_feature_asof`)를 확인한다.
+
+    #33 리뷰: `online_available_at`(실제 수집일, ≈2026-09)은 검증하지 않는다 — 과거 origin은 항상
+    수집일보다 앞서므로 `online_available_at > origin_end`가 항상 성립하는데, 이건 시점 누수가 아니라
+    회고적 재구성(수집은 한 번, 이후 게시월로 필터링)이라는 뜻이다. `online_data/online_features.py`
+    docstring "시점 메타 두 가지"에 이 구분과, 이 함수가 보장하는 것/보장하지 않는 것을 적어 뒀다."""
     on = pd.read_parquet(path)
     cols = ["store_id", "origin"] + [c for c in features.ONLINE_PREDICTORS if c in on.columns]
-    if "online_available_at" in on.columns:
-        cols.append("online_available_at")
+    if "online_feature_asof" in on.columns:
+        cols.append("online_feature_asof")
     if on.duplicated(["store_id", "origin"]).any():
         raise ValueError("온라인 테이블 (store_id, origin) 중복")
     out = df.merge(on[cols], on=["store_id", "origin"], how="left", validate="1:1")
     if len(out) != len(df):
         raise ValueError("온라인 조인 후 행 수가 바뀌었다")
-    if "online_available_at" in out.columns:
-        late = (pd.to_datetime(out["online_available_at"]) > pd.to_datetime(out["origin_end"])).sum()
+    if "online_feature_asof" in out.columns:
+        late = (pd.to_datetime(out["online_feature_asof"]) > pd.to_datetime(out["origin_end"])).sum()
         if late:
-            raise ValueError(f"online_available_at > origin_end {late}건 — 시점 누수")
-        out = out.drop(columns="online_available_at")
+            raise ValueError(f"online_feature_asof > origin_end {late}건 — 게시물 내용 시점 누수")
+        out = out.drop(columns="online_feature_asof")
     return out
 
 

@@ -79,6 +79,35 @@ def test_truncated_store_masks_unobserved_windows():
     assert get(t, "T", "2025Q1", "online_blog_cnt_12m") == 1          # 2024-04~2025-03
 
 
+def test_available_at_uses_collected_at_not_origin_end():
+    """#33 리뷰: online_available_at은 origin_end가 아니라 QA의 실제 수집 시점이어야 한다."""
+    p = panel_for(["A"])
+    m = _prep(pd.DataFrame([("A", "2022-01", 2)], columns=["store_id", "year_month", "mention_count"]))
+    q = qa([("A", True, False, None)])
+    q["collected_at"] = pd.Timestamp("2026-09-23")
+    t = of.build_online_features(p, m, q)
+    assert (t["online_available_at"] == pd.Timestamp("2026-09-23")).all()
+    assert (t["online_available_at"] > pd.to_datetime(t["online_feature_asof"])).all()  # 항상 미래 — 회고적 재구성
+
+
+def test_available_at_is_nat_without_collected_at():
+    """QA에 collected_at이 없으면(합성 테스트 등) NaT — origin_end로 되돌리지 않는다."""
+    p = panel_for(["A"])
+    m = _prep(pd.DataFrame([("A", "2022-01", 2)], columns=["store_id", "year_month", "mention_count"]))
+    t = of.build_online_features(p, m, qa([("A", True, False, None)]))
+    assert t["online_available_at"].isna().all()
+
+
+def test_load_qa_parses_collected_at(tmp_path):
+    csv = tmp_path / "qa.csv"
+    csv.write_text(
+        "store_id,error,first_date_truncated,oldest_raw_postdate,collected_at\n"
+        "A,,False,,2026-09-23T14:39:46.383173+00:00\n",
+        encoding="utf-8")
+    q = of.load_qa(csv)
+    assert q["collected_at"].iloc[0] == pd.Timestamp("2026-09-23 14:39:46.383173")
+
+
 def test_mask_origins():
     p = panel_for(["A"])
     m = _prep(pd.DataFrame([("A", "2021-02", 1)], columns=["store_id", "year_month", "mention_count"]))
