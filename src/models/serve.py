@@ -118,6 +118,15 @@ def read_detect_run(detect_dir: Path) -> tuple[dict, dict, object | None]:
     return meta, cut, iso
 
 
+def model_params(run_meta: dict) -> tuple[dict, str]:
+    """#45: 탐지 실행(run_meta.json)의 모형 설정(하이퍼파라미터)을 그대로 읽어 서빙 모형·부트스트랩에 쓴다.
+    run_meta에 params가 없는 옛 실행이면 기본값이고 출처에 그렇게 적는다."""
+    params = run_meta.get("params")
+    if isinstance(params, dict) and params:
+        return dict(params), "detect run_meta.params"
+    return dict(detect.DEFAULT_PARAMS), "detect.DEFAULT_PARAMS (run_meta에 params 없음)"
+
+
 def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *, primary: str,
         online_path: Path | None = None, online_score_path: Path | None = None,
         licenses_path: Path | None = None, qa_path: Path | None = None, background_index_path: Path | None = None,
@@ -160,7 +169,9 @@ def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *,
     train_detect.log(f"score {s} · {len(sc):,}점포 · 학습 {train_origins[0]}~{train_origins[-1]} "
                      f"({int(tr.sum()):,}행) · feature set {primary}")
 
-    model = detect.DetectModel().fit(Xtr, ytr)
+    params, params_source = model_params(run_meta)
+    train_detect.log(f"모형 설정({params_source}): {params}")
+    model = detect.DetectModel(params=params).fit(Xtr, ytr)
     p_raw = model.predict_proba(Xs)
     p = iso.predict(p_raw) if iso is not None else p_raw
 
@@ -168,7 +179,7 @@ def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *,
     if n_boot > 0:
         train_detect.log(f"부트스트랩 {n_boot}회 (점포 단위)")
         lo, hi, _ = uncertainty.bootstrap_interval(
-            lambda a, b, c: detect.fit_predict(a, b, c), Xtr, ytr, Xs, n_boot=n_boot, alpha=0.10,
+            lambda a, b, c: detect.fit_predict(a, b, c, params), Xtr, ytr, Xs, n_boot=n_boot, alpha=0.10,
             group=lab.loc[tr, "store_id"].to_numpy())
         if iso is not None:
             lo, hi = iso.predict(lo), iso.predict(hi)
@@ -236,6 +247,11 @@ def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *,
     serve_meta = {
         "score_origin": s, "as_of": as_of, "n_stores": int(len(sc)), "primary_feature_set": primary,
         "train_origins": [train_origins[0], train_origins[-1]], "n_train_rows": int(tr.sum()),
+        "model_params": params, "model_params_source": params_source,
+        "model_params_is_default": params == dict(detect.DEFAULT_PARAMS),
+        "band_definition": run_meta.get("band_definition"),
+        "cutoff_provenance": {**(run_meta.get("band_provenance") or {}),
+                              "high_share_served": float((risk["band"] == "high").mean())},
         "band_cutoffs": cut, "n_boot": n_boot, "n_background": n_background,
         "background": {"source": str(background_index_path) if background_index_path else "random",
                        **bg_fp},

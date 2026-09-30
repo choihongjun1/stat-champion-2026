@@ -145,3 +145,32 @@ def test_store_block_gets_name_and_address_from_licenses(detect_run, tmp_path):
     pd.concat([lic, lic.head(1)]).to_parquet(tmp_path / "dup.parquet", index=False)
     with pytest.raises(ValueError, match="중복"):
         serve.store_meta(ids, tmp_path / "dup.parquet")
+
+
+def test_serve_meta_records_model_params_and_cutoff_provenance(detect_run, tmp_path):
+    """#45: 서빙 모형 설정은 detect run_meta.params에서 읽고, 컷오프 정의·provenance를 serve_meta에 옮겨 적는다."""
+    _serve(detect_run, tmp_path / "out")
+    sm = json.loads((tmp_path / "out" / "serve_meta.json").read_text(encoding="utf-8"))
+    rm = json.loads((detect_run["ddir"] / "run_meta.json").read_text(encoding="utf-8"))
+    assert sm["model_params"] == rm["params"] and sm["model_params_source"] == "detect run_meta.params"
+    assert sm["band_definition"] == rm["band_definition"] and "1.2 × base_rate" in sm["band_definition"]["cut_mid"]
+    cp = sm["cutoff_provenance"]
+    assert {"calib_origins", "base_rate", "cut_mid", "cut_high", "high_fallback", "mid_fallback", "high_share_test",
+            "high_lift_test", "high_lift_ci95", "high_share_served"} <= set(cp)
+    assert cp["cut_high"] == pytest.approx(sm["band_cutoffs"]["cut_high"])
+
+
+def test_serve_uses_run_meta_hyperparameters(detect_run, tmp_path):
+    import shutil
+
+    ddir = tmp_path / "detect_tweaked"
+    shutil.copytree(detect_run["ddir"], ddir)
+    rm = json.loads((ddir / "run_meta.json").read_text(encoding="utf-8"))
+    rm["params"] = {**rm["params"], "max_iter": 50, "learning_rate": 0.1}
+    (ddir / "run_meta.json").write_text(json.dumps(rm), encoding="utf-8")
+    r = {**detect_run, "ddir": ddir}
+    base = _serve(detect_run, tmp_path / "out_default")
+    tweaked = _serve(r, tmp_path / "out_tweaked")
+    sm = json.loads((tmp_path / "out_tweaked" / "serve_meta.json").read_text(encoding="utf-8"))
+    assert sm["model_params"]["max_iter"] == 50 and sm["model_params_is_default"] is False
+    assert np.abs(base["probability_12m"].to_numpy() - tweaked["probability_12m"].to_numpy()).max() > 1e-6  # 실제로 반영됨
