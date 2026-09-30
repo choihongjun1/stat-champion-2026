@@ -28,9 +28,10 @@ blind 원칙: 대상 목록·판정표 어디에도 위험도·등급·폐업 �
         --licenses outputs/standardized/licenses_3gu.parquet --mentions outputs/online/online_mentions_monthly.parquet \\
         --out outputs/review/name_match_targets.csv
     python -m src.analysis.name_match_review sheet --targets name_match_targets.csv \\
-        --items data/raw/online/blog_items.jsonl.gz --out name_match_sheet.csv
+        --items data/00_raw/online/blog_items.jsonl.gz --out name_match_sheet.csv
     python -m src.analysis.name_match_review summarize --targets outputs/review/name_match_targets.csv \\
         --key outputs/review/name_match_key.csv --sheet name_match_sheet.csv --out outputs/review/
+회차가 바뀌면 round2(재사용 + 부족분 추출) → 사람 판정 → merge → summarize (docs/REVIEW_NAME_MATCH.md).
 """
 from __future__ import annotations
 
@@ -294,7 +295,19 @@ def select_targets(pool: pd.DataFrame, prob: pd.Series, licenses: pd.DataFrame, 
 
 def key_meta_path(key_path: Path) -> Path:
     """선정 그룹 키 옆의 메타 (name_match_key.csv → name_match_key_meta.json)."""
-    return key_path.with_name(f"{key_path.stem}_meta.json")
+    return Path(key_path).with_name(f"{Path(key_path).stem}_meta.json")
+
+
+def check_key_meta_pair(meta: dict, targets_path, key_path) -> None:
+    """메타에 적힌 targets·key sha256이 실제 파일과 같은지 확인한다 (다른 회차 파일과 섞이면 가중치·serve 기준이
+    틀린다). 다르면 멈춘다. 이 기능 이전에 만든 메타(해시 없음)는 확인할 수 없어 경고만 한다."""
+    pairs = [("targets_sha256", targets_path), ("key_sha256", key_path)]
+    if not any(meta.get(k) for k, _ in pairs):
+        print("경고: 선정 그룹 키 메타에 targets/key sha256이 없어 짝을 확인하지 못했다 (이전 버전 메타)")
+        return
+    bad = [f"{k}({Path(p).name})" for k, p in pairs if p is not None and meta.get(k) and meta[k] != sha256_file(p)]
+    if bad:
+        raise ValueError(f"선정 그룹 키 메타와 파일이 짝이 아니다: {bad} — 같은 targets 실행에서 나온 세 파일을 쓴다")
 
 
 def cmd_targets(a) -> pd.DataFrame:
@@ -342,7 +355,9 @@ def cmd_targets(a) -> pd.DataFrame:
                              if short_pool is not None else None),
             "short_pool_n_before_master_restriction": ({s: int(n_short_before.get(s, 0)) for s in (OPEN, CLOSED)}
                                                         if n_short_before is not None else None),
-            **serve_meta_near(a.diagnosis)}
+            **serve_meta_near(a.diagnosis),
+            # 이 메타와 짝인 대상 목록·키 — summarize/round2가 다른 회차 파일과 섞이지 않았는지 확인한다
+            "targets_sha256": sha256_file(a.out), "key_sha256": sha256_file(key_out)}
     key_meta_path(Path(key_out)).write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     m = {g: in_group(key["groups"], g) for g in GROUPS}
     short = key[m[SHORT]]
@@ -720,7 +735,9 @@ def cmd_summarize(a) -> pd.DataFrame:
     meta_path = a.key_meta or (key_meta_path(Path(a.key)) if a.key else None)
     short_pool_n = None
     if meta_path is not None and Path(meta_path).exists():
-        short_pool_n = json.loads(Path(meta_path).read_text(encoding="utf-8")).get("short_pool_n")
+        key_meta = json.loads(Path(meta_path).read_text(encoding="utf-8"))
+        check_key_meta_pair(key_meta, a.targets, a.key)  # 가중치를 읽기 전에 짝부터 확인
+        short_pool_n = key_meta.get("short_pool_n")
     if in_group(stores["groups"], SHORT).any() and not short_pool_n:
         print("경고: 선정 그룹 키 메타(short_pool_n)가 없어 short_name 전체 오탐률을 가중하지 못했다 (비가중 값만)")
     bounds_by_group = None
@@ -907,32 +924,102 @@ def fill_from_raw(raw_items: pd.DataFrame, need: pd.DataFrame, new_key: pd.DataF
     return sheet, actual
 
 
+MANIFEST_FILE = "name_match_round2_manifest.csv"  # round2 --out에 저장, merge --manifest 기본값 (분석 쪽 보관)
+
+
+def _bucket_labels(store_ids: pd.Series, key: pd.DataFrame) -> pd.Series:
+    """제외 건수 집계용 그룹 표시 — "random", "short_name:폐업", "random;short_name:영업" (점포 식별 정보 없음)."""
+    k = key.drop_duplicates("store_id").set_index("store_id")
+    groups = store_ids.map(k["groups"]).fillna("")
+    stratum = store_ids.map(k["stratum"]).fillna("")
+    return groups + np.where(stratum != "", ":" + stratum, "")
+
+
+def _excluded_by_bucket(store_ids: pd.Series, dates: pd.Series, bounds_by_group, key: pd.DataFrame) -> dict:
+    """날짜 필터(그룹 구간의 합집합) 밖으로 빠진 글 수 — 전체·그룹별."""
+    keep = _within_union(dates, store_ids, bounds_by_group)
+    labels = _bucket_labels(store_ids, key)
+    return {"items_before": int(len(keep)), "items_excluded": int((~keep).sum()),
+            "items_excluded_by_group": {str(g): int(n) for g, n in labels[~keep.to_numpy()].value_counts().sort_index().items()}}
+
+
+def groups_in_window(review_ids: pd.Series, post_dates: pd.Series, new_key: pd.DataFrame,
+                     bounds_by_group: dict[str, dict[str, tuple]]) -> pd.Series:
+    """글마다 그 날짜가 자기 구간 안에 드는 그룹(";"로 연결). 겹침 점포는 한 그룹에만 들 수 있다.
+    merge가 점포×그룹 단위 '매칭 없음'을 셀 때 쓴다 (summarize의 그룹별 재필터와 같은 규칙)."""
+    rid_map = new_key.drop_duplicates("review_id").set_index("review_id")
+    dates = pd.to_datetime(post_dates, format="%Y-%m-%d", errors="coerce")
+    out = []
+    for rid, d in zip(review_ids, dates):
+        sid, groups = rid_map.at[rid, "store_id"], str(rid_map.at[rid, "groups"]).split(GROUP_SEP)
+        ok = []
+        for g in groups:
+            lo, hi = bounds_by_group.get(sid, {}).get(g, (None, None))
+            if pd.notna(d) and (lo is None or d >= lo) and (hi is None or d <= hi):
+                ok.append(g)
+        out.append(GROUP_SEP.join(ok))
+    return pd.Series(out, index=review_ids.index, dtype=object)
+
+
+def _no_match_store_groups(manifest: pd.DataFrame, new_key: pd.DataFrame) -> list[tuple[str, str]]:
+    """이번 회차 key의 점포×그룹 중 그 그룹 구간 안 글이 하나도 없는 것 [(review_id, group)].
+    manifest는 review_id, groups_in_window 열을 가진다 (round2가 만든 것, 또는 merge 결과에 붙인 것)."""
+    covered: set[tuple[str, str]] = set()
+    for rid, gs in zip(manifest["review_id"], manifest["groups_in_window"].fillna("")):
+        covered.update((rid, g) for g in str(gs).split(GROUP_SEP) if g)
+    return [(r.review_id, g) for r in new_key.drop_duplicates("review_id").itertuples(index=False)
+            for g in str(r.groups).split(GROUP_SEP) if (r.review_id, g) not in covered]
+
+
+def _count_by_group(pairs: list[tuple[str, str]], new_key: pd.DataFrame) -> dict[str, int]:
+    """(review_id, group) 목록을 그룹(short_name은 층까지)별 건수로 — 점포 식별 정보 없음."""
+    stratum = new_key.drop_duplicates("review_id").set_index("review_id")["stratum"]
+    labels = [g + (f":{stratum.get(rid, '')}" if g == SHORT and stratum.get(rid, "") else "") for rid, g in pairs]
+    return {k: int(v) for k, v in sorted(pd.Series(labels, dtype=object).value_counts().items())}
+
+
 def cmd_round2(a) -> dict:
+    # 날짜 필터(M1)는 선택이 아니다 — 빠지면 재사용·새 추출이 조용히 달라진다(실데이터 56건·22곳 → 73건·25곳).
+    missing = [f for f, v in (("--licenses", a.licenses), ("--master", a.master)) if not v]
+    if missing:
+        raise ValueError(f"round2에는 날짜 필터 입력 {missing}이 필요하다 (short_name 인허가일·폐업일·master 구간)")
     old_sheet = pd.read_csv(a.old_sheet, dtype=str, keep_default_na=False, encoding="utf-8-sig")
     old_key = pd.read_csv(a.old_key, dtype=str, keep_default_na=False, encoding="utf-8-sig")
     new_targets = pd.read_csv(a.new_targets, dtype=str, encoding="utf-8-sig")
     new_key = pd.read_csv(a.new_key, dtype=str, keep_default_na=False, encoding="utf-8-sig")
-    bounds_by_group = None
-    if a.licenses:
-        lic = pd.read_parquet(a.licenses, columns=["store_id", "license_date", "close_date"])
-        master_span = master_base_span(pd.read_parquet(a.master, columns=["store_id", "origin_start", "origin_end"])) \
-            if a.master else None
-        # --serve-as-of가 없으면 새 회차 key의 메타(name_match_key_meta.json, cmd_targets가 diagnosis 옆
-        # serve_meta.json에서 읽어 둔 값)에서 가져온다 — targets.csv 옆에는 serve_meta.json이 없다.
-        serve_as_of = a.serve_as_of
-        if serve_as_of is None and key_meta_path(a.new_key).exists():
-            serve_as_of = json.loads(key_meta_path(a.new_key).read_text(encoding="utf-8")).get("serve_as_of")
-        bounds_by_group = date_bounds_by_group(lic, new_key, master_span=master_span, serve_as_of=serve_as_of)
+    key_meta = json.loads(key_meta_path(a.new_key).read_text(encoding="utf-8")) \
+        if key_meta_path(a.new_key).exists() else {}
+    if key_meta:
+        check_key_meta_pair(key_meta, a.new_targets, a.new_key)
+    lic = pd.read_parquet(a.licenses, columns=["store_id", "license_date", "close_date"])
+    master_span = master_base_span(pd.read_parquet(a.master, columns=["store_id", "origin_start", "origin_end"]))
+    # --serve-as-of가 없으면 새 회차 key의 메타(name_match_key_meta.json, cmd_targets가 diagnosis 옆
+    # serve_meta.json에서 읽어 둔 값)에서 가져온다 — targets.csv 옆에는 serve_meta.json이 없다.
+    serve_as_of = a.serve_as_of or key_meta.get("serve_as_of")
+    if not serve_as_of:
+        raise ValueError("priority/random 날짜 상한(serve_as_of)이 없다 — --serve-as-of를 주거나 key 메타에 serve_as_of가 있어야 한다")
+    bounds_by_group = date_bounds_by_group(lic, new_key, master_span=master_span, serve_as_of=serve_as_of)
+
+    # 옛 판정 중 날짜 필터로 빠지는 글 (이번 대상 점포, 판정된 글만)
+    old_all = old_sheet.merge(old_key[["review_id", "store_id"]], on="review_id", how="left")
+    old_all = old_all[pd.to_numeric(old_all["item_no"], errors="coerce").fillna(0) > 0]
+    old_new = old_all[old_all["store_id"].isin(set(new_key["store_id"])) & (old_all["verdict"] != "")]
+    date_filter = {"applied": True, "serve_as_of": str(serve_as_of), "master_span": True,
+                   "old_verdicts": _excluded_by_bucket(old_new["store_id"].reset_index(drop=True),
+                                                       pd.to_datetime(old_new["post_date"].reset_index(drop=True),
+                                                                      format="%Y-%m-%d", errors="coerce"),
+                                                       bounds_by_group, new_key)}
     reused, need, stats = carry_over(old_sheet, old_key, new_targets, new_key, bounds_by_group)
 
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     if a.raw:
         # 이미 판정한 글(재사용 가능 여부와 무관하게 옛 판정표 전체)은 다시 후보로 뽑지 않는다.
-        old_all = old_sheet.merge(old_key[["review_id", "store_id"]], on="review_id", how="left")
-        old_all = old_all[pd.to_numeric(old_all["item_no"], errors="coerce").fillna(0) > 0]
         exclude_links: dict[str, set[str]] = {sid: set(g["link"]) for sid, g in old_all.groupby("store_id")}
         raw_items = read_items(a.raw, set(new_key["store_id"]))
+        date_filter["raw_items"] = _excluded_by_bucket(
+            raw_items["store_id"], pd.to_datetime(raw_items["postdate"].astype(str), format="%Y%m%d", errors="coerce"),
+            bounds_by_group, new_key)
         sheet2, actual = fill_from_raw(raw_items, need, new_key, new_targets, bounds_by_group, exclude_links, a.seed)
         rid_needed = sorted(set(need.loc[need["n_needed"] > 0, "review_id"]))
         targets2 = new_targets[new_targets["review_id"].isin(rid_needed)][TARGET_COLS].reset_index(drop=True)
@@ -954,26 +1041,49 @@ def cmd_round2(a) -> dict:
     sheet2.to_csv(out / "name_match_sheet_round2.csv", index=False, encoding="utf-8-sig")
     # merge --reused의 기본 입력. store_id가 있으니 분석 쪽에만 둔다(판정자에게 전달하지 않는다).
     reused.to_csv(out / REUSED_FILE, index=False, encoding="utf-8-sig")
+    # merge가 판정본을 검증할 기준: 이번 회차 판정 대상 글 전체(재사용 + 새 판정표)와 글마다 날짜가 드는 그룹.
+    # 선정 그룹이 있으므로 분석 쪽에만 둔다.
+    manifest = pd.concat([reused[["review_id", "link", "post_date"]].assign(source="reused"),
+                          sheet2[["review_id", "link", "post_date"]].assign(source="new")], ignore_index=True)
+    manifest["groups_in_window"] = groups_in_window(manifest["review_id"], manifest["post_date"], new_key,
+                                                    bounds_by_group) if len(manifest) else pd.Series(dtype=object)
+    manifest.to_csv(out / MANIFEST_FILE, index=False, encoding="utf-8-sig")
+    no_match = _no_match_store_groups(manifest, new_key)
     report = {**stats, "n_new_items_found": int(sum(actual.values())), "n_stores_pending_raw_access": len(rid_needed),
-             "actual_new_items_by_review_id": actual, "note": note}
+             "n_new_sheet_rows": int(len(sheet2)), "n_new_sheet_stores": int(sheet2["review_id"].nunique()),
+             "n_no_match_store_groups": len(no_match), "no_match_by_group": _count_by_group(no_match, new_key),
+             "date_filter": date_filter, "actual_new_items_by_review_id": actual, "note": note}
     (out / "round2_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"재사용 {stats['n_reused_items']}건 (점포 {stats['n_stores_covered']}/{stats['n_stores_total']}) · "
           f"새로 찾은 글 {report['n_new_items_found']}건 · 대기(부족) 점포×그룹 {stats['n_store_group_needing_more']}건")
     print(f"  그룹별 재사용 점포: {stats['covered_by_group']} / 전부 결측 점포×그룹: {stats['blocked_by_group']}")
-    return {"reused": reused, "need": need, "targets2": targets2, "sheet2": sheet2, "report": report}
+    print(f"  판정자에게 보낼 판정표 {len(sheet2)}줄 ({report['n_new_sheet_stores']}개 점포) → {out / 'name_match_sheet_round2.csv'}")
+    print(f"  구간 안 글이 없는 점포×그룹(매칭 없음) {len(no_match)}건: {report['no_match_by_group']}")
+    print(f"  날짜 필터: 옛 판정 {date_filter['old_verdicts']['items_excluded']}건 제외"
+          + (f", 원본 {date_filter['raw_items']['items_excluded']}건 구간 밖" if "raw_items" in date_filter else ""))
+    return {"reused": reused, "need": need, "targets2": targets2, "sheet2": sheet2, "manifest": manifest,
+            "report": report}
 
 
 # ---------------------------------------------------------------------------- merge (재사용 + 새 판정 합치기)
 def merge_judgments(reused: pd.DataFrame, new_sheet: pd.DataFrame, new_key: pd.DataFrame,
-                    old_dates: pd.DataFrame | None = None) -> tuple[pd.DataFrame, dict]:
+                    old_dates: pd.DataFrame | None = None, manifest: pd.DataFrame | None = None
+                    ) -> tuple[pd.DataFrame, dict]:
     """재사용 판정 파일 + 새 판정표(판정 완료본)를 이번 회차 key 기준으로 합친다. 키는 (store, link) —
     review_id는 이번 회차 key로 다시 매긴다(재사용 파일의 review_id는 지난 회차 것일 수 있어 믿지 않는다).
     같은 (store, link)가 양쪽에 있으면 새 판정을 우선한다(사람이 다시 본 것이 더 최신).
 
-    이번 회차 key의 점포×그룹 중 판정 글이 하나도 없는 것(유효 글 0건 — M1 날짜 필터로 글이 모두 빠진 경우)은
-    에러 대신 건너뛰고 meta에 건수·review_id를 남긴다. 이 점포는 key·targets에 그대로 있으므로 summarize가
-    `--separate-no-match`에서 '매칭 없음'으로 센다. verdict 미입력(빈 칸)은 여전히 에러 — summarize까지 가서
-    judge()가 늦게 잡지 않도록 여기서 먼저 막는다.
+    판정 누락과 '매칭 없음'을 구분한다 — 멈추는 경우:
+    - 새 판정표에 이번 회차 key에 없는 review_id가 있다.
+    - verdict 미입력(빈 칸)이 있다 (summarize까지 가서 judge()가 늦게 잡지 않도록 여기서 먼저 막는다).
+    - manifest(round2가 만든 판정 대상 목록)가 있으면: round2 판정표의 (review_id, link)가 판정본에서 빠졌거나,
+      판정본에 round2가 만들지 않은 글이 있거나, 재사용 파일이 round2 때와 다르다.
+
+    이번 회차 key의 점포×그룹 중 그 그룹 구간 안 글이 하나도 없는 것('매칭 없음' — 날짜 필터로 글이 모두 빠진
+    경우)은 에러 대신 건너뛰고 meta에 점포×그룹 단위로 남긴다. 겹침 점포는 한 그룹만 매칭 없음일 수 있다
+    (manifest의 groups_in_window로 센다). 이 점포는 key·targets에 그대로 있으므로 summarize가
+    `--separate-no-match`에서 '매칭 없음'으로 센다. manifest가 없으면 그룹 구간을 모르므로 점포 단위(글 0건인
+    점포의 모든 그룹)로만 센다 — CLI merge는 manifest를 요구한다.
 
     출력은 summarize 입력 형식이다: review_id, item_no(점포별 1부터), post_date, link, verdict, note.
     post_date는 새 판정표의 열, 재사용 파일의 열을 쓰고, 재사용 파일에 없으면 old_dates(store_id, link,
@@ -999,11 +1109,28 @@ def merge_judgments(reused: pd.DataFrame, new_sheet: pd.DataFrame, new_key: pd.D
     new_sheet = new_sheet[pd.to_numeric(new_sheet["item_no"], errors="coerce").fillna(0) > 0]
     if "post_date" not in new_sheet:
         new_sheet["post_date"] = ""
+    unknown = sorted(set(new_sheet["review_id"].fillna("").astype(str)) - set(new_key["review_id"]))
+    if unknown:
+        raise ValueError(f"새 판정표에 이번 회차 key에 없는 review_id {len(unknown)}개: {unknown[:10]} — "
+                         "다른 회차 판정표이거나 review_id가 바뀌었다")
     new_sheet = new_sheet.merge(new_key[["review_id", "store_id"]].drop_duplicates("review_id"),
                                 on="review_id", how="left").drop_duplicates(key_cols)
     blank = new_sheet["verdict"].fillna("").astype(str).str.strip() == ""
     if blank.any():
         raise ValueError(f"새 판정표에 verdict 미입력 글 {int(blank.sum())}건 — 모두 채운 뒤 다시 시도한다")
+    if manifest is not None:
+        pairs = lambda df: set(zip(df["review_id"].astype(str), df["link"].astype(str)))  # noqa: E731
+        expected_new = pairs(manifest[manifest["source"] == "new"])
+        got_new = pairs(new_sheet)
+        missing, extra = sorted(expected_new - got_new), sorted(got_new - expected_new)
+        if missing:
+            raise ValueError(f"판정본에서 빠진 글 {len(missing)}건 (review_id {sorted({r for r, _ in missing})[:10]}) — "
+                             "round2 판정표의 행을 지우지 않고 모두 판정해야 한다 (판단할 수 없으면 '판단불가')")
+        if extra:
+            raise ValueError(f"round2 판정표에 없던 글 {len(extra)}건이 판정본에 있다 (review_id "
+                             f"{sorted({r for r, _ in extra})[:10]}) — link·review_id를 고치지 않는다")
+        if pairs(manifest[manifest["source"] == "reused"]) != pairs(reused):
+            raise ValueError("재사용 판정 파일이 round2 manifest와 다르다 — 같은 round2 --out 폴더의 두 파일을 쓴다")
 
     conflict = set(map(tuple, reused[key_cols].to_numpy())) & set(map(tuple, new_sheet[key_cols].to_numpy()))
     n_conflict = len(conflict)
@@ -1017,16 +1144,24 @@ def merge_judgments(reused: pd.DataFrame, new_sheet: pd.DataFrame, new_key: pd.D
                          "--old-sheet/--old-key(지난 회차 판정표·key)를 함께 준다")
 
     all_new = new_key.drop_duplicates("store_id")
-    counts = merged.groupby("store_id").size()
-    no_match = [(r.review_id, g) for r in all_new.itertuples(index=False) for g in str(r.groups).split(GROUP_SEP)
-                if counts.get(r.store_id, 0) == 0]
+    if manifest is not None:
+        # 판정본이 manifest와 (review_id, link) 단위로 같음을 위에서 확인했으므로 manifest의 그룹별 구간으로 센다
+        no_match, basis = _no_match_store_groups(manifest, new_key), "store_group_window"
+    else:
+        counts = merged.groupby("store_id").size()
+        no_match = [(r.review_id, g) for r in all_new.itertuples(index=False) for g in str(r.groups).split(GROUP_SEP)
+                    if counts.get(r.store_id, 0) == 0]
+        basis = "store (manifest 없음 — 그룹별 구간 미확인)"
     merged["item_no"] = merged.groupby("review_id").cumcount() + 1
 
     n_by_store = merged.groupby("store_id").size()
     dist = n_by_store.value_counts().reindex([1, 2, 3], fill_value=0).astype(int).to_dict()
     meta = {"n_reused_kept": len(kept_reused), "n_new": len(new_sheet), "n_conflict": n_conflict,
            "n_merged_items": len(merged), "n_stores": len(all_new), "items_per_store_distribution": dist,
-           "n_no_match_store_groups": len(no_match), "no_match_review_ids": sorted({rid for rid, _ in no_match})}
+           "n_no_match_store_groups": len(no_match), "no_match_basis": basis,
+           "no_match_store_groups": [{"review_id": r, "group": g} for r, g in no_match],
+           "no_match_by_group": _count_by_group(no_match, new_key),
+           "no_match_review_ids": sorted({rid for rid, _ in no_match})}
     return merged[["review_id", "item_no", "post_date", "link", "verdict", "note"]], meta
 
 
@@ -1035,6 +1170,12 @@ def cmd_merge(a) -> pd.DataFrame:
     if not Path(reused_path).exists():
         raise FileNotFoundError(f"재사용 판정 파일이 없다: {reused_path} — round2 --out 폴더에 있는 {REUSED_FILE}을 --reused로 준다")
     reused = pd.read_csv(reused_path, dtype=str, keep_default_na=False, encoding="utf-8-sig")
+    # 판정 누락 검증 기준 — round2가 재사용 파일과 같은 폴더에 만든다. 없으면 누락을 확인할 수 없으므로 멈춘다.
+    manifest_path = getattr(a, "manifest", None) or Path(reused_path).parent / MANIFEST_FILE
+    if not Path(manifest_path).exists():
+        raise FileNotFoundError(f"round2 manifest가 없다: {manifest_path} — round2 --out 폴더의 {MANIFEST_FILE}을 "
+                                "--manifest로 준다 (판정본 누락·추가 행을 확인하는 기준)")
+    manifest = pd.read_csv(manifest_path, dtype=str, keep_default_na=False, encoding="utf-8-sig")
     new_sheet = pd.read_csv(a.new_sheet, dtype=str, keep_default_na=False, encoding="utf-8-sig")
     new_key = pd.read_csv(a.new_key, dtype=str, keep_default_na=False, encoding="utf-8-sig")
     old_dates = None
@@ -1043,7 +1184,7 @@ def cmd_merge(a) -> pd.DataFrame:
         old_key = pd.read_csv(a.old_key, dtype=str, keep_default_na=False, encoding="utf-8-sig")
         old_dates = old_sheet.merge(old_key[["review_id", "store_id"]], on="review_id", how="left")[
             ["store_id", "link", "post_date"]]
-    merged, meta = merge_judgments(reused, new_sheet, new_key, old_dates)
+    merged, meta = merge_judgments(reused, new_sheet, new_key, old_dates, manifest)
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     merged.to_csv(out, index=False, encoding="utf-8-sig")
@@ -1053,8 +1194,8 @@ def cmd_merge(a) -> pd.DataFrame:
           f"새 판정 우선) → {meta['n_merged_items']}건, {meta['n_stores']}개 점포 · 글 수 분포 "
           f"{meta['items_per_store_distribution']} → {out}")
     if meta["n_no_match_store_groups"]:
-        print(f"경고: 유효 글 0건 점포×그룹 {meta['n_no_match_store_groups']}건은 건너뛴다 (review_id "
-              f"{meta['no_match_review_ids']}) — summarize --separate-no-match에서 '매칭 없음'으로 센다")
+        print(f"경고: 유효 글 0건 점포×그룹 {meta['n_no_match_store_groups']}건은 건너뛴다 ({meta['no_match_by_group']}, "
+              f"review_id {meta['no_match_review_ids']}) — summarize --separate-no-match에서 '매칭 없음'으로 센다")
     return merged
 
 
@@ -1106,8 +1247,9 @@ def main(argv=None) -> None:
     r.add_argument("--old-key", type=Path, required=True)
     r.add_argument("--new-targets", type=Path, required=True)
     r.add_argument("--new-key", type=Path, required=True)
-    r.add_argument("--licenses", type=Path, default=None, help="M1 날짜 필터를 옛 판정에도 다시 적용 (없으면 생략)")
-    r.add_argument("--master", type=Path, default=None)
+    r.add_argument("--licenses", type=Path, required=True,
+                   help="M1 날짜 필터 (short_name 인허가일·폐업일) — 필수: 빠지면 재사용·새 추출이 조용히 달라진다")
+    r.add_argument("--master", type=Path, required=True, help="M1 날짜 필터 (short_name master_base 등장 구간) — 필수")
     r.add_argument("--serve-as-of", default=None)
     r.add_argument("--raw", type=Path, nargs="+", default=None,
                    help="blog_items*.jsonl.gz — 있으면 점포×그룹의 유효 판정 글이 3건 미만일 때 새로 채운다")
@@ -1116,6 +1258,8 @@ def main(argv=None) -> None:
     g = sub.add_parser("merge", help="재사용 판정 + 새 판정표(판정 완료본)를 합친다 (분석 쪽)")
     g.add_argument("--reused", type=Path, default=None,
                    help=f"round2가 만든 재사용 판정 (기본: --new-sheet와 같은 폴더의 {REUSED_FILE})")
+    g.add_argument("--manifest", type=Path, default=None,
+                   help=f"round2가 만든 판정 대상 목록 (기본: --reused와 같은 폴더의 {MANIFEST_FILE}, 없으면 멈춤)")
     g.add_argument("--new-sheet", type=Path, required=True, help="round2 sheet를 사람이 판정까지 채운 파일")
     g.add_argument("--new-key", type=Path, required=True, help="이번 회차 선정 그룹 키")
     g.add_argument("--old-sheet", type=Path, default=None,

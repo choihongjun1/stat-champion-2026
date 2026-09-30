@@ -40,6 +40,17 @@ def _licenses(ids):
                          "name_norm": [f"가게{i}" for i in range(len(ids))], "dong": "서교동"})
 
 
+def _filter_args(tmp_path, store_ids, serve_as_of="2026-06-30"):
+    """round2 날짜 필터 필수 입력(--licenses·--master·--serve-as-of) — 인허가 2015년, 영업 중, master 2020Q1~2025Q2."""
+    lic = pd.DataFrame({"store_id": list(store_ids), "license_date": pd.Timestamp("2015-01-01"), "close_date": pd.NaT})
+    master = pd.DataFrame({"store_id": list(store_ids), "origin_start": pd.Timestamp("2020-01-01"),
+                           "origin_end": pd.Timestamp("2025-06-30")})
+    lp, mp = tmp_path / "lic.parquet", tmp_path / "master.parquet"
+    lic.to_parquet(lp, index=False)
+    master.to_parquet(mp, index=False)
+    return ["--licenses", str(lp), "--master", str(mp), "--serve-as-of", serve_as_of]
+
+
 def _targets(n_pri=3, n_rnd=5, seed=7):
     d, p = _diagnosis()
     pool = nm.review_pool(d)
@@ -586,7 +597,8 @@ def test_cmd_round2_end_to_end(tmp_path):
     new_key.to_csv(paths["new_key"], index=False, encoding="utf-8-sig")
     out = tmp_path / "out"
     nm.main(["round2", "--old-sheet", str(paths["old_sheet"]), "--old-key", str(paths["old_key"]),
-             "--new-targets", str(paths["new_targets"]), "--new-key", str(paths["new_key"]), "--out", str(out)])
+             "--new-targets", str(paths["new_targets"]), "--new-key", str(paths["new_key"]), "--out", str(out)]
+            + _filter_args(tmp_path, ["A", "B", "C"]))
     t2 = pd.read_csv(out / "name_match_targets_round2.csv", encoding="utf-8-sig")
     s2 = pd.read_csv(out / "name_match_sheet_round2.csv", encoding="utf-8-sig")
     # A는 1건 재사용됐지만 목표(3건)에는 못 미치고, C는 재사용이 전혀 없다 — --raw 없이는 둘 다 대상에 남고
@@ -618,11 +630,14 @@ def test_cmd_round2_defaults_serve_as_of_from_new_key_meta(tmp_path):
     nm.key_meta_path(paths["new_key"]).write_text(json.dumps({"serve_as_of": "2026-06-30"}), encoding="utf-8")
     lic_path = tmp_path / "lic.parquet"
     lic.to_parquet(lic_path, index=False)
+    master_path = tmp_path / "master.parquet"
+    pd.DataFrame({"store_id": ["A"], "origin_start": pd.Timestamp("2020-01-01"),
+                  "origin_end": pd.Timestamp("2025-06-30")}).to_parquet(master_path, index=False)
     out = tmp_path / "out"
     # --serve-as-of를 주지 않는다 — new_key 메타에서 자동으로 읽혀야 한다
     nm.main(["round2", "--old-sheet", str(paths["old_sheet"]), "--old-key", str(paths["old_key"]),
              "--new-targets", str(paths["new_targets"]), "--new-key", str(paths["new_key"]),
-             "--licenses", str(lic_path), "--out", str(out)])
+             "--licenses", str(lic_path), "--master", str(master_path), "--out", str(out)])
     report = json.loads((out / "round2_report.json").read_text(encoding="utf-8"))
     assert report["n_reused_items"] == 1  # 2026-09-01 글은 제외되고 1건만 재사용
 
@@ -700,7 +715,7 @@ def test_cmd_round2_with_raw_fills_sheet(tmp_path):
     out = tmp_path / "out"
     nm.main(["round2", "--old-sheet", str(paths["old_sheet"]), "--old-key", str(paths["old_key"]),
              "--new-targets", str(paths["new_targets"]), "--new-key", str(paths["new_key"]),
-             "--raw", str(raw_path), "--out", str(out)])
+             "--raw", str(raw_path), "--out", str(out)] + _filter_args(tmp_path, ["A"]))
     s2 = pd.read_csv(out / "name_match_sheet_round2.csv", encoding="utf-8-sig")
     assert set(s2["link"]) == {"a2", "a3"}  # a1(재사용)은 다시 뽑지 않는다
     report = json.loads((out / "round2_report.json").read_text(encoding="utf-8"))
@@ -774,12 +789,18 @@ def test_cmd_merge_end_to_end(tmp_path):
     new_sheet.to_csv(paths["new_sheet"], index=False, encoding="utf-8-sig")
     new_key.to_csv(paths["new_key"], index=False, encoding="utf-8-sig")
     out = tmp_path / "name_match_sheet_merged.csv"
-    nm.main(["merge", "--reused", str(paths["reused"]), "--new-sheet", str(paths["new_sheet"]),
-             "--new-key", str(paths["new_key"]), "--out", str(out)])
+    args = ["merge", "--reused", str(paths["reused"]), "--new-sheet", str(paths["new_sheet"]),
+            "--new-key", str(paths["new_key"]), "--out", str(out)]
+    with pytest.raises(FileNotFoundError, match="manifest"):  # 누락 검증 기준이 없으면 멈춘다
+        nm.main(args)
+    pd.DataFrame({"review_id": ["N1", "N1"], "link": ["l1", "l2"], "post_date": ["2021-01-01", "2021-02-01"],
+                  "source": ["reused", "new"], "groups_in_window": ["short_name", "short_name"]}).to_csv(
+        tmp_path / nm.MANIFEST_FILE, index=False, encoding="utf-8-sig")  # --reused와 같은 폴더(기본 위치)
+    nm.main(args)
     merged = pd.read_csv(out, encoding="utf-8-sig")
     assert set(merged["link"]) == {"l1", "l2"}
     meta = json.loads(out.with_name("name_match_sheet_merged_meta.json").read_text(encoding="utf-8"))
-    assert meta["n_merged_items"] == 2
+    assert meta["n_merged_items"] == 2 and meta["no_match_basis"] == "store_group_window"
 
 
 def test_merge_then_summarize_reads_merge_output_directly_with_no_match_store(tmp_path, capsys):
@@ -794,10 +815,13 @@ def test_merge_then_summarize_reads_merge_output_directly_with_no_match_store(tm
     key = pd.DataFrame({"review_id": ["N1", "N2", "N3"], "store_id": ["A", "B", "C"], "groups": ["random"] * 3,
                         "stratum": [""] * 3})
     targets = key[["review_id", "store_id"]].assign(name_raw="가", name_norm="가", gu="마포구", dong="서교동", biz_type="일반음식점")
+    manifest = pd.DataFrame({"review_id": ["N1", "N2"], "link": ["l1", "l2"], "post_date": ["2021-01-01", "2021-03-01"],
+                             "source": ["reused", "new"], "groups_in_window": ["random", "random"]})
     p = {n: tmp_path / f"{n}.csv" for n in ("old_key", "old_sheet", "reused", "new_sheet", "key", "targets")}
     for n, d in (("old_key", old_key), ("old_sheet", old_sheet), ("reused", reused), ("new_sheet", new_sheet),
                  ("key", key), ("targets", targets)):
         d.to_csv(p[n], index=False, encoding="utf-8-sig")
+    manifest.to_csv(tmp_path / nm.MANIFEST_FILE, index=False, encoding="utf-8-sig")
     merged_path = tmp_path / "merged.csv"
     nm.main(["merge", "--reused", str(p["reused"]), "--new-sheet", str(p["new_sheet"]), "--new-key", str(p["key"]),
              "--old-sheet", str(p["old_sheet"]), "--old-key", str(p["old_key"]), "--out", str(merged_path)])
@@ -824,16 +848,23 @@ def test_round2_writes_reused_file_and_merge_defaults_to_it(tmp_path):
     paths = {n: tmp_path / f"{n}.csv" for n in ("old_sheet", "old_key", "new_targets", "new_key")}
     for n, d in (("old_sheet", old_sheet), ("old_key", old_key), ("new_targets", new_targets), ("new_key", new_key)):
         d.to_csv(paths[n], index=False, encoding="utf-8-sig")
+    raw_path = tmp_path / "blog_items.jsonl.gz"
+    with gzip.open(raw_path, "wt", encoding="utf-8") as f:
+        f.write(json.dumps({"store_id": "B", "link": "b1", "title": "글", "description": "", "postdate": "20210201",
+                            "matched": True}) + "\n")
     out = tmp_path / "out"
     nm.main(["round2", "--old-sheet", str(paths["old_sheet"]), "--old-key", str(paths["old_key"]),
-             "--new-targets", str(paths["new_targets"]), "--new-key", str(paths["new_key"]), "--out", str(out)])
+             "--new-targets", str(paths["new_targets"]), "--new-key", str(paths["new_key"]), "--raw", str(raw_path),
+             "--out", str(out)] + _filter_args(tmp_path, ["A", "B"]))
     reused = pd.read_csv(out / nm.REUSED_FILE, encoding="utf-8-sig")
     assert list(reused.columns) == ["review_id", "store_id", "link", "post_date", "verdict", "note"]
     assert len(reused) == 3 and set(reused["review_id"]) == {"N1"}  # 새 회차 review_id로 다시 매겨 저장
     assert (reused["post_date"] == "2021-01-01").all()  # merge가 그룹별 구간 재집계에 쓸 날짜도 함께 저장
-    # merge: --reused 생략 → 새 판정표와 같은 폴더의 재사용 파일을 쓴다
-    new_sheet = pd.DataFrame({"review_id": ["N2"], "item_no": [1], "post_date": ["2021-02-01"], "link": ["b1"],
-                              "verdict": ["해당가게"], "note": [""]})
+    assert (out / nm.MANIFEST_FILE).exists()
+    # merge: --reused 생략 → 새 판정표와 같은 폴더의 재사용 파일(과 manifest)을 쓴다
+    new_sheet = pd.read_csv(out / "name_match_sheet_round2.csv", dtype=str, keep_default_na=False,
+                            encoding="utf-8-sig").assign(verdict="해당가게")
+    assert new_sheet["link"].tolist() == ["b1"]
     new_sheet.to_csv(out / "judged.csv", index=False, encoding="utf-8-sig")
     merged = nm.cmd_merge(type("A", (), {"reused": None, "new_sheet": out / "judged.csv", "new_key": paths["new_key"],
                                          "out": tmp_path / "merged.csv"})())
@@ -874,3 +905,199 @@ def test_summarize_cli_separate_no_match_flag(tmp_path):
     r = pd.read_csv(tmp_path / "out" / "name_match_rates.csv").set_index("group")
     assert r.at["random", "stores_no_match"] == 1
     assert "매칭 없음" in (tmp_path / "out" / "name_match_summary.md").read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------- 재검증: 판정 누락·키 불일치·점포×그룹 매칭 없음·필터 필수
+def _merge_fixture():
+    reused = pd.DataFrame({"review_id": ["N1"], "store_id": ["A"], "link": ["a1"], "post_date": ["2021-01-01"],
+                           "verdict": ["해당가게"], "note": [""]})
+    new_sheet = pd.DataFrame({"review_id": ["N2", "N2"], "item_no": [1, 2], "post_date": ["2021-02-01", "2021-03-01"],
+                              "link": ["b1", "b2"], "verdict": ["해당가게", "다른가게"], "note": ["", ""]})
+    new_key = pd.DataFrame({"review_id": ["N1", "N2"], "store_id": ["A", "B"], "groups": ["random", "short_name"],
+                            "stratum": ["", "폐업"]})
+    manifest = pd.DataFrame({"review_id": ["N1", "N2", "N2"], "link": ["a1", "b1", "b2"],
+                             "post_date": ["2021-01-01", "2021-02-01", "2021-03-01"], "source": ["reused", "new", "new"],
+                             "groups_in_window": ["random", "short_name", "short_name"]})
+    return reused, new_sheet, new_key, manifest
+
+
+def test_merge_fails_when_judged_sheet_drops_rows():
+    """판정자가 행을 지우면 '매칭 없음'으로 넘어가지 않고 멈춘다 (판정 누락 ≠ 유효 글 없음)."""
+    reused, new_sheet, new_key, manifest = _merge_fixture()
+    nm.merge_judgments(reused, new_sheet, new_key, manifest=manifest)  # 온전한 판정본은 통과
+    with pytest.raises(ValueError, match="빠진 글 1건"):
+        nm.merge_judgments(reused, new_sheet.iloc[:1], new_key, manifest=manifest)
+    with pytest.raises(ValueError, match="빠진 글 2건"):  # 점포 하나를 통째로 지워도
+        nm.merge_judgments(reused, new_sheet.iloc[:0], new_key, manifest=manifest)
+    with pytest.raises(ValueError, match="없던 글"):  # link를 고치거나 행을 더해도
+        nm.merge_judgments(reused, new_sheet.assign(link=["b1", "bX"]).iloc[[1]].pipe(
+            lambda d: pd.concat([new_sheet, d])), new_key, manifest=manifest)
+    with pytest.raises(ValueError, match="재사용 판정 파일이 round2 manifest와 다르다"):
+        nm.merge_judgments(reused.assign(link="zz"), new_sheet, new_key, manifest=manifest)
+
+
+def test_merge_fails_on_review_id_not_in_key():
+    reused, new_sheet, new_key, manifest = _merge_fixture()
+    with pytest.raises(ValueError, match="key에 없는 review_id"):
+        nm.merge_judgments(reused, new_sheet.assign(review_id=["N2", "R999"]), new_key, manifest=manifest)
+    with pytest.raises(ValueError, match="key에 없는 review_id"):  # manifest 없이도 멈춘다
+        nm.merge_judgments(reused, new_sheet.assign(review_id=["N2", "R999"]), new_key)
+
+
+def test_merge_counts_no_match_per_store_group():
+    """겹침 점포는 한 그룹만 '매칭 없음'일 수 있다 — 점포 단위가 아니라 점포×그룹 단위로 센다."""
+    reused = pd.DataFrame({"review_id": ["N1"], "store_id": ["A"], "link": ["a1"], "post_date": ["2024-01-01"],
+                           "verdict": ["해당가게"], "note": [""]})
+    new_sheet = pd.DataFrame(columns=["review_id", "item_no", "post_date", "link", "verdict", "note"])
+    new_key = pd.DataFrame({"review_id": ["N1", "N2"], "store_id": ["A", "B"],
+                            "groups": ["random;short_name", "short_name"], "stratum": ["영업", "폐업"]})
+    # a1은 random 구간에만 든다 (short_name 구간 밖) → N1의 short_name과 N2의 short_name이 매칭 없음
+    manifest = pd.DataFrame({"review_id": ["N1"], "link": ["a1"], "post_date": ["2024-01-01"], "source": ["reused"],
+                             "groups_in_window": ["random"]})
+    merged, meta = nm.merge_judgments(reused, new_sheet, new_key, manifest=manifest)
+    assert len(merged) == 1
+    assert meta["n_no_match_store_groups"] == 2 and meta["no_match_basis"] == "store_group_window"
+    assert meta["no_match_store_groups"] == [{"review_id": "N1", "group": "short_name"},
+                                             {"review_id": "N2", "group": "short_name"}]
+    assert meta["no_match_by_group"] == {"short_name:영업": 1, "short_name:폐업": 1}
+    # manifest가 없으면 N1은 글이 있어 점포 단위로는 빠진다 — 이전 계산이 1건 적게 나온 이유
+    _, meta0 = nm.merge_judgments(reused, new_sheet, new_key)
+    assert meta0["n_no_match_store_groups"] == 1
+
+
+def test_groups_in_window_uses_each_group_bound():
+    new_key = pd.DataFrame({"review_id": ["N1"], "store_id": ["A"], "groups": ["random;short_name"], "stratum": ["영업"]})
+    bounds = {"A": {"random": (None, pd.Timestamp("2026-06-30")),
+                    "short_name": (pd.Timestamp("2020-10-01"), pd.Timestamp("2025-06-30"))}}
+    g = nm.groups_in_window(pd.Series(["N1", "N1", "N1"]), pd.Series(["2019-01-01", "2023-01-01", "2026-01-01"]),
+                            new_key, bounds)
+    assert g.tolist() == ["random", "random;short_name", "random"]
+
+
+def _round2_files(tmp_path, old_sheet, old_key, new_targets, new_key):
+    paths = {n: tmp_path / f"{n}.csv" for n in ("old_sheet", "old_key", "new_targets", "new_key")}
+    for n, d in (("old_sheet", old_sheet), ("old_key", old_key), ("new_targets", new_targets), ("new_key", new_key)):
+        d.to_csv(paths[n], index=False, encoding="utf-8-sig")
+    return paths, ["round2", "--old-sheet", str(paths["old_sheet"]), "--old-key", str(paths["old_key"]),
+                   "--new-targets", str(paths["new_targets"]), "--new-key", str(paths["new_key"])]
+
+
+def _write_raw(path, rows):
+    with gzip.open(path, "wt", encoding="utf-8") as f:
+        for sid, link, d in rows:
+            f.write(json.dumps({"store_id": sid, "link": link, "title": "t", "description": "", "postdate": d,
+                                "matched": True}) + "\n")
+    return path
+
+
+def test_round2_requires_date_filter_inputs(tmp_path):
+    old_key = pd.DataFrame({"review_id": ["R1"], "store_id": ["A"]})
+    old_sheet = pd.DataFrame({"review_id": ["R1"], "item_no": [1], "post_date": ["2021-01-01"], "link": ["a1"],
+                              "verdict": ["해당가게"], "note": [""]})
+    new_key = pd.DataFrame({"review_id": ["N1"], "store_id": ["A"], "groups": ["random"], "stratum": [""]})
+    new_targets = pd.DataFrame({"review_id": ["N1"], "store_id": ["A"], "name_raw": ["가A"], "name_norm": ["가a"],
+                                "gu": ["마포구"], "dong": ["서교동"], "biz_type": ["일반음식점"]})
+    paths, base = _round2_files(tmp_path, old_sheet, old_key, new_targets, new_key)
+    base += ["--out", str(tmp_path / "o")]
+    f = _filter_args(tmp_path, ["A"])
+    for drop in ("--licenses", "--master"):
+        i = f.index(drop)
+        with pytest.raises(SystemExit):  # argparse 필수 인자
+            nm.main(base + f[:i] + f[i + 2:])
+    args = type("A", (), {"old_sheet": paths["old_sheet"], "old_key": paths["old_key"],
+                          "new_targets": paths["new_targets"], "new_key": paths["new_key"], "licenses": None,
+                          "master": None, "serve_as_of": None, "raw": None, "seed": 1, "out": tmp_path / "o"})()
+    with pytest.raises(ValueError, match="날짜 필터 입력"):  # 함수를 직접 불러도 멈춘다
+        nm.cmd_round2(args)
+    with pytest.raises(ValueError, match="serve_as_of"):  # 상한을 인자·key 메타 어디서도 못 찾으면 멈춘다
+        nm.main(base + f[:4])
+
+
+def test_round2_report_records_date_filter_and_is_deterministic(tmp_path):
+    old_key = pd.DataFrame({"review_id": ["R1"], "store_id": ["A"]})
+    old_sheet = pd.DataFrame({"review_id": ["R1", "R1"], "item_no": [1, 2], "post_date": ["2021-01-01", "2026-09-01"],
+                              "link": ["a1", "a2"], "verdict": ["해당가게", "다른가게"], "note": ["", ""]})
+    new_key = pd.DataFrame({"review_id": ["N1", "N2"], "store_id": ["A", "B"], "groups": ["random", "short_name"],
+                            "stratum": ["", "폐업"]})
+    new_targets = pd.DataFrame({"review_id": ["N1", "N2"], "store_id": ["A", "B"], "name_raw": ["가A", "가B"],
+                                "name_norm": ["가a", "가b"], "gu": ["마포구"] * 2, "dong": ["서교동"] * 2,
+                                "biz_type": ["일반음식점"] * 2})
+    _, base = _round2_files(tmp_path, old_sheet, old_key, new_targets, new_key)
+    raw = _write_raw(tmp_path / "blog_items.jsonl.gz", [("B", "b1", "20210101"), ("B", "b2", "20190101"),
+                                                        ("B", "b3", "20220101"), ("B", "b4", "20230101")])
+    files = ("name_match_sheet_round2.csv", nm.REUSED_FILE, nm.MANIFEST_FILE, "round2_report.json")
+    runs = []
+    for k in (1, 2):
+        out = tmp_path / f"out{k}"
+        nm.main(base + ["--raw", str(raw), "--out", str(out)] + _filter_args(tmp_path, ["A", "B"]))
+        runs.append({f: (out / f).read_bytes() for f in files})
+    assert runs[0] == runs[1]  # 같은 입력 → 같은 출력
+    report = json.loads(runs[0]["round2_report.json"])
+    df = report["date_filter"]
+    assert df["applied"] and df["serve_as_of"] == "2026-06-30"
+    assert df["old_verdicts"]["items_excluded"] == 1 and df["old_verdicts"]["items_excluded_by_group"] == {"random": 1}
+    assert df["raw_items"]["items_excluded"] == 1  # b2(2019)는 short_name 구간(2019-10-01~) 밖
+    assert df["raw_items"]["items_excluded_by_group"] == {"short_name:폐업": 1}
+    assert report["n_new_sheet_rows"] == 3 and report["n_no_match_store_groups"] == 0
+    assert "store_id" not in json.dumps(report)
+    sheet = pd.read_csv(tmp_path / "out1" / "name_match_sheet_round2.csv", encoding="utf-8-sig")
+    nm.assert_blind(sheet.columns)  # 판정자에게 가는 파일은 blind
+    assert "store_id" not in sheet.columns and not {"groups", "stratum", "groups_in_window"} & set(sheet.columns)
+
+
+def test_round2_then_merge_then_summarize_end_to_end(tmp_path):
+    """round2 → (판정) → merge → summarize가 수작업 없이 이어진다. 판정본 행을 지우면 merge가 멈춘다."""
+    old_key = pd.DataFrame({"review_id": ["R1"], "store_id": ["A"]})
+    old_sheet = pd.DataFrame({"review_id": ["R1"], "item_no": [1], "post_date": ["2021-01-01"], "link": ["a1"],
+                              "verdict": ["다른가게"], "note": [""]})
+    key = pd.DataFrame({"review_id": ["N1", "N2", "N3"], "store_id": ["A", "B", "C"],
+                        "groups": ["random", "short_name", "short_name"], "stratum": ["", "영업", "폐업"]})
+    targets = key[["review_id", "store_id"]].assign(name_raw="가", name_norm="가", gu="마포구", dong="서교동",
+                                                    biz_type="일반음식점")
+    paths, base = _round2_files(tmp_path, old_sheet, old_key, targets, key)
+    raw = _write_raw(tmp_path / "blog_items.jsonl.gz", [("B", "b1", "20210101"), ("B", "b2", "20220101"),
+                                                        ("C", "c1", "20100101")])
+    out = tmp_path / "round2"
+    nm.main(base + ["--raw", str(raw), "--out", str(out)] + _filter_args(tmp_path, ["A", "B", "C"]))
+    report = json.loads((out / "round2_report.json").read_text(encoding="utf-8"))
+    assert report["no_match_by_group"] == {"short_name:폐업": 1}  # C의 글(2010년)은 구간 밖
+    judged_dir = tmp_path / "returned"  # 판정자가 돌려준 파일은 다른 폴더에 둔다
+    judged_dir.mkdir()
+    judged = pd.read_csv(out / "name_match_sheet_round2.csv", dtype=str, keep_default_na=False,
+                         encoding="utf-8-sig").assign(verdict=["해당가게", "다른가게"])
+    judged.to_csv(judged_dir / "name_match_sheet_round2.csv", index=False, encoding="utf-8-sig")
+    merged_path = out / "name_match_merged.csv"
+    merge_args = ["merge", "--reused", str(out / nm.REUSED_FILE), "--new-sheet",
+                  str(judged_dir / "name_match_sheet_round2.csv"), "--new-key", str(paths["new_key"]),
+                  "--out", str(merged_path)]
+    nm.main(merge_args)
+    meta = json.loads((out / "name_match_merged_meta.json").read_text(encoding="utf-8"))
+    assert meta["n_no_match_store_groups"] == 1 and meta["no_match_by_group"] == {"short_name:폐업": 1}
+    nm.main(["summarize", "--targets", str(paths["new_targets"]), "--key", str(paths["new_key"]),
+             "--sheet", str(merged_path), "--separate-no-match", "--out", str(tmp_path / "sum")])
+    r = pd.read_csv(tmp_path / "sum" / "name_match_rates.csv").set_index("group")
+    assert r.at["random", "items_other"] == 1 and r.at["short_name", "stores_no_match"] == 1
+    judged.iloc[:1].to_csv(judged_dir / "name_match_sheet_round2.csv", index=False, encoding="utf-8-sig")
+    with pytest.raises(ValueError, match="빠진 글"):
+        nm.main(merge_args)
+
+
+def test_summarize_checks_key_meta_pair(tmp_path, capsys):
+    targets = pd.DataFrame({"review_id": ["R1"], "store_id": ["A"]})
+    key = targets.assign(groups="random", stratum="")
+    sheet = pd.DataFrame({"review_id": ["R1"], "item_no": [1], "post_date": ["2021-01-01"], "verdict": ["해당가게"]})
+    tp, sp, kp = tmp_path / "t.csv", tmp_path / "s.csv", tmp_path / "k.csv"
+    targets.to_csv(tp, index=False, encoding="utf-8-sig")
+    sheet.to_csv(sp, index=False, encoding="utf-8-sig")
+    key.to_csv(kp, index=False, encoding="utf-8-sig")
+    args = ["summarize", "--targets", str(tp), "--key", str(kp), "--sheet", str(sp), "--out", str(tmp_path / "out")]
+    mp = nm.key_meta_path(kp)
+    mp.write_text(json.dumps({"short_pool_n": None}), encoding="utf-8")  # 이전 버전 메타 — 경고만
+    nm.main(args)
+    assert "짝을 확인하지 못했다" in capsys.readouterr().out
+    mp.write_text(json.dumps({"targets_sha256": nm.sha256_file(tp), "key_sha256": nm.sha256_file(kp)}),
+                  encoding="utf-8")
+    nm.main(args)  # 짝이 맞으면 통과
+    mp.write_text(json.dumps({"targets_sha256": nm.sha256_file(tp), "key_sha256": "0" * 64}), encoding="utf-8")
+    with pytest.raises(ValueError, match="짝이 아니다"):
+        nm.main(args)

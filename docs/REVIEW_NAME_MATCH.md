@@ -36,14 +36,17 @@
 - 대상 목록에는 상호가 들어 있으므로 **저장소가 아니라 팀 드라이브로만** 주고받는다.
 
 ## 순서
+아래 1~3단계는 **첫 회차**(대상 목록 → 판정표 → 집계) 절차다. 이미 판정받은 회차가 있고 대상만 바뀐 경우(현재
+2026Q2 serve 기준 122곳)는 아래 "회차가 바뀔 때"의 round2 → 판정 → merge → summarize를 따른다.
+
 | 단계 | 누가 | 명령 | 결과 |
 |---|---|---|---|
 | 1. 대상 목록 | 박안석 | `targets` | `name_match_targets.csv` → 드라이브로 전달 (`name_match_key.csv`·`name_match_key_meta.json`은 보관) |
 | 2. 판정표 생성·판정 | 손유성 | `sheet` 후 `verdict` 칸 채우기 | `name_match_sheet.csv` → 드라이브로 반환 |
 | 3. 집계 | 박안석 | `summarize --key name_match_key.csv` | 그룹별 글·점포 단위 오탐률, 짧은 상호 폐업−영업 차이, 오탐 점포 목록 |
 
-전달할 파일은 `name_match_targets.csv` **하나뿐**이다. 판정표는 대상 123곳 × 점포당 최대 3건이라 최대 369줄이고,
-블로그 언급 수(`online_mentions_monthly`)로 셈하면 **약 350줄**이다 (언급이 3건 미만인 점포는 그만큼 줄이 적다).
+첫 회차에 전달할 파일은 `name_match_targets.csv` **하나뿐**이다. 판정표는 대상 122곳 × 점포당 최대 3건이라 최대
+366줄이다 (날짜 필터 안 글이 3건 미만인 점포는 그만큼 줄이 적다).
 
 ### 1단계 실행 (분석 쪽)
 ```
@@ -59,12 +62,17 @@ python -m src.analysis.name_match_review targets \
 - 키 옆에 `name_match_key_meta.json`이 생긴다. seed·모집단 크기(점포 정보 없음)에 더해 **M4(재현성)**: 입력 파일
   (diagnosis·licenses·mentions·master) sha256과 serve 기준(`serve_score_origin`·`serve_as_of`·`serve_meta_sha256`)을 남긴다.
   집계 때 짧은 상호 가중치로도 쓴다.
+- 메타에 짝인 대상 목록·키의 sha256(`targets_sha256`·`key_sha256`)도 남긴다. round2·summarize는 이 값이 실제 파일과
+  다르면 멈춘다(다른 회차 파일이 섞이면 가중치·serve 기준이 틀린다). 이 기능 이전에 만든 메타(2026-09-28 전달본 포함)는
+  해시가 없어 경고만 낸다.
+- 2026-09-28 전달본의 `mentions_sha256`은 `data/01_interim/online/online_mentions_monthly.parquet`와 같다 (위 예시 경로
+  `outputs/online/…`는 파일 해시가 다르지만 짧은 상호 모집단 1,354 / 971은 같다).
 
 ### 2단계 실행 (원본 `blog_items.jsonl.gz`가 있는 컴퓨터, 저장소 루트에서)
 ```
 python -m src.analysis.name_match_review sheet \
     --targets name_match_targets.csv \
-    --items data/raw/online/blog_items.jsonl.gz \
+    --items data/00_raw/online/blog_items.jsonl.gz \
     --key name_match_key.csv --licenses outputs/standardized/licenses_3gu.parquet \
     --master outputs/master/master_base.parquet \
     --per-store 3 --out name_match_sheet.csv
@@ -116,39 +124,69 @@ python -m src.analysis.name_match_review sheet \
 ## 회차가 바뀔 때 (재검수 부담 축소)
 모집단·날짜 필터(M1·M2)가 바뀌어 대상을 다시 뽑아야 할 때, 이미 판정받은 (점포, 글) 쌍을 다시 보내지 않는다.
 
+경로는 로컬 저장소 기준 예시다. 지난 회차 판정표·대상 목록은 `data/01_interim/review/`, 이번 회차 3종
+(`name_match_targets.csv`·`name_match_key.csv`·`name_match_key_meta.json`)은 `data/`, 출력은 `outputs/review/round2/`
+(gitignore)에 둔다. 지난 회차 key가 따로 없으면 지난 회차 대상 목록(`review_id`, `store_id`가 있다)을 `--old-key`로 쓴다.
+
+**1) round2 — 재사용 판정 추리기 + 부족분 새로 뽑기 (분석 쪽, 원본이 있는 컴퓨터)**
 ```
 python -m src.analysis.name_match_review round2 \
-    --old-sheet outputs/review/_round1/name_match_sheet.csv --old-key outputs/review/_round1/name_match_key.csv \
-    --new-targets outputs/review/name_match_targets.csv --new-key outputs/review/name_match_key.csv \
+    --old-sheet data/01_interim/review/name_match_sheet.csv --old-key data/01_interim/review/name_match_targets.csv \
+    --new-targets data/name_match_targets.csv --new-key data/name_match_key.csv \
     --licenses outputs/standardized/licenses_3gu.parquet --master outputs/master/master_base.parquet \
-    --out outputs/review
+    --raw data/00_raw/online/blog_items.jsonl.gz --out outputs/review/round2
 ```
-- 새 회차 대상 중 이전 판정표에 있던 (점포, 글 link) 쌍은 판정을 그대로 재사용한다 (M1 날짜 필터를 옛 판정에도 다시 적용
+- **`--licenses`·`--master`는 필수다.** 빠지면 날짜 필터(M1)가 꺼져 재사용·새 추출이 조용히 달라지므로(실데이터
+  56건·22곳 → 73건·25곳) 멈춘다. priority/random 상한(serve 기준일)은 `--serve-as-of` 또는 key 메타의 `serve_as_of`에서
+  읽고, 둘 다 없으면 멈춘다.
+- 새 회차 대상 중 이전 판정표에 있던 (점포, 글 link) 쌍은 판정을 그대로 재사용한다 (날짜 필터를 옛 판정에도 다시 적용
   — 필터로 빠지는 글은 재사용하지 않는다).
-- **재사용 못한 점포(=이전 판정이 하나도 없는 점포)**는 `name_match_targets_round2.csv`에 남는다. 그 점포의 새 글은
-  `name_match_sheet_round2.csv`에 담아 판정자에게 보낸다 — **이 두 파일만** 다시 보내면 된다(재사용된 점포는 다시
-  보내지 않는다).
-- 원본 `blog_items.jsonl.gz`가 분석 쪽에 없으면 새 글을 뽑을 수 없다 — 그 경우 `round2_report.json`에 대기 점포 수만
-  남고 판정표는 0행이 된다 (원본 공유 필요).
-- `round2_report.json`에는 점포 식별 정보 없이 그룹별 재사용/대기 건수만 남는다.
+- **보충(top-up)**: 점포×그룹마다 그 그룹 구간 안의 유효 판정 글이 **3건 미만**이면, 원본에서 그 구간 안 글 중 이미
+  판정한 글이 아닌 것으로 3건까지 seed 고정 무작위로 채운다. 구간 안 글이 모자라면 있는 만큼만 채운다. 겹침 점포는
+  그룹마다 따로 판단하고, 뽑은 글은 합집합(중복 없이)으로 싣는다.
+- 출력 (`outputs/review/round2/`):
 
-판정자가 `name_match_sheet_round2.csv`를 채워 돌려주면 재사용 판정과 합쳐 집계한다.
+  | 파일 | 내용 | 누구 |
+  |---|---|---|
+  | `name_match_sheet_round2.csv` | 새로 판정할 글만 (blind — store_id·그룹·층 없음) | **판정자에게 이 파일만 전달** |
+  | `name_match_reused_round2.csv` | 재사용 판정 (store_id 포함) | 분석 쪽 보관 |
+  | `name_match_round2_manifest.csv` | 이번 회차 판정 대상 글 전체(재사용+새)와 글마다 날짜가 드는 그룹 | 분석 쪽 보관 (merge 검증 기준) |
+  | `name_match_targets_round2.csv` | 보충이 필요했던 점포 목록 (store_id 포함) | 분석 쪽 보관 — **판정자에게 보내지 않는다** |
+  | `round2_report.json` | 재사용·보충·매칭 없음 건수, 날짜 필터 적용 여부·그룹별 제외 건수 (점포 식별 정보 없음) | 분석 쪽 |
 
+  `name_match_targets_round2.csv`에는 store_id(인허가 관리번호)가 있어 외부에서 영업 상태를 조회할 수 있다 — blind를
+  지키려고 판정자에게는 판정표만 보낸다(판정표에 상호·구·동·업종이 이미 있다).
+- 원본 `blog_items.jsonl.gz` 없이(`--raw` 생략) 돌리면 새 글을 뽑을 수 없어 판정표가 0행이다 (원본 공유 필요).
+- 2026-10-01 로컬 실데이터: 대상 122곳 중 재사용 56건·22곳, 새 판정표 225줄·90곳, 매칭 없음 19 점포×그룹
+  (short_name 영업 6 · 폐업 13), 옛 판정 73건 중 17건과 원본 10,033건 중 4,998건이 날짜 필터로 빠짐. 같은 입력으로 다시
+  돌리면 출력이 같다.
+
+**2) 판정** — 판정자가 `name_match_sheet_round2.csv`의 `verdict`를 모두 채워 돌려준다. **행을 지우거나 link·review_id를
+고치지 않는다** (판단할 수 없으면 '판단불가'). 돌려받은 파일은 round2 출력을 덮어쓰지 않게 다른 폴더
+(예: `outputs/review/round2_returned/`)에 둔다.
+
+**3) merge → 4) summarize (분석 쪽)**
 ```
 python -m src.analysis.name_match_review merge \
     --reused outputs/review/round2/name_match_reused_round2.csv \
-    --new-sheet outputs/review/round2/name_match_sheet_round2.csv --new-key outputs/review/name_match_key.csv \
-    --old-sheet outputs/review/_round1/name_match_sheet.csv --old-key outputs/review/_round1/name_match_key.csv \
+    --new-sheet outputs/review/round2_returned/name_match_sheet_round2.csv --new-key data/name_match_key.csv \
     --out outputs/review/round2/name_match_merged.csv
-python -m src.analysis.name_match_review summarize --targets outputs/review/name_match_targets.csv \
-    --key outputs/review/name_match_key.csv --sheet outputs/review/round2/name_match_merged.csv \
+python -m src.analysis.name_match_review summarize --targets data/name_match_targets.csv \
+    --key data/name_match_key.csv --sheet outputs/review/round2/name_match_merged.csv \
     --licenses outputs/standardized/licenses_3gu.parquet --master outputs/master/master_base.parquet \
     --separate-no-match --out outputs/review/summary/round2
 ```
+- merge는 `--reused`와 같은 폴더의 `name_match_round2_manifest.csv`로 판정본을 검증한다(`--manifest`로 바꿀 수 있다,
+  없으면 멈춘다). **멈추는 경우**: round2 판정표의 글이 판정본에서 빠졌다(행 삭제), 판정본에 round2가 만들지 않은 글이
+  있다(link 수정·행 추가), 이번 회차 key에 없는 review_id가 있다, verdict 미입력이 있다, 재사용 파일이 manifest와
+  다르다, post_date를 채우지 못했다. 판정 누락은 '매칭 없음'으로 넘어가지 않는다.
+- **매칭 없음(점포×그룹의 구간 안 글 0건)**은 에러가 아니다 — merge가 건너뛰고 meta에 **점포×그룹 단위**로 남긴다
+  (`n_no_match_store_groups`, `no_match_store_groups`, `no_match_by_group`). 겹침 점포는 한 그룹만 매칭 없음일 수 있다.
+  summarize `--separate-no-match`가 이 점포×그룹을 '매칭 없음'으로 따로 센다(오탐률 분모에는 넣지 않는다 — 기본값은
+  꺼짐이며, 끄면 '판정불가'에 섞여 센다).
 - merge 출력은 summarize 입력 그대로다(`item_no`, `post_date` 포함). `--old-sheet/--old-key`는 재사용 파일에
-  `post_date`가 없을 때(이 기능 이전의 round2 산출물)만 필요하다. 날짜를 못 채운 글이 있으면 멈춘다.
-- **유효 글 0건인 점포×그룹**(M1 날짜 필터로 글이 모두 빠진 경우)은 merge가 에러 대신 건너뛰고 경고·건수를 낸다.
-  summarize `--separate-no-match`가 이 점포를 '매칭 없음'으로 따로 센다(오탐률 분모에는 넣지 않는다).
+  `post_date`가 없을 때(이 기능 이전의 round2 산출물)만 필요하다.
+- summarize는 key 메타의 `targets_sha256`·`key_sha256`이 `--targets`·`--key`와 다르면 멈춘다 (해시가 없는 이전 메타는 경고).
 
 ## 한계
 - **글 날짜로 영업/폐업을 짐작할 수 있다.** 판정표의 `post_date`가 오래전에 끊긴 점포는 폐업 점포일 가능성이 높아 보인다.
@@ -157,6 +195,6 @@ python -m src.analysis.name_match_review summarize --targets outputs/review/name
   단어일 가능성이 높다. 판정표에는 인허가일이 없으므로 판정자가 따로 확인해야 하며, 이 근거를 쓴 경우 `note`에 적는다.
 
 ## 결과 돌려주기
-채운 `name_match_sheet.csv`(회차가 바뀌었으면 `name_match_sheet_round2.csv`)를 **팀 드라이브**에 올려 주세요
-(상호가 들어 있어 저장소·이슈·PR에는 올리지 않는다).
+채운 `name_match_sheet.csv`(회차가 바뀌었으면 `name_match_sheet_round2.csv`)를 행을 지우거나 고치지 않은 채로
+**팀 드라이브**에 올려 주세요 (상호가 들어 있어 저장소·이슈·PR에는 올리지 않는다).
 집계 결과(오탐률)는 #28에 숫자만 남긴다.
