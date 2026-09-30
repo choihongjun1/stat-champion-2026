@@ -371,3 +371,88 @@ def test_short_name_sensitivity_end_to_end(tmp_path, panel):
     assert len(r["bootstrap"]) == 6 and (r["bootstrap"]["n_clusters"] == panel["store_id"].nunique()).all()
     for f in ("short_name_policy_summary.csv", "short_name_policy_bootstrap.csv", "short_name_policy_meta.json"):
         assert (tmp_path / "out" / f).exists()
+
+
+# ---------------------------------------------------------------------------- PR #43 경쟁지표 추가 효과
+def _comp_table(panel, drop_last=5, seed=3):
+    rng = np.random.default_rng(seed)
+    t = panel[["store_id", "origin"]].copy()
+    for c in bm.COMP_COLS[:5]:
+        t[c] = rng.poisson(3, len(t)).astype(float)
+    t["comp_dong_density_yoy"] = rng.normal(0, 0.1, len(t))
+    t["comp_location_status"] = "ok"  # 메타 열은 붙이지 않는다
+    return t.iloc[:-drop_last]  # 패널 일부 키가 표에 없다 → NA
+
+
+def test_attach_extra_features_left_join_reports_mismatch(tmp_path, panel):
+    p = tmp_path / "comp.parquet"
+    _comp_table(panel).to_parquet(p, index=False)
+    X = features.build_X(panel, features.select_features(panel.columns, "base"))
+    X2, cols, rep = bm.attach_extra_features(panel, X, p)
+    assert cols == bm.COMP_COLS and "comp_location_status" not in X2.columns and len(X2) == len(panel)
+    assert rep["panel_rows_without_extra"] == 5 and rep["extra_rows_not_in_panel"] == 0
+    assert X2[bm.COMP_COLS].isna().all(axis=1).sum() == 5
+    dup = pd.concat([_comp_table(panel), _comp_table(panel).head(1)])
+    dup.to_parquet(tmp_path / "dup.parquet", index=False)
+    with pytest.raises(ValueError, match="중복"):
+        bm.attach_extra_features(panel, X, tmp_path / "dup.parquet")
+
+
+def test_nested_tuned_oof_uses_only_training_window(panel, monkeypatch):
+    calls = []
+    real = bm.detect.fit_predict
+
+    def spy(X_tr, y_tr, X_te, params=None):
+        calls.append((panel.loc[X_tr.index, "origin"].max(), set(panel.loc[X_te.index, "origin"])))
+        return real(X_tr, y_tr, X_te, params)
+
+    monkeypatch.setattr(bm.detect, "fit_predict", spy)
+    monkeypatch.setattr(bm, "HPO_GRID", {"learning_rate": (0.06,), "max_leaf_nodes": (15, 31)})
+    cols = features.select_features(panel.columns, "base")
+    oof, chosen = bm.nested_tuned_oof(panel, features.build_X(panel, cols), panel["event_12m"].to_numpy(), cols)
+    origins = sorted(panel["origin"].unique())
+    assert sorted(oof["origin"].unique()) == origins[bm.MIN_TRAIN_ORIGINS + bm.EMBARGO:] and len(chosen) == 10
+    for tr_max, te in calls:
+        t = max(te)
+        assert tr_max <= origins[origins.index(t) - bm.EMBARGO - 1] or (len(te) == 1 and tr_max < t)
+
+
+def test_competition_decision_rule():
+    summ = pd.DataFrame([{"model": "hgb_tuned_nested", "policy": p, "features": f, "ece_mean": e, "calib_slope_pooled": s}
+                         for p in ("keep", "na") for f, e, s in (("enriched", 0.02, 0.9), ("enriched+comp", 0.021, 0.92))])
+    boot = pd.DataFrame([{"model": "hgb_tuned_nested", "policy": "keep", "auc_diff": 0.004, "auc_ci_low": 0.001, "auc_ci_high": 0.007},
+                         {"model": "hgb_tuned_nested", "policy": "na", "auc_diff": 0.003, "auc_ci_low": 0.0005, "auc_ci_high": 0.006}])
+    d = bm.competition_decision(summ, boot)
+    assert d["meets_rule"].all() and (d["verdict"] == "채택 후보").all()
+    boot.loc[1, "auc_ci_low"] = -0.001  # na에서 CI가 0을 포함 → 전체 미채택
+    assert (bm.competition_decision(summ, boot)["verdict"] == "미채택").all()
+    summ.loc[(summ["policy"] == "keep") & (summ["features"] == "enriched+comp"), "ece_mean"] = 0.03  # ECE 악화
+    boot.loc[1, "auc_ci_low"] = 0.001
+    assert not bm.competition_decision(summ, boot).set_index("policy").at["keep", "meets_rule"]
+
+
+def test_competition_eval_end_to_end_and_checkpoint(tmp_path, panel, monkeypatch):
+    monkeypatch.setattr(bm, "HPO_GRID", {"learning_rate": (0.06,), "max_leaf_nodes": (15, 31)})
+    master = tmp_path / "master.parquet"
+    panel.to_parquet(master, index=False)
+    online = panel[["store_id", "origin"]].copy()
+    rng = np.random.default_rng(12)
+    for c in bm.ONLINE_COLS:
+        online[c] = rng.poisson(1, len(online)).astype(float)
+    online.to_parquet(tmp_path / "online.parquet", index=False)
+    _comp_table(panel).to_parquet(tmp_path / "comp.parquet", index=False)
+    lic, _ = _licenses_for(panel, tmp_path)
+    out = tmp_path / "out"
+    r = bm.competition_eval(master, tmp_path / "online.parquet", tmp_path / "comp.parquet", out, n_boot=10, licenses_path=lic)
+    assert len(r["summary"]) == 8 and len(r["bootstrap"]) == 4 and set(r["decision"]["policy"]) == {"keep", "na"}
+    for f in ("competition_summary.csv", "competition_bootstrap.csv", "competition_decision.csv", "competition_subgroup.csv",
+              "competition_permutation.csv", "competition_trdar_corr.csv", "competition_hpo_chosen.csv", "competition_meta.json"):
+        assert (out / f).exists(), f
+    for f in out.glob("competition_*.csv"):
+        assert "store_id" not in pd.read_csv(f, nrows=0).columns
+    perm = pd.read_csv(out / "competition_permutation.csv")
+    assert set(perm["feature"]) == set(bm.COMP_COLS) | {"[group] comp"}
+    # 다시 실행하면 OOF 체크포인트를 쓴다 (학습 호출 없음)
+    monkeypatch.setattr(bm, "nested_tuned_oof", lambda *a, **k: (_ for _ in ()).throw(AssertionError("재학습")))
+    r2 = bm.competition_eval(master, tmp_path / "online.parquet", tmp_path / "comp.parquet", out, n_boot=10, licenses_path=lic)
+    pd.testing.assert_frame_equal(r["summary"], r2["summary"])

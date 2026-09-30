@@ -404,6 +404,31 @@ def apply_short_name_policy(df: pd.DataFrame, X: pd.DataFrame, policy: str, shor
     return X
 
 
+def attach_extra_features(df: pd.DataFrame, X: pd.DataFrame, extra_path: Path, cols=None
+                          ) -> tuple[pd.DataFrame, list[str], dict]:
+    """(store_id, origin)으로 추가 feature 표를 m:1로 붙인다(없는 키는 NA). 반환: (X, 붙인 열, 키 대조 보고).
+    cols가 없으면 표의 `comp_*` 수치 열(PR #43 경쟁지표 6종)을 쓴다. 메타 열(asof·status 등)은 붙이지 않는다."""
+    ex = pd.read_parquet(extra_path)
+    cols = list(cols or [c for c in COMP_COLS if c in ex.columns])
+    if not cols:
+        raise ValueError(f"추가 feature 열이 없다: {extra_path}")
+    key = ["store_id", "origin"]
+    if ex.duplicated(key).any():
+        raise ValueError("추가 feature (store_id, origin) 중복")
+    m = df[key].merge(ex[key + cols], on=key, how="left", validate="1:1", indicator=True)
+    if len(m) != len(df):
+        raise ValueError("추가 feature 결합 후 행 수가 바뀌었다")
+    X = X.copy()
+    for c in cols:
+        X[c] = pd.to_numeric(m[c]).astype("Float64").astype("float64").to_numpy()
+    matched = int((m["_merge"] == "both").sum())
+    report = {"extra_path": str(extra_path), "extra_sha256": train_detect.sha256(Path(extra_path)), "cols": cols,
+              "panel_rows": int(len(df)), "matched_rows": matched, "panel_rows_without_extra": int(len(df) - matched),
+              "extra_rows_not_in_panel": int(len(ex) - matched),
+              "na_rate": {c: float(X[c].isna().mean()) for c in cols}}
+    return X, cols, report
+
+
 def load_inputs(master_path: Path, online_path: Path | None, short_name_policy: str = "keep",
                 licenses_path: Path | None = None):
     df = train_detect.load_master(master_path)
@@ -797,6 +822,205 @@ def short_name_sensitivity(master_path: Path, online_path: Path, out: Path, n_bo
     return {"summary": summ, "bootstrap": boot}
 
 
+# ---------------------------------------------------------------------------
+# PR #43 경쟁지표(comp_* 6종)의 추가 효과 — 서빙 모형·feature set은 바꾸지 않는다
+# ---------------------------------------------------------------------------
+COMP_COLS = ["comp_pnu_cnt", "comp_pnu_same_type_cnt", "comp_dong_same_type_cnt", "comp_dong_open_4q",
+             "comp_dong_close_4q", "comp_dong_density_yoy"]
+COMP_LOG1P_COLS = tuple(COMP_COLS[:5])  # 점포 수(0 이상, 오른쪽 꼬리) — 로지스틱에서 log1p. 증감률은 그대로
+COMP_FIT_WINDOW = ("2023Q1", "2023Q4")  # 등급 컷오프 보정 창(현행 고정 창)
+# 채택 규칙 (결과를 보기 전에 고정, 2026-09-30): 튜닝 절차(중첩) HGB에서 enriched+comp − enriched의 10개 origin
+# 합산 AUC 차이 점포 클러스터 부트스트랩 95% CI 하한 > 0 이고, 평균 ECE 증가 ≤ 0.002, |보정 기울기 − 1| 증가 ≤ 0.05.
+# 짧은 상호 정책(#44 미결정)은 keep·na 둘 다 충족해야 "채택 후보".
+COMP_RULE = {"auc_ci_low_gt": 0.0, "ece_increase_max": 0.002, "slope_dev_increase_max": 0.05}
+
+
+def nested_tuned_oof(df: pd.DataFrame, X: pd.DataFrame, y: np.ndarray, cols) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """`hpo`와 같은 절차(각 평가 origin t의 학습 구간 t−5 이하 안에서 내부 시간 분할로 격자 선택 → 학습 구간 전체로
+    재학습해 t 예측)로 OOF 예측을 만든다. 반환: (OOF[origin, idx, p_oof, y], origin별 선택값)."""
+    origins = sorted(df["origin"].unique())
+    grid = [dict(zip(HPO_GRID, v)) for v in itertools.product(*HPO_GRID.values())]
+    rows, chosen = [], []
+    for i in range(MIN_TRAIN_ORIGINS + EMBARGO, len(origins)):
+        test_o, train_o = origins[i], origins[: i - EMBARGO]
+        in_tr, in_val, gap = inner_split(train_o)
+        assert test_o not in in_tr and test_o != in_val and in_val in train_o
+        tr_m, va_m = df["origin"].isin(in_tr).to_numpy(), (df["origin"] == in_val).to_numpy()
+        scores = [roc_auc_score(y[va_m], detect.fit_predict(X.loc[tr_m, cols], y[tr_m], X.loc[va_m, cols],
+                                                             {**detect.DEFAULT_PARAMS, **g})) for g in grid]
+        best = grid[int(np.argmax(scores))]
+        tr, te = df["origin"].isin(train_o).to_numpy(), (df["origin"] == test_o).to_numpy()
+        p = detect.fit_predict(X.loc[tr, cols], y[tr], X.loc[te, cols], {**detect.DEFAULT_PARAMS, **best})
+        idx = np.flatnonzero(te)
+        rows.append(pd.DataFrame({"origin": test_o, "idx": idx, "p_oof": p, "y": y[te]}))
+        chosen.append({"origin": test_o, **best, "inner_val": in_val, "inner_embargo": gap, "inner_auc": max(scores)})
+        log(f"  중첩 튜닝 {test_o}: {best}")
+    return pd.concat(rows, ignore_index=True), pd.DataFrame(chosen)
+
+
+def _variant_metrics(oof: pd.DataFrame, stores: np.ndarray, n_boot: int) -> dict:
+    bo = train_detect.metrics_by_origin(oof)
+    slope, icpt = calibration_slope_intercept(oof["y"], oof["p_oof"])
+    fit = oof[oof["origin"].between(*COMP_FIT_WINDOW)]
+    cut = bands.suggest_cutoffs(fit["y"].to_numpy(), fit["p_oof"].to_numpy())
+    te_m = oof["origin"].isin(BAND_TEST_ORIGINS).to_numpy()
+    y_te, p_te = oof.loc[te_m, "y"].to_numpy(), oof.loc[te_m, "p_oof"].to_numpy()
+    hi = p_te >= cut["cut_high"]
+    lo, up = high_lift_cluster_ci(y_te, hi, stores[te_m], n_boot)
+    return {"auc_mean": bo["auc"].mean(), "ap_mean": bo["ap"].mean(), "ece_mean": bo["ece"].mean(),
+            "pooled_auc": roc_auc_score(oof["y"], oof["p_oof"]), "pooled_ap": average_precision_score(oof["y"], oof["p_oof"]),
+            "calib_slope_pooled": slope, "calib_intercept_pooled": icpt,
+            "cut_high": cut["cut_high"], "high_fallback": cut.get("high_fallback"),
+            "high_share_test": float(hi.mean()), "high_lift_test": float(y_te[hi].mean() / y_te.mean()) if hi.any() else np.nan,
+            "high_lift_ci_low": lo, "high_lift_ci_high": up}
+
+
+def competition_decision(summary: pd.DataFrame, boot: pd.DataFrame, rule: dict = COMP_RULE) -> pd.DataFrame:
+    """정책(keep/na)별로 채택 규칙을 적용한다. summary: model·policy·features별 지표, boot: 쌍 비교."""
+    rows = []
+    s = summary.set_index(["model", "policy", "features"])
+    for pol in sorted(summary["policy"].unique()):
+        a, b = s.loc[("hgb_tuned_nested", pol, "enriched+comp")], s.loc[("hgb_tuned_nested", pol, "enriched")]
+        bt = boot[(boot["model"] == "hgb_tuned_nested") & (boot["policy"] == pol)].iloc[0]
+        d_ece = a["ece_mean"] - b["ece_mean"]
+        d_slope = abs(a["calib_slope_pooled"] - 1) - abs(b["calib_slope_pooled"] - 1)
+        ok = (bt["auc_ci_low"] > rule["auc_ci_low_gt"] and d_ece <= rule["ece_increase_max"]
+              and d_slope <= rule["slope_dev_increase_max"])
+        rows.append({"policy": pol, "auc_diff": bt["auc_diff"], "auc_ci_low": bt["auc_ci_low"], "auc_ci_high": bt["auc_ci_high"],
+                     "ece_increase": d_ece, "slope_dev_increase": d_slope, "meets_rule": bool(ok)})
+    d = pd.DataFrame(rows)
+    d["verdict"] = "채택 후보" if d["meets_rule"].all() else "미채택"
+    return d
+
+
+def comp_permutation(df, X, y, cols, params, origin: str = COMPARE_ORIGIN, repeats: int = 5, seed: int = BOOT_SEED) -> pd.DataFrame:
+    """origin의 학습 규칙(t−5 이하)으로 학습한 모형에서 comp_* 열(각각·묶음)을 섞었을 때 AUC 감소."""
+    origins = sorted(df["origin"].unique())
+    i = origins.index(origin)
+    tr, te = df["origin"].isin(origins[: i - EMBARGO]).to_numpy(), (df["origin"] == origin).to_numpy()
+    m = detect.DetectModel(params=params).fit(X.loc[tr, cols], y[tr])
+    Xt = X.loc[te, cols].reset_index(drop=True)
+    base = roc_auc_score(y[te], m.predict_proba(Xt))
+    rng = np.random.default_rng(seed)
+    rows = []
+    for name, group in [(c, [c]) for c in COMP_COLS] + [("[group] comp", COMP_COLS)]:
+        drops = []
+        for _ in range(repeats):
+            Xp = Xt.copy()
+            perm = rng.permutation(len(Xp))
+            for c in group:
+                Xp[c] = Xp[c].to_numpy()[perm]
+            drops.append(base - roc_auc_score(y[te], m.predict_proba(Xp)))
+        rows.append({"feature": name, "auc_drop_mean": float(np.mean(drops)), "auc_drop_std": float(np.std(drops)),
+                     "origin": origin, "base_auc": base, "missing_rate": float(Xt[group].isna().any(axis=1).mean())})
+    return pd.DataFrame(rows)
+
+
+def comp_trdar_corr(df: pd.DataFrame, X: pd.DataFrame, base_cols) -> pd.DataFrame:
+    """comp_* 6종과 상권 변수(trdar_*)의 Spearman 상관(수치형), 범주형(trdar_change_index)은 상관비 η. 행: comp × trdar."""
+    trdar = [c for c in base_cols if c.startswith("trdar_")]
+    rows = []
+    for c in COMP_COLS:
+        for t in trdar:
+            v = pd.DataFrame({"c": X[c].astype(float), "t": X[t]}).dropna()
+            if t in features.CATEGORICAL:
+                g = v.groupby("t", observed=True)["c"]
+                eta = float(np.sqrt((g.count() * (g.mean() - v["c"].mean()) ** 2).sum() / ((v["c"] - v["c"].mean()) ** 2).sum()))
+                rows.append({"comp": c, "trdar": t, "measure": "eta", "value": eta, "n": len(v)})
+            else:
+                rows.append({"comp": c, "trdar": t, "measure": "spearman",
+                             "value": float(v["c"].corr(v["t"].astype(float), method="spearman")), "n": len(v)})
+    return pd.DataFrame(rows)
+
+
+def competition_eval(master_path: Path, online_path: Path, extra_path: Path, out: Path, n_boot: int,
+                     licenses_path: Path | None = None) -> dict:
+    """enriched(25) vs enriched+comp(31) × (중첩 튜닝 HGB, logit_enriched) × 짧은 상호 keep/na, rolling OOF 10개 origin.
+    OOF는 variant마다 `competition_oof/`에 체크포인트로 저장하고 다시 실행하면 이어서 쓴다."""
+    t0 = time.time()
+    out.mkdir(parents=True, exist_ok=True)
+    ck = out / "competition_oof"
+    ck.mkdir(exist_ok=True)
+    df, X0, y, base_cols, enriched_cols = load_inputs(master_path, online_path)
+    if not enriched_cols:
+        raise ValueError("경쟁지표 평가에는 온라인 feature(--online)가 필요하다")
+    X0, comp_cols, join = attach_extra_features(df, X0, extra_path, COMP_COLS)
+    log(f"경쟁지표 결합: {join['matched_rows']:,}/{join['panel_rows']:,}행 일치, 패널에 없는 표 행 {join['extra_rows_not_in_panel']:,}")
+    short_ids = short_name_store_ids(licenses_path or DEFAULT_LICENSES)
+    Xs = {"keep": X0, "na": apply_short_name_policy(df, X0, "na", short_ids)}
+    feats = {"enriched": enriched_cols, "enriched+comp": enriched_cols + comp_cols}
+    logit_log1p = ONLINE_LOG1P_COLS + COMP_LOG1P_COLS
+
+    oofs, chosen = {}, []
+    for pol, Xp in Xs.items():
+        for fname, cols in feats.items():
+            for model in ("hgb_tuned_nested", "logit_enriched"):
+                key = f"{model}__{pol}__{fname.replace('+', '_')}"
+                path = ck / f"{key}.parquet"
+                if path.exists():
+                    oofs[(model, pol, fname)] = pd.read_parquet(path)
+                    log(f"{key}: 체크포인트 사용")
+                    continue
+                log(f"{key}: rolling OOF")
+                if model == "hgb_tuned_nested":
+                    oof, ch = nested_tuned_oof(df, Xp, y, cols)
+                    ch.assign(policy=pol, features=fname).to_csv(ck / f"{key}_chosen.csv", index=False)
+                else:
+                    oof = calibration.rolling_oof_predictions(
+                        df, Xp, y, lambda a, b, c, cols=cols: LogitModel(cols, log1p_cols=logit_log1p).fit(a, b).predict_proba(c),
+                        min_train_origins=MIN_TRAIN_ORIGINS, embargo=EMBARGO)
+                oof = oof.sort_values(["origin", "idx"], ignore_index=True)
+                oof.to_parquet(path, index=False)
+                oofs[(model, pol, fname)] = oof
+    chosen = pd.concat([pd.read_csv(p) for p in sorted(ck.glob("*_chosen.csv"))], ignore_index=True)
+    ref = next(iter(oofs.values()))
+    assert all((o["idx"].to_numpy() == ref["idx"].to_numpy()).all() for o in oofs.values())
+    stores = df.loc[ref["idx"], "store_id"].to_numpy()
+
+    summary = pd.DataFrame([{"model": m, "policy": p, "features": f, **_variant_metrics(o, stores, n_boot)}
+                            for (m, p, f), o in oofs.items()])
+    summary.to_csv(out / "competition_summary.csv", index=False, encoding="utf-8-sig")
+    boot = []
+    for model in ("hgb_tuned_nested", "logit_enriched"):
+        for pol in Xs:
+            a, b = oofs[(model, pol, "enriched+comp")], oofs[(model, pol, "enriched")]
+            boot.append({"model": model, "policy": pol, "comparison": "enriched+comp − enriched",
+                         **cluster_bootstrap_diff(ref["y"], a["p_oof"], b["p_oof"], stores, n_boot)})
+            log(f"부트스트랩 {model} {pol} 완료")
+    boot = pd.DataFrame(boot)
+    boot.to_csv(out / "competition_bootstrap.csv", index=False, encoding="utf-8-sig")
+    decision = competition_decision(summary, boot)
+    decision.to_csv(out / "competition_decision.csv", index=False, encoding="utf-8-sig")
+
+    # 보조: 업종·자치구별(PR #40 집단 구분) AUC 차이 — 중첩 튜닝 HGB, keep
+    a, b = oofs[("hgb_tuned_nested", "keep", "enriched+comp")], oofs[("hgb_tuned_nested", "keep", "enriched")]
+    sub = []
+    for gcol in ("biz_type", "gu"):
+        gv = df.loc[ref["idx"], gcol].astype(str).to_numpy()
+        for g in sorted(set(gv)):
+            m = gv == g
+            sub.append({"group_by": gcol, "group": g, **cluster_bootstrap_diff(ref["y"].to_numpy()[m], a["p_oof"].to_numpy()[m],
+                                                                               b["p_oof"].to_numpy()[m], stores[m], n_boot)})
+    pd.DataFrame(sub).to_csv(out / "competition_subgroup.csv", index=False, encoding="utf-8-sig")
+    last_params = chosen[(chosen["policy"] == "keep") & (chosen["features"] == "enriched+comp")
+                         & (chosen["origin"] == COMPARE_ORIGIN)].iloc[0]
+    params = {**detect.DEFAULT_PARAMS, **{k: last_params[k].item() for k in HPO_GRID}}
+    comp_permutation(df, Xs["keep"], y, feats["enriched+comp"], params).to_csv(
+        out / "competition_permutation.csv", index=False, encoding="utf-8-sig")
+    comp_trdar_corr(df, X0, base_cols).to_csv(out / "competition_trdar_corr.csv", index=False, encoding="utf-8-sig")
+    chosen.to_csv(out / "competition_hpo_chosen.csv", index=False, encoding="utf-8-sig")
+
+    meta = {"master_sha256": train_detect.sha256(Path(master_path)), "online_sha256": train_detect.sha256(Path(online_path)),
+            "extra_join": join, "rule": COMP_RULE, "comp_log1p_in_logit": list(COMP_LOG1P_COLS),
+            "cutoff_fit_window": COMP_FIT_WINDOW, "band_test_origins": BAND_TEST_ORIGINS, "hpo_grid": HPO_GRID,
+            "n_boot": n_boot, "boot_seed": BOOT_SEED, "n_short_stores": len(short_ids),
+            "origins": f"{ref['origin'].min()}~{ref['origin'].max()}", "verdict": decision["verdict"].iloc[0],
+            "seconds": round(time.time() - t0, 1)}
+    (out / "competition_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    log(f"경쟁지표 평가 완료 ({meta['seconds']}초) → 판정 {meta['verdict']}")
+    return {"summary": summary, "bootstrap": boot, "decision": decision}
+
+
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(description="W2-2 단순 기준 모형 비교")
     ap.add_argument("--master", type=Path, default=config.MASTER_BASE_PATH)
@@ -816,7 +1040,16 @@ def main(argv=None) -> None:
     ap.add_argument("--licenses", type=Path, default=DEFAULT_LICENSES, help="짧은 상호 판정용 인허가 표준화 테이블")
     ap.add_argument("--short-name-sensitivity", action="store_true",
                     help="튜닝 hgb_enriched·logit_enriched를 keep/na 두 정책으로 비교만")
+    ap.add_argument("--extra-features", type=Path, default=None,
+                    help="(store_id, origin) 추가 feature 표 — 예: PR #43 경쟁지표 competition_features.parquet (없는 키는 NA)")
+    ap.add_argument("--competition", action="store_true",
+                    help="enriched vs enriched+comp 추가 효과 평가만 (--extra-features 필요, 모형·서빙 기본값 불변)")
     a = ap.parse_args(argv)
+    if a.competition:
+        if a.extra_features is None:
+            raise SystemExit("--competition에는 --extra-features가 필요하다")
+        competition_eval(a.master, a.online, a.extra_features, a.out, a.n_boot, a.licenses)
+        return
     if a.short_name_sensitivity:
         short_name_sensitivity(a.master, a.online, a.out, a.n_boot, a.licenses)
         return
