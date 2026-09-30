@@ -240,6 +240,33 @@ def test_inner_split_never_uses_test_or_later_origins():
             assert len(train) < bm.EMBARGO + 2
 
 
+def test_hpo_selection_rows_never_include_validation_origin_or_later(panel, monkeypatch):
+    """#45 근거: 하이퍼파라미터 선택(격자 학습·검증)에 들어가는 행의 origin은 각 평가 origin t의 학습 구간(t−5 이하) 안이다.
+    t 이후(검증 origin 2023Q1–2025Q2 포함) 라벨은 선택에 쓰이지 않는다 — fit_predict에 들어간 행 origin 최댓값을 검사한다."""
+    origins = sorted(panel["origin"].unique())
+    calls = []
+    real = bm.detect.fit_predict
+
+    def spy(X_tr, y_tr, X_te, params=None):
+        calls.append((panel.loc[X_tr.index, "origin"], panel.loc[X_te.index, "origin"]))
+        return real(X_tr, y_tr, X_te, params)
+
+    monkeypatch.setattr(bm.detect, "fit_predict", spy)
+    monkeypatch.setattr(bm, "HPO_GRID", {"learning_rate": (0.06,), "max_leaf_nodes": (15, 31)})
+    cols = features.select_features(panel.columns, "base")
+    X = features.build_X(panel, cols)
+    bm.hpo(panel, X, panel["event_12m"].to_numpy(), cols)
+    n_grid = 2
+    tests = origins[bm.MIN_TRAIN_ORIGINS + bm.EMBARGO:]
+    assert len(calls) == len(tests) * (n_grid + 1)  # origin마다 격자 n_grid번 + 선택 후 재학습 1번
+    for k, test_o in enumerate(tests):
+        last_train = origins[origins.index(test_o) - bm.EMBARGO - 1]
+        for tr_o, va_o in calls[k * (n_grid + 1): k * (n_grid + 1) + n_grid]:  # 선택 단계
+            assert tr_o.max() <= last_train and va_o.max() <= last_train and va_o.max() < test_o
+        final_tr, final_te = calls[k * (n_grid + 1) + n_grid]  # 재학습(선택 이후) — 학습도 t−5 이하, 예측만 t
+        assert final_tr.max() <= last_train and set(final_te) == {test_o}
+
+
 def test_base_rate_table_uses_embargoed_training_window(panel):
     y = panel["event_12m"].to_numpy()
     oof = pd.DataFrame({"origin": ["2023Q1"] * 3, "p_oof": [0.1, 0.2, 0.3]})

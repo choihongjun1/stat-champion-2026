@@ -531,10 +531,26 @@ def cluster_bootstrap_diff(y, p_a, p_b, clusters, n_boot: int, seed: int = BOOT_
     return out
 
 
+def _calibration_step(oof: pd.DataFrame, origins: list[str], test_origins: list[str]):
+    """#45에 인용한 수치를 만든 **#32 리뷰 이전** 보정 규칙(train_detect.calibration_step, c5151eb)의 사본이다.
+    첫 검증 origin 기준 ≤ t−EMBARGO−1 OOF로 isotonic을 적합하고 검증 ECE가 좋아질 때만 적용한다. 현행 서빙은 fit/select/test
+    3구간 후보 비교(`train_detect.calibration_analysis`)로 바뀌었지만, 이 벤치마크의 비교 수치(pre_adoption_*)는 그대로
+    재현되도록 옛 규칙을 여기에 고정해 둔다 — 서빙 규칙이 아니다."""
+    first_test = origins.index(test_origins[0])
+    calib_origins = [o for o in oof["origin"].unique() if origins.index(o) < first_test - EMBARGO]
+    cal = oof[oof["origin"].isin(calib_origins)]
+    iso = calibration.IsotonicCalibrator().fit(cal["p_oof"], cal["y"])
+    te = oof[oof["origin"].isin(test_origins)]
+    rep = calibration.calibration_report(te["y"].to_numpy(), te["p_oof"].to_numpy(), iso.predict(te["p_oof"]))
+    apply = bool(rep.loc[rep["version"] == "calibrated", "ece"].iloc[0]
+                 < rep.loc[rep["version"] == "raw", "ece"].iloc[0])
+    return iso, apply, calib_origins, rep
+
+
 def band_rule_values(oof: pd.DataFrame, origins: list[str]) -> tuple[dict, pd.DataFrame]:
     """train_detect와 같은 등급 규칙: 보정 구간(첫 검증 origin − embargo 이전 OOF)으로 isotonic 적용 여부를 정하고
     (검증 ECE가 좋아질 때만), 같은 구간 OOF로 `bands.suggest_cutoffs`. 검증 origin(2025Q1–Q2)에 적용한 등급 비율·lift."""
-    iso, apply, calib_origins, _ = train_detect.calibration_step(oof, origins, BAND_TEST_ORIGINS)
+    iso, apply, calib_origins, _ = _calibration_step(oof, origins, BAND_TEST_ORIGINS)
     cal = oof[oof["origin"].isin(calib_origins)]
     p_cal = iso.predict(cal["p_oof"]) if apply else cal["p_oof"].to_numpy()
     cut = bands.suggest_cutoffs(cal["y"].to_numpy(), p_cal)
