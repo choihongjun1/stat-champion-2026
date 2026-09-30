@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 from src.data import master_schema as ms
-from src.models import calibration, detect, features, train_detect, uncertainty
+from src.models import bands, calibration, detect, features, train_detect, uncertainty
 
 ORIGINS = [str(p) for p in pd.period_range("2021Q1", "2025Q2", freq="Q")]  # 18개
 
@@ -211,6 +211,13 @@ def test_end_to_end(tmp_path, panel):
     assert meta["oof_predictions_rows"] == len(oof)
     assert meta["calibration_candidate"] in ("raw", "isotonic", "platt")
     assert meta["calibration_applied"] == (meta["calibration_candidate"] != "raw")
+    # #45: 컷오프 정의 문장·fallback·provenance가 run_meta에 남는다
+    assert meta["band_definition"] == {"cut_mid": bands.CUT_MID_DEFINITION, "cut_high": bands.CUT_HIGH_DEFINITION}
+    bp = meta["band_provenance"]
+    assert bp["calib_origins"] == meta["calibration_windows"]["fit"] and bp["cut_mid"] == pytest.approx(cut["cut_mid"])
+    assert isinstance(bp["high_fallback"], bool) and isinstance(bp["mid_fallback"], bool)
+    assert bp["base_rate"] == pytest.approx(cut["base_rate"]) and 0 <= bp["high_share_test"] <= 1
+    assert len(bp["high_lift_ci95"]) == 2
 
 
 # ---------------------------------------------------------------- #32 리뷰: 보정 3구간 · Platt · 분할 비교
@@ -314,3 +321,29 @@ def test_split_comparison_has_last_origin_columns_and_scope_note(panel):
     rnd = sc[sc["setting"].str.startswith("random_split")].iloc[0]
     assert rnd["test_scope"] == "전체 origin 무작위 ~20% 표본"
     assert rnd["n_last_origin"] < rnd["n_train"]  # 최신 origin 부분만 추린 쪽이 더 작다
+
+
+def test_suggest_cutoffs_records_fallbacks_without_changing_default_behavior():
+    rng = np.random.default_rng(0)
+    p = rng.beta(1, 8, 20000)
+    y = (rng.random(20000) < p).astype(int)  # 잘 보정된 예측 — 꼬리에 high(2배)가 존재
+    c = bands.suggest_cutoffs(y, p)
+    assert c["base_rate"] == pytest.approx(y.mean()) and c["high_fallback"] is False
+    assert c["cut_mid"] == pytest.approx(y.mean() if c["mid_fallback"] else 1.2 * y.mean())
+    assert c["mid_fallback"] == (1.2 * y.mean() >= c["cut_high"])  # mid 대체는 cut_mid ≥ cut_high일 때만
+    # 예측이 신호가 없으면(라벨과 무관) 2배 집단이 없다 → p95 fallback
+    y0 = (rng.random(20000) < 0.12).astype(int)
+    c0 = bands.suggest_cutoffs(y0, p)
+    assert c0["high_fallback"] is True and c0["cut_high"] == pytest.approx(float(np.quantile(p, 0.95)))
+    # 정의 문장은 코드와 같다
+    assert "1.2 × base_rate" in bands.CUT_MID_DEFINITION and "fallback" in bands.CUT_HIGH_DEFINITION
+
+
+def test_high_lift_cluster_ci_brackets_point_estimate():
+    rng = np.random.default_rng(1)
+    n = 3000
+    stores = np.repeat(np.arange(1000), 3)
+    is_high = rng.random(n) < 0.1
+    y = (rng.random(n) < np.where(is_high, 0.3, 0.1)).astype(int)
+    lift, lo, hi = bands.high_lift_cluster_ci(y, is_high, stores, n_boot=300)
+    assert lo < lift < hi and lift == pytest.approx(y[is_high].mean() / y.mean())

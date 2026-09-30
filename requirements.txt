@@ -14,3 +14,5 @@ geopandas==1.1.4
 shapely==2.1.2
 # Kaplan-Meier curves for the closure label QA (src/data/labels.py)
 lifelines==0.30.3
+# online presence collection HTTP calls (src/data/collect_online_presence.py, collect_blog_monthly.py)
+requests==2.33.1
