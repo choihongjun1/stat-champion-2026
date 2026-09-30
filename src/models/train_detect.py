@@ -52,6 +52,17 @@ MIN_TRAIN_ORIGINS = 4
 EVAL_FROM = "2023Q4"  # 상권 polygon 스냅샷(2023-10-23) 이후 origin
 TEST_SIZE = 2  # 최종 검증 origin 수 (마지막 2개)
 MODEL_NAME = "detect_v0"
+# #32 리뷰(2026-09-26·27): 튜닝 후보(HPO, feat/w2-2-benchmark). 최종 채택은 #45 결정 대기 — 여기서는
+# 비교용으로만 쓰고, risk_scores.parquet 등 실제 서빙 산출물은 여전히 DEFAULT_PARAMS(현 설정)로 만든다.
+TUNED_PARAMS = {"learning_rate": 0.03, "max_leaf_nodes": 15}
+# 보정 3구간(#32 리뷰 M2): fit(보정기 학습) 4개 origin, select(적용 여부 선택) 4개 origin, test(최종 보고,
+# TEST_SIZE개) — 서로 겹치지 않게 순서대로 이어 붙인다. 선택과 최종 평가를 같은 구간에서 하면 선택 편향이
+# 생긴다(choihongjun1 리뷰). 오늘 데이터(2021Q1~2025Q2, 18개 origin)에서는 fit=2023Q1–Q4, select=2024Q1–Q4,
+# test=2025Q1–Q2와 같다. select 구간의 라벨은 **모형 개발 시점(오늘)** 에는 확정돼 있지만, 실제 서빙 시점
+# 규칙(embargo 4분기)과는 별개다 — 서빙은 그 시점에 확정된 origin만 쓴다.
+FIT_WINDOW = 4
+SELECT_WINDOW = 4
+CALIB_CANDIDATES = ("raw", "isotonic", "platt")
 
 
 def log(msg: str) -> None:
@@ -117,43 +128,130 @@ def summarize(by_origin: pd.DataFrame, oof: pd.DataFrame) -> dict:
 # ---------------------------------------------------------------------------
 # 분할 방식 비교 (보고서용 대조군)
 # ---------------------------------------------------------------------------
-def split_comparison(df: pd.DataFrame, X: pd.DataFrame, y: np.ndarray, params=None) -> pd.DataFrame:
+def _metrics_2025q2(df: pd.DataFrame, te: np.ndarray, y: np.ndarray, p: np.ndarray, last_origin: str) -> dict:
+    """te(불 마스크) 중 origin==last_origin(오늘 데이터에서는 2025Q2)인 행만 추린 성능.
+    time_split 두 설정은 test 자체가 이미 이 origin 하나뿐이라 전체 성능과 같게 나온다 — random_split·
+    점포 홀드아웃처럼 test가 여러 origin에 걸쳐 있는 설정과 그대로 비교할 수 있게 같은 방식으로 낸다."""
+    te_idx = np.flatnonzero(te)
+    sub = df.loc[te_idx, "origin"].to_numpy() == last_origin
+    m = detect.ranking_metrics(y[te][sub], p[sub])
+    return {f"{k}_last_origin": v for k, v in m.items()}
+
+
+def split_comparison(df: pd.DataFrame, X: pd.DataFrame, y: np.ndarray, params_by_name: dict[str, dict] | None = None
+                     ) -> pd.DataFrame:
+    """분할 방식 4가지 × 모형 설정(기본: 현 설정 하나, params_by_name으로 여러 개 비교 가능).
+    random_split·점포 홀드아웃은 **"금지·대조군"이지 실전 성능이 아니다** — 전체 origin에서 무작위로 뽑은
+    약 20%(splits.random_split_baseline/store_holdout_split의 test_frac=0.2)를 평가한 값이라, 두 time_split
+    설정(단일 최신 origin 검증)과 모집단이 다르다. `*_last_origin` 열은 넷 모두 같은 origin(최신, 오늘
+    데이터에서는 2025Q2)만 추려 낸 성능이라 이 열끼리는 비교할 수 있다."""
+    params_by_name = params_by_name or {"현 설정": None}
+    last_origin = splits.sorted_origins(df)[-1]
     rows = []
-    for emb in (EMBARGO, 0):
-        f = splits.rolling_origin_folds(df, min_train_origins=MIN_TRAIN_ORIGINS, embargo=emb, test_size=1)[-1]
-        tr, te = f.masks(df)
-        p = detect.fit_predict(X[tr], y[tr], X[te], params)
-        rows.append({"setting": f"time_split(embargo={emb})", "test": f.test_origins[0],
-                     "train": f"{f.train_origins[0]}~{f.train_origins[-1]}", "n_train": int(tr.sum()),
-                     **detect.ranking_metrics(y[te], p)})
-    for name, (tr, te) in (("random_split(금지·대조군)", splits.random_split_baseline(df)),
-                           ("store_holdout(민감도)", splits.store_holdout_split(df))):
-        p = detect.fit_predict(X[tr], y[tr], X[te], params)
-        rows.append({"setting": name, "test": "mixed", "train": "mixed", "n_train": int(tr.sum()),
-                     **detect.ranking_metrics(y[te], p)})
+    for pname, params in params_by_name.items():
+        for emb in (EMBARGO, 0):
+            f = splits.rolling_origin_folds(df, min_train_origins=MIN_TRAIN_ORIGINS, embargo=emb, test_size=1)[-1]
+            tr, te = f.masks(df)
+            p = detect.fit_predict(X[tr], y[tr], X[te], params)
+            rows.append({"params": pname, "setting": f"time_split(embargo={emb})",
+                        "test_scope": f"단일 origin {f.test_origins[0]}", "test": f.test_origins[0],
+                        "train": f"{f.train_origins[0]}~{f.train_origins[-1]}", "n_train": int(tr.sum()),
+                        **detect.ranking_metrics(y[te], p), **_metrics_2025q2(df, te, y, p, last_origin)})
+        for name, (tr, te) in (("random_split(금지·대조군)", splits.random_split_baseline(df)),
+                               ("store_holdout(민감도)", splits.store_holdout_split(df))):
+            p = detect.fit_predict(X[tr], y[tr], X[te], params)
+            rows.append({"params": pname, "setting": name, "test_scope": "전체 origin 무작위 ~20% 표본",
+                        "test": "mixed", "train": "mixed", "n_train": int(tr.sum()),
+                        **detect.ranking_metrics(y[te], p), **_metrics_2025q2(df, te, y, p, last_origin)})
     return pd.DataFrame(rows)
 
 
 # ---------------------------------------------------------------------------
 # 보정 · 구간 · 등급 · risk_scores
 # ---------------------------------------------------------------------------
-def calibration_step(oof: pd.DataFrame, origins: list[str], test_origins: list[str]):
-    """첫 검증 origin 기준 학습 가능 구간(≤ t−EMBARGO−1)에 속한 OOF 예측으로 isotonic을 적합한다.
-    그 라벨은 검증 시점에 확정돼 있다."""
-    first_test = origins.index(test_origins[0])
-    calib_origins = [o for o in oof["origin"].unique() if origins.index(o) < first_test - EMBARGO]
-    if len(calib_origins) < 4:
-        log(f"경고: 보정 origin이 {len(calib_origins)}개뿐이다 (권장 4개 이상, base rate 변동 흡수)")
-    cal = oof[oof["origin"].isin(calib_origins)]
-    iso = calibration.IsotonicCalibrator().fit(cal["p_oof"], cal["y"])
-    te = oof[oof["origin"].isin(test_origins)]
-    p_raw, p_cal = te["p_oof"].to_numpy(), iso.predict(te["p_oof"])
-    rep = calibration.calibration_report(te["y"].to_numpy(), p_raw, p_cal)
-    apply = bool(rep.loc[rep["version"] == "calibrated", "ece"].iloc[0]
-                 < rep.loc[rep["version"] == "raw", "ece"].iloc[0])
-    rep["calib_origins"] = f"{min(calib_origins)}~{max(calib_origins)} ({len(calib_origins)}개)"
-    rep["applied"] = apply
-    return iso, apply, calib_origins, rep
+def calibration_windows(origins: list[str], *, fit_size: int = FIT_WINDOW, select_size: int = SELECT_WINDOW,
+                        test_size: int = TEST_SIZE) -> dict[str, list[str]]:
+    """fit·select·test 3구간 (겹치지 않고 순서대로 이어짐, test가 가장 최근)."""
+    if len(origins) < fit_size + select_size + test_size:
+        raise ValueError(f"origin이 부족하다: {len(origins)} < {fit_size + select_size + test_size}")
+    test = origins[-test_size:]
+    select = origins[-(test_size + select_size):-test_size]
+    fit = origins[-(test_size + select_size + fit_size):-(test_size + select_size)]
+    return {"fit": fit, "select": select, "test": test}
+
+
+def fit_candidates(oof: pd.DataFrame, fit_origins: list[str]) -> dict:
+    """fit 구간 OOF로 후보 보정기를 적합한다. raw는 적합할 게 없어 None."""
+    cal = oof[oof["origin"].isin(fit_origins)]
+    return {"raw": None, "isotonic": calibration.IsotonicCalibrator().fit(cal["p_oof"], cal["y"]),
+            "platt": calibration.PlattCalibrator().fit(cal["p_oof"], cal["y"])}
+
+
+def apply_candidate(cal, p: np.ndarray) -> np.ndarray:
+    return np.asarray(p, dtype=float) if cal is None else cal.predict(p)
+
+
+def candidate_window_metrics(y: np.ndarray, p: np.ndarray) -> dict:
+    slope, intercept = calibration.calibration_slope_intercept(y, p)
+    return {"brier": calibration.brier_score(y, p), "log_loss": calibration.log_loss(y, p),
+            "ece": calibration.expected_calibration_error(y, p), "pred_mean": float(np.mean(p)),
+            "obs_rate": float(np.mean(y)), "n": len(y), "calib_slope": slope, "calib_intercept": intercept}
+
+
+def choose_calibration(oof: pd.DataFrame, df: pd.DataFrame, windows: dict[str, list[str]], *, n_boot: int = 1000,
+                       seed: int = 20260928) -> tuple[str, dict, dict, pd.DataFrame]:
+    """선택 규칙(#32 리뷰 M2, 미리 고정): select 구간에서 Brier가 가장 낮은 후보를 고른다. raw보다 나아도
+    그 차이가 점포 단위 부트스트랩 95% CI상 유의하지 않으면(0을 포함하면) raw를 유지한다 — select 구간
+    표본이 작아 우연한 차이로 잘못 채택하는 것을 막는다. select와 최종 평가(test) 구간을 분리해 선택 편향도
+    막는다. 반환: (선택된 후보, 선택 이유 dict, 후보별 fit 결과 dict, select 구간 후보별 지표 표)."""
+    cands = fit_candidates(oof, windows["fit"])
+    sel = oof[oof["origin"].isin(windows["select"])]
+    y_sel, p_sel_raw = sel["y"].to_numpy(), sel["p_oof"].to_numpy()
+    store_sel = df.loc[sel["idx"].to_numpy(), "store_id"].to_numpy()
+    sel_preds = {name: apply_candidate(cal, p_sel_raw) for name, cal in cands.items()}
+    sel_metrics = pd.DataFrame([{"candidate": name, "window": "select", **candidate_window_metrics(y_sel, p)}
+                                for name, p in sel_preds.items()])
+    best = sel_metrics.set_index("candidate")["brier"].idxmin()
+    decision = {"fit_origins": windows["fit"], "select_origins": windows["select"], "test_origins": windows["test"],
+               "select_rule": "select 구간 Brier 최소 후보, raw 대비 부트스트랩 95% CI로 유의성 확인"}
+    if best == "raw":
+        chosen, decision["reason"] = "raw", "select 구간에서 원 확률의 Brier가 이미 가장 낮음"
+        decision["boot_vs_raw"] = None
+    else:
+        boot = calibration.bootstrap_brier_diff(y_sel, sel_preds[best], sel_preds["raw"], store_sel, n_boot=n_boot,
+                                                 seed=seed)
+        decision["boot_vs_raw"] = {"candidate": best, **boot}
+        if boot["significant"] and boot["diff"] < 0:
+            chosen = best
+            decision["reason"] = (f"select 구간 Brier가 raw보다 낮고 부트스트랩 95% CI [{boot['ci_low']:.5f}, "
+                                 f"{boot['ci_high']:.5f}]가 유의함 (0을 포함하지 않음)")
+        else:
+            chosen = "raw"
+            decision["reason"] = (f"{best}의 Brier가 raw보다 낮아 보이지만 부트스트랩 95% CI "
+                                 f"[{boot['ci_low']:.5f}, {boot['ci_high']:.5f}]가 0을 포함해 유의하지 않음 "
+                                 "— 원 확률(raw) 유지")
+    decision["chosen"] = chosen
+    return chosen, decision, cands, sel_metrics
+
+
+def calibration_analysis(oof: pd.DataFrame, df: pd.DataFrame, origins: list[str], *, n_boot: int = 1000,
+                         seed: int = 20260928) -> dict:
+    """3구간 보정 비교 전체: 선택(select) + 최종 평가(test) 두 구간에서 raw/isotonic/platt 세 후보를 모두
+    보고하고, 어느 것을 채택하는지와 그 이유를 남긴다."""
+    windows = calibration_windows(origins)
+    chosen, decision, cands, sel_metrics = choose_calibration(oof, df, windows, n_boot=n_boot, seed=seed)
+    sel = oof[oof["origin"].isin(windows["select"])]
+    y_sel, p_sel_raw = sel["y"].to_numpy(), sel["p_oof"].to_numpy()
+    sel_preds = {name: apply_candidate(cal, p_sel_raw) for name, cal in cands.items()}
+    te = oof[oof["origin"].isin(windows["test"])]
+    y_te, p_te_raw = te["y"].to_numpy(), te["p_oof"].to_numpy()
+    te_preds = {name: apply_candidate(cal, p_te_raw) for name, cal in cands.items()}
+    te_metrics = pd.DataFrame([{"candidate": name, "window": "test", **candidate_window_metrics(y_te, p)}
+                              for name, p in te_preds.items()])
+    report = pd.concat([sel_metrics, te_metrics], ignore_index=True)
+    report["chosen"] = report["candidate"] == chosen
+    return {"windows": windows, "decision": decision, "report": report, "candidates": cands,
+            "select_y": y_sel, "select_preds": sel_preds, "test_y": y_te, "test_preds": te_preds, "chosen": chosen}
 
 
 def bootstrap_ci(df, X, y, test_origin: str, origins: list[str], *, n_boot: int, params=None):
@@ -263,34 +361,62 @@ def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
         return
 
     if with_split_comparison:
-        log("분할 방식 비교 (embargo 4/0, random, 점포 홀드아웃)")
-        split_comparison(df, X_base, y).to_csv(out_dir / "split_comparison.csv", index=False)
+        log("분할 방식 비교 (embargo 4/0, random, 점포 홀드아웃 × 현 설정·튜닝 설정)")
+        split_comparison(df, X_base, y, {"현 설정": None, "튜닝": TUNED_PARAMS}).to_csv(
+            out_dir / "split_comparison.csv", index=False)
     log(f"변수 기여 진단 (permutation, {origins[-1]})")
     imp = permutation_importance(df, X_base, y, origins)
     imp.to_csv(out_dir / "feature_importance.csv", index=False)
     log("\n" + imp.head(12)[["feature", "auc_drop_mean", "auc_drop_std", "missing_rate"]].to_string(index=False))
 
-    # --- 보정
-    iso, apply, calib_origins, rep = calibration_step(oof_base, origins, test_origins)
-    rep.to_csv(out_dir / "calibration_report.csv", index=False)
-    log(f"보정: {rep['calib_origins'].iloc[0]} → 적용 {apply}\n{rep.to_string(index=False)}")
-    te_oof = oof_base[oof_base["origin"].isin(test_origins)]
-    p_te_raw = te_oof["p_oof"].to_numpy()
-    p_te = iso.predict(p_te_raw) if apply else p_te_raw
-    calibration.plot_reliability(
-        {"raw": calibration.reliability_table(te_oof["y"], p_te_raw),
-         "isotonic": calibration.reliability_table(te_oof["y"], iso.predict(p_te_raw))},
-        out_dir / "reliability.png", title=f"Reliability — {test_origins[0]}~{test_origins[-1]}",
-    )
+    # --- 보정: 3구간(fit/select/test) 비교, 현 설정으로 실제 서빙에 쓸 후보를 고른다.
+    # 튜닝 설정은 같은 방식으로 한 번 더 돌려 비교표에만 싣는다(#45 결정 전까지 서빙은 그대로 현 설정).
+    # 보정 선택 유의성 검정은 불확실성 구간용 n_boot(--quick=5 등 리스크 구간 재학습 횟수)와 별개다 —
+    # 재학습이 아니라 이미 있는 OOF 예측의 재표본이라 훨씬 싸다. --quick만 줄인다.
+    calib_boot = 200 if n_boot <= 5 else 1000
+    log(f"보정 3구간 비교 (fit/select/test): {calibration_windows(origins)}")
+    analysis = calibration_analysis(oof_base, df, origins, n_boot=calib_boot)
+    log(f"보정 선택: {analysis['chosen']} — {analysis['decision']['reason']}")
+    log("\n" + analysis["report"].to_string(index=False))
 
-    # --- band 컷오프: 보정 구간 OOF로 정하고 검증 구간에 적용
-    cal = oof_base[oof_base["origin"].isin(calib_origins)]
-    p_cal_set = iso.predict(cal["p_oof"]) if apply else cal["p_oof"].to_numpy()
-    cut = bands.suggest_cutoffs(cal["y"].to_numpy(), p_cal_set)
+    oof_tuned = rolling_oof(df, X_base, y, params=TUNED_PARAMS)
+    analysis_tuned = calibration_analysis(oof_tuned, df, origins, n_boot=calib_boot)
+    log(f"[비교용] 튜닝 설정 보정 선택: {analysis_tuned['chosen']} — {analysis_tuned['decision']['reason']}")
+    pd.concat([analysis["report"].assign(params="현 설정"), analysis_tuned["report"].assign(params="튜닝")],
+             ignore_index=True).to_csv(out_dir / "calibration_window_report.csv", index=False)
+    (out_dir / "calibration_decision.json").write_text(
+        json.dumps({"현 설정": analysis["decision"], "튜닝": analysis_tuned["decision"]},
+                  ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+
+    chosen = analysis["chosen"]
+    cal_current = analysis["candidates"][chosen]
+    calibration.plot_reliability(
+        {"raw": calibration.reliability_table(analysis["select_y"], analysis["select_preds"]["raw"]),
+         chosen: calibration.reliability_table(analysis["select_y"], analysis["select_preds"][chosen])},
+        out_dir / "reliability_select.png",
+        title=f"Reliability(선택 구간) — {analysis['windows']['select'][0]}~{analysis['windows']['select'][-1]}")
+    calibration.plot_reliability(
+        {"raw": calibration.reliability_table(analysis["test_y"], analysis["test_preds"]["raw"]),
+         chosen: calibration.reliability_table(analysis["test_y"], analysis["test_preds"][chosen])},
+        out_dir / "reliability.png",
+        title=f"Reliability(최종) — {analysis['windows']['test'][0]}~{analysis['windows']['test'][-1]}")
+
+    te_oof = oof_base[oof_base["origin"].isin(analysis["windows"]["test"])]
+    p_te = analysis["test_preds"][chosen]
+
+    # --- band 컷오프: fit 구간 OOF(선택된 후보 적용)로 정하고 최종(test) 구간에 적용
+    fit_oof = oof_base[oof_base["origin"].isin(analysis["windows"]["fit"])]
+    p_fit = apply_candidate(cal_current, fit_oof["p_oof"].to_numpy())
+    cut = bands.suggest_cutoffs(fit_oof["y"].to_numpy(), p_fit)
     pd.DataFrame([cut]).to_csv(out_dir / "band_cutoffs.csv", index=False)
     band_te = bands.assign_bands_absolute(p_te, cut_mid=cut["cut_mid"], cut_high=cut["cut_high"])
-    bands.band_profile(te_oof["y"].to_numpy(), p_te, band_te).to_csv(out_dir / "band_profile.csv", index=False)
-    p_all = iso.predict(oof_base["p_oof"]) if apply else oof_base["p_oof"].to_numpy()
+    band_prof = bands.band_profile(te_oof["y"].to_numpy(), p_te, band_te)
+    band_prof.to_csv(out_dir / "band_profile.csv", index=False)
+    hi = band_prof.set_index("band").loc["high"]
+    if hi["pred_mean"] > hi["obs_rate"] * 1.05:
+        log(f"참고: high 등급 평균 예측 {hi['pred_mean']:.3f}이 실측 {hi['obs_rate']:.3f}보다 높다 "
+            "— 과대예측 경향 (DECISIONS 기록 대상)")
+    p_all = apply_candidate(cal_current, oof_base["p_oof"].to_numpy())
     b_all = bands.assign_bands_absolute(p_all, cut_mid=cut["cut_mid"], cut_high=cut["cut_high"])
     share = pd.crosstab(oof_base["origin"], b_all, normalize="index").reindex(columns=list(bands.BANDS), fill_value=0)
     share.to_csv(out_dir / "band_share_by_origin.csv")
@@ -301,13 +427,21 @@ def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
     ci_hi = np.full(len(te_oof), np.nan)
     if n_boot > 0:
         pos_in_te = pd.Series(np.arange(len(te_oof)), index=te_oof["idx"].to_numpy())
-        for o in test_origins:
+        for o in analysis["windows"]["test"]:
             log(f"부트스트랩 {n_boot}회 ({o})")
-            te_mask, lo, hi = bootstrap_ci(df, X_base, y, o, origins, n_boot=n_boot)
-            if apply:
-                lo, hi = iso.predict(lo), iso.predict(hi)
+            te_mask, lo, hi_ci = bootstrap_ci(df, X_base, y, o, origins, n_boot=n_boot)
+            lo, hi_ci = apply_candidate(cal_current, lo), apply_candidate(cal_current, hi_ci)
             at = pos_in_te.loc[np.flatnonzero(te_mask)].to_numpy()
-            ci_lo[at], ci_hi[at] = lo, hi
+            ci_lo[at], ci_hi[at] = lo, hi_ci
+
+    # --- OOF 저장 (#32 리뷰 M5): store_id × origin × 모형 설정별 OOF 예측, 생존분석(C-index)은 후속 PR
+    oof_out = pd.concat([
+        oof_base.assign(config="현 설정", store_id=df.loc[oof_base["idx"].to_numpy(), "store_id"].to_numpy()),
+        oof_tuned.assign(config="튜닝", store_id=df.loc[oof_tuned["idx"].to_numpy(), "store_id"].to_numpy()),
+    ], ignore_index=True)[["store_id", "origin", "config", "p_oof", "y"]]
+    oof_path = out_dir / "oof_predictions.parquet"
+    oof_out.to_parquet(oof_path, index=False)
+    log(f"OOF 예측 {len(oof_out):,}행 → {oof_path}")
 
     # --- risk_scores
     rows = df.loc[te_oof["idx"].to_numpy(), ["store_id", "origin", "gu", "biz_type"]].reset_index(drop=True)
@@ -319,14 +453,17 @@ def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
     rows["band"] = band_te
     rows = peer_stats(rows)
     rows["model"] = MODEL_NAME
-    rows["calibrated"] = apply
+    rows["calibrated"] = chosen != "raw"
     rows["event_12m"] = te_oof["y"].to_numpy()  # 검증용. 화면 스키마에는 넣지 않는다
     rows.to_parquet(out_dir / "risk_scores.parquet", index=False)
     log(f"risk_scores {len(rows):,}행 → {out_dir / 'risk_scores.parquet'}")
 
-    meta["calibration_applied"] = apply
-    meta["calib_origins"] = calib_origins
+    meta["calibration_applied"] = chosen != "raw"  # 이름 유지 — feat/w2-serve의 read_detect_run이 이 키를 읽는다
+    meta["calibration_candidate"] = chosen
+    meta["calibration_windows"] = analysis["windows"]
     meta["band_cutoffs"] = cut
+    meta["oof_predictions_sha256"] = sha256(oof_path)
+    meta["oof_predictions_rows"] = len(oof_out)
     meta["seconds"] = round(time.time() - t0, 1)
     (out_dir / "run_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2, default=str),
                                            encoding="utf-8")
