@@ -536,3 +536,12 @@ row 부재 패턴 실측. 상세 수치는 `outputs/master/qa_report.md` "업종
 - **OOF 예측을 저장한다** (`outputs/models/detect_v0.../oof_predictions.parquet`, gitignore) —
   `store_id, origin, config(현 설정/튜닝), p_oof, y`. `run_meta.json`에 파일 sha256과 행 수를 남긴다.
   생존분석(C-index 등)은 이 PR 범위 밖이며 **후속 PR**로 진행한다.
+
+## 2026-09-30 — #45 구현 이슈: 컷오프 정의 문장·fallback 기록·provenance (기본 동작 불변)
+- **정의(코드 `bands.CUT_MID_DEFINITION`·`CUT_HIGH_DEFINITION`, run_meta·serve_meta와 같은 문장)**:
+  - cut_mid = 1.2 × base_rate — 보정 창 OOF 관측 폐업률의 1.2배인 **개별 예측 확률 임계값**이다("실측 lift 1.2배가 되는 컷오프"가 아니다).
+  - cut_high = 보정 창 OOF에서 {p ≥ c} 집단의 관측 폐업률이 base_rate의 2배 이상이 되는 가장 낮은 c(집단 200곳 이상). 그런 c가 없으면
+    예측 확률 95백분위로 fallback.
+- **fallback 발생 여부**를 `run_meta.band_provenance.high_fallback`(cut_high의 p95 대체)·`mid_fallback`(cut_mid ≥ cut_high여서 base_rate로 대체)에 기록한다.
+- **provenance**(`run_meta.band_provenance`, serve가 `serve_meta.cutoff_provenance`로 옮김): 보정 창 origin 목록, base_rate, cut_mid, cut_high, fallback,
+  검증 구간 high 비율, high lift와 점포 단위 부트스트랩 95% CI, 확률 척도(raw/calibrated).
