@@ -454,7 +454,19 @@ def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
     b_all = bands.assign_bands_absolute(p_all, cut_mid=cut["cut_mid"], cut_high=cut["cut_high"])
     share = pd.crosstab(oof_base["origin"], b_all, normalize="index").reindex(columns=list(bands.BANDS), fill_value=0)
     share.to_csv(out_dir / "band_share_by_origin.csv")
-    log(f"band 컷오프 mid {cut['cut_mid']:.4f} / high {cut['cut_high']:.4f} (base {cut['base_rate']:.4f})")
+    log(f"band 컷오프 mid {cut['cut_mid']:.4f} / high {cut['cut_high']:.4f} (base {cut['base_rate']:.4f})"
+        + (" — high fallback(p95)" if cut["high_fallback"] else ""))
+    # #45: 컷오프 provenance — 서빙(serve_meta)이 그대로 옮겨 적는다. 기본 동작은 바꾸지 않고 기록만 한다.
+    is_high_te = band_te == "high"
+    lift, lift_lo, lift_hi = bands.high_lift_cluster_ci(
+        te_oof["y"].to_numpy(), is_high_te, df.loc[te_oof["idx"].to_numpy(), "store_id"].to_numpy(), n_boot=calib_boot)
+    meta["band_definition"] = {"cut_mid": bands.CUT_MID_DEFINITION, "cut_high": bands.CUT_HIGH_DEFINITION}
+    meta["band_provenance"] = {
+        "calib_origins": analysis["windows"]["fit"], "test_origins": analysis["windows"]["test"],
+        "base_rate": cut["base_rate"], "cut_mid": cut["cut_mid"], "cut_high": cut["cut_high"],
+        "high_fallback": cut["high_fallback"], "mid_fallback": cut["mid_fallback"],
+        "high_share_test": float(is_high_te.mean()), "high_lift_test": lift, "high_lift_ci95": [lift_lo, lift_hi],
+        "scale": "calibrated" if chosen != "raw" else "raw", "method": "bands.suggest_cutoffs"}
 
     # --- 불확실성 구간
     ci_lo = np.full(len(te_oof), np.nan)

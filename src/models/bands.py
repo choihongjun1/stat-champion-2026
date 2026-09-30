@@ -23,6 +23,12 @@ import pandas as pd
 
 BANDS = ("low", "mid", "high")
 
+# 컷오프 정의 — 코드·DECISIONS·run_meta·serve_meta가 같은 문장을 쓴다(#45, choihongjun1 지적 1번).
+CUT_MID_DEFINITION = ("cut_mid = 1.2 × base_rate (보정 창 OOF 관측 폐업률의 1.2배인 개별 예측 확률 임계값이다. "
+                      "'실측 lift 1.2배가 되는 컷오프'가 아니다)")
+CUT_HIGH_DEFINITION = ("cut_high = 보정 창 OOF에서 {p ≥ c} 집단의 관측 폐업률이 base_rate의 2배 이상이 되는 가장 낮은 c "
+                       "(집단 200곳 이상). 그런 c가 없으면 예측 확률 95백분위로 fallback한다(fallback 여부는 high_fallback에 기록)")
+
 
 def assign_bands_absolute(
     p: np.ndarray, *, cut_mid: float, cut_high: float
@@ -64,6 +70,9 @@ def suggest_cutoffs(
     - high: {p ≥ c} 집단의 실측 폐업률이 평균의 `target_high_lift`배 이상이 되는 가장 낮은 컷오프
       → "high 등급 점포들은 실제로 평균의 2배 위험"
     - mid: 예측 확률이 평균의 `target_mid_lift`배 이상 → "예측 위험이 평균보다 높은 점포"
+
+    정의 문장은 `CUT_MID_DEFINITION`·`CUT_HIGH_DEFINITION`. 기본 동작은 그대로이고, 조건을 만족하는 컷오프가 없어
+    fallback을 썼는지(`high_fallback`, `mid_fallback`)를 함께 돌려준다.
     """
     y = np.asarray(y, dtype=float)
     p = np.asarray(p, dtype=float)
@@ -71,6 +80,7 @@ def suggest_cutoffs(
 
     grid = np.unique(np.quantile(p, np.linspace(0.50, 0.995, 200)))
     cut_high = None
+    high_fallback = False
     for c in grid:
         m = p >= c
         if m.sum() < 200:
@@ -80,16 +90,38 @@ def suggest_cutoffs(
             break
     if cut_high is None:
         cut_high = float(np.quantile(p, 0.95))
+        high_fallback = True
 
     # mid는 "예측 위험이 평균의 target_mid_lift배 이상"인 점포다 (개별 예측값 기준).
     # 구간 평균 lift로 찾으면(이전 방식) 구간 안에 평균 미만 점포가 섞여 컷오프가 base rate 아래로
     # 내려간다 — 실데이터에서 mid 0.0846 < base 0.1245, mid 비율 61%가 됐다. 보정 오차(ECE)가
     # 작을 때 개별 예측값 기준이 "평균 대비 N배"라는 설명과 일치한다.
     cut_mid = float(base * target_mid_lift)
+    mid_fallback = False
     if cut_mid >= cut_high:
         cut_mid = float(base)
+        mid_fallback = True
 
-    return {"cut_mid": cut_mid, "cut_high": cut_high, "base_rate": float(base)}
+    return {"cut_mid": cut_mid, "cut_high": cut_high, "base_rate": float(base),
+            "high_fallback": high_fallback, "mid_fallback": mid_fallback}
+
+
+def high_lift_cluster_ci(y, is_high, clusters, *, n_boot: int = 1000, seed: int = 20260927) -> tuple[float, float, float]:
+    """high 등급의 lift(= high 관측 폐업률 / 전체 관측 폐업률)와 점포 단위 부트스트랩 95% 구간. 반환: (lift, lo, hi).
+    행을 복제하지 않고 정수 가중치(np.bincount)로 계산한다."""
+    y = np.asarray(y, dtype=float)
+    h = np.asarray(is_high, dtype=bool)
+    codes, uniq = pd.factorize(pd.Series(np.asarray(clusters)))
+    rng = np.random.default_rng(seed)
+    n = len(uniq)
+    vals = np.empty(n_boot)
+    for b in range(n_boot):
+        w = np.bincount(rng.integers(0, n, n), minlength=n)[codes].astype(float)
+        wh = w * h
+        vals[b] = (wh @ y / wh.sum()) / (w @ y / w.sum()) if wh.sum() > 0 and w @ y > 0 else np.nan
+    lift = float((y[h].mean() / y.mean())) if h.any() and y.mean() > 0 else float("nan")
+    lo, hi = np.nanpercentile(vals, [2.5, 97.5])
+    return lift, float(lo), float(hi)
 
 
 def band_profile(y: np.ndarray, p: np.ndarray, bands: np.ndarray) -> pd.DataFrame:

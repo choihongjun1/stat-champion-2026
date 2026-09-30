@@ -740,3 +740,12 @@ PR에서 다루지 않는다(요청대로 범위 밖).
 - 비용 요인(임대료 수준)은 **기여 0이 아니라 계산 대상 제외**(`비용_available=False`)다.
 - "최고 위험 3개 점포" = 검토 대기(`hold_reason=online_review`) 점포 중 `probability_12m` 상위 3곳, 동률은 store_id
   오름차순(#39 priority와 같은 기준, `name_match_review.select_targets`).
+
+## 2026-09-30 — #45 구현 이슈: 컷오프 정의 문장·fallback 기록·provenance (기본 동작 불변)
+- **정의(코드 `bands.CUT_MID_DEFINITION`·`CUT_HIGH_DEFINITION`, run_meta·serve_meta와 같은 문장)**:
+  - cut_mid = 1.2 × base_rate — 보정 창 OOF 관측 폐업률의 1.2배인 **개별 예측 확률 임계값**이다("실측 lift 1.2배가 되는 컷오프"가 아니다).
+  - cut_high = 보정 창 OOF에서 {p ≥ c} 집단의 관측 폐업률이 base_rate의 2배 이상이 되는 가장 낮은 c(집단 200곳 이상). 그런 c가 없으면
+    예측 확률 95백분위로 fallback.
+- **fallback 발생 여부**를 `run_meta.band_provenance.high_fallback`(cut_high의 p95 대체)·`mid_fallback`(cut_mid ≥ cut_high여서 base_rate로 대체)에 기록한다.
+- **provenance**(`run_meta.band_provenance`, serve가 `serve_meta.cutoff_provenance`로 옮김): 보정 창 origin 목록, base_rate, cut_mid, cut_high, fallback,
+  검증 구간 high 비율, high lift와 점포 단위 부트스트랩 95% CI, 확률 척도(raw/calibrated).
