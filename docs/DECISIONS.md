@@ -412,25 +412,6 @@ row 부재 패턴 실측. 상세 수치는 `outputs/master/qa_report.md` "업종
 - 개업·폐업률은 원천 정의(건수 / 분기 말 전체 점포 수 × 100)로 합계 재계산한다. 원천 `폐업_률`도 100% 초과가
   있으므로(806행, 최대 500) 자르지 않는다.
 
-## 2026-09-25 — W2 경쟁지표 개발과 모델링 병렬 진행
-근거: PR #31(W2-0 master_base) 리뷰 후속 논의. 위 2026-09-23 W2-0 결정들은 그대로 유효하다.
-
-- **경쟁지표 6종은 별도 모듈·별도 PR로 개발한다.** master_base(PR #31)에는 넣지 않는다.
-  - 인허가 기반 feature로 설계한다. origin_end 시점에 이용 가능한 인허가 정보만 사용한다(시간 누수 방지 규칙 동일).
-  - Base 결합 전 검증을 거친다: `(store_id, origin)` m:1 결합, 행수·label·event 비율 불변, temporal leakage 0.
-  - 구체 지표 정의는 해당 PR에서 확정하고 이 문서에 기록한다.
-- **W2-2 baseline은 현재 master_base의 predictor 19개로 먼저 진행한다.** 경쟁지표 완성을 기다리지 않는다.
-  - 경쟁지표 추가 효과는 baseline과 **동일한 split·평가 조건**에서 비교한다(incremental 평가).
-- **W2-2에서 정할 것**
-  - predictor registry: 모델 입력은 `master_schema.COLUMN_ROLES`의 role == predictor 컬럼을 기준으로 관리한다.
-  - 상권 feature ablation: 상권 단위·업종 단위 feature 포함/제외 비교 (`gu`, 공시지가, 업종 품질 메타 ablation 메모는
-    `docs/MASTER_SPEC.md` 참조).
-  - 2023Q4 이후 민감도 분석: 상권 polygon 스냅샷(2023-10-23) 이후 origin(backcast flag False)만으로 평가한다
-    (2026-09-23 polygon backcast 결정의 후속).
-  - 범주형 처리 기준: `biz_type`, `gu`, `trdar_change_index` 등 범주형 predictor의 인코딩 방식.
-- **온라인 존재감은 Base에서 제외한다.** Enriched에서 별도로 검증한 뒤 `(store_id, origin)` 단위로 결합한다
-  (2026-09-13 온라인 변수 사용 범위, 2026-09-23 W2-0 결정 유지).
-
 ## 2026-09-23 — 온라인 존재감: 블로그 월별 수집 범위와 origin 사용 조건 (PR #21)
 
 배경: W2-1 온라인 존재감 수집(축A 요약값 + 축B 블로그 월별 시계열) 범위를 "1순위(영업중+2023년
@@ -471,18 +452,61 @@ W2-4 이벤트 스터디(마지막 언급일-폐업일 갭)와 함께 설계한�
   복원하려면 재수집이 필요하다 — 비용 대비 실익이 낮아 재수집하지 않기로 함** (모델에 실제로
   쓰이는 것은 축B 월별 데이터이며, 그쪽은 최초 설계부터 `blog_api_total`을 보존하고 있음).
 
-## 2026-09-29 — `first_date_truncated`의 사용 범위 (현황 기록, Issue #25/#33)
+## 2026-09-25 — W2 경쟁지표 개발과 모델링 병렬 진행
+근거: PR #31(W2-0 master_base) 리뷰 후속 논의. 위 2026-09-23 W2-0 결정들은 그대로 유효하다.
 
-**이 항목은 결정이 아니라 현재 상태 기록이다.** 절단 정보가 결측 경로로 미래 정보를 전달하는지는
-아직 검증 중이므로, "결측 처리에만 쓰므로 안전"이라고 확정하지 않는다.
+- **경쟁지표 6종은 별도 모듈·별도 PR로 개발한다.** master_base(PR #31)에는 넣지 않는다.
+  - 인허가 기반 feature로 설계한다. origin_end 시점에 이용 가능한 인허가 정보만 사용한다(시간 누수 방지 규칙 동일).
+  - Base 결합 전 검증을 거친다: `(store_id, origin)` m:1 결합, 행수·label·event 비율 불변, temporal leakage 0.
+  - 구체 지표 정의는 해당 PR에서 확정하고 이 문서에 기록한다.
+- **W2-2 baseline은 현재 master_base의 predictor 19개로 먼저 진행한다.** 경쟁지표 완성을 기다리지 않는다.
+  - 경쟁지표 추가 효과는 baseline과 **동일한 split·평가 조건**에서 비교한다(incremental 평가).
+- **W2-2에서 정할 것**
+  - predictor registry: 모델 입력은 `master_schema.COLUMN_ROLES`의 role == predictor 컬럼을 기준으로 관리한다.
+  - 상권 feature ablation: 상권 단위·업종 단위 feature 포함/제외 비교 (`gu`, 공시지가, 업종 품질 메타 ablation 메모는
+    `docs/MASTER_SPEC.md` 참조).
+  - 2023Q4 이후 민감도 분석: 상권 polygon 스냅샷(2023-10-23) 이후 origin(backcast flag False)만으로 평가한다
+    (2026-09-23 polygon backcast 결정의 후속).
+  - 범주형 처리 기준: `biz_type`, `gu`, `trdar_change_index` 등 범주형 predictor의 인코딩 방식.
+- **온라인 존재감은 Base에서 제외한다.** Enriched에서 별도로 검증한 뒤 `(store_id, origin)` 단위로 결합한다
+  (2026-09-13 온라인 변수 사용 범위, 2026-09-23 W2-0 결정 유지).
 
-- `first_date_truncated`(축B QA, 수집 시점 누적 게시물 수가 200건 상한에 걸렸는지) **자체는
-  predictor로 사용하지 않는다.** `export_online_features.py`의 어느 출력에도 실리지 않는다.
-- 현재는 월별 sparse 파일의 **결측 재구성에만 쓰인다** — 절단 점포의 `oldest_raw_postdate`
-  이전 달을 0이 아니라 NA로 두는 판정(Issue #25). 구현은 이 PR이 아니라 `#33`에 있다.
-- **미확정**: 이 결측 경로의 시점 안전성은 `#33`에서 검증·결정 중이다. 절단 여부는 2026-09
-  수집 시점 정보이고 실데이터에서 온라인 결측이 사실상 절단으로 발생하므로, NA 패턴 자체가
-  미래 정보를 전달할 수 있다는 리뷰가 열려 있다. 최종 처리 방식은 `#33`에서 정한다.
+## 2026-09-25 — W2-2 Stage 1 탐지 모형 검증·보정·구간·등급 규칙
+근거: `labels_base`(feature 4개) 실험과 합성 master 규모 검증. 구현은 `src/models/`, 실행은
+`python -m src.models.train_detect`.
+
+- **입력은 `master_schema.predictor_columns()`뿐이다** (`src/models/features.py`). "메타를 뺀 나머지 전부"
+  방식은 ER 매칭 결과·상권 배정 컬럼을 입력에 섞어 누수를 만든다. 결측 지시자(`*_isna`)는 만들지 않는다 —
+  상권 feature 결측은 polygon 소속 여부, 공시지가 결측은 origin 시기를 그대로 드러내기 때문이다.
+  NaN은 HistGradientBoosting이 직접 처리한다. 학습 구간에서 값이 전부 NA인 컬럼은 그 fold에서만 뺀다.
+- **시간 분할 + 라벨 성숙 embargo 4분기.** origin t 예측은 t−5 이하로 학습한다(t−1~t−4 비움). 수식상
+  경계(s ≤ t−4)보다 한 분기 보수적이며, 폐업 신고 지연(성숙 컷오프 1개월)을 흡수한다. embargo 없는
+  분할은 성능을 부풀린다(feature 4개 실험에서 AP 상대 +23.6%). random split·점포 홀드아웃은 대조군이다.
+- **성능·민감도·보정은 rolling OOF 예측으로 한다** (학습 origin ≥ 4개가 되는 2023Q1부터 매 origin).
+  상권 polygon 스냅샷(2023-10-23) 이후 origin(2023Q4~)만의 성능을 따로 보고한다.
+- **민감도 feature set**: base / no_trdar / no_land_price / no_gu / license_only. T-2 상권은
+  `attach_trdar_features(lag_quarters=2)`로 만든 master를 `--master`로 넣어 같은 평가를 돌린다.
+- **보정은 첫 검증 origin 기준 학습 가능 구간의 OOF 예측으로 적합**하고, 검증 구간 ECE가 개선될 때만
+  적용한다. raw·calibrated 지표를 둘 다 남긴다 (origin별 base rate 변동이 커서 보정이 오히려 나빠질 수
+  있다 — 실측 상대 27% 변동). → **2026-09-28 갱신**: 선택(적용 여부 판단)과 최종 평가에 같은 구간을 쓰는
+  절차는 선택 편향이 생긴다(#32 리뷰) — 아래 "보정 3구간·후보 비교" 항목의 fit/select/test 분리로 바뀌었다.
+- **불확실성 구간 = 점포 단위 부트스트랩 재학습의 5~95 백분위 = 90% 구간** (95% CI가 아니다, 기본 B=20). Venn-ABERS는 보정 표본이
+  크면 폭이 사실상 0이라(평균 0.0013, 구간 커버 0/10) 화면에 쓰지 않는다. 화면 문구는 "예측이 얼마나
+  흔들리는가"의 구간이며 "폐업 확률의 범위"가 아니다. 점추정이 구간 밖에 놓이면 구간을 넓혀 포함시킨다.
+- **band = 절대 확률 컷오프.** high = {p ≥ c} 집단의 실측 위험이 보정 구간 평균의 2배 이상이 되는 가장
+  낮은 컷오프, mid = 예측 확률이 평균의 1.2배 이상. (mid를 구간 평균 lift로 찾으면 평균 미만 점포가 섞여
+  컷오프가 base rate 아래로 내려가 mid가 61%가 됐다 — 실데이터 첫 실행.) 백분위 컷오프는 isotonic 동점 때문에 의도한 비율을 만들지 못하고(q90 → 15.1%),
+  "상위 N%" 동어반복이라 쓰지 않는다. 상대 위치는 `percentile`(같은 origin·자치구·업종 내)이 맡는다.
+  **high 등급의 예측 확률은 실제보다 높게 나오는 경향이 있다** — 정의상 "실측이 평균의 2배 이상"인
+  가장 낮은 컷오프를 잡으므로, high로 잡히는 점포들의 개별 예측 평균은 그 실측보다 흔히 높다
+  (2026-09-28 실측, base·현 설정·platt 적용 후: high 등급 test 구간 평균 예측 0.248 vs 실측 0.240 —
+  적용 전(raw) 기준으로는 평균 예측 0.297 vs 실측 0.240으로 격차가 더 컸다. 아래 "보정 3구간" 항목).
+  화면에 "high 등급의
+  확률 수치는 실제보다 높게 표시되는 경향이 있다"는 설명을 함께 보여준다.
+- **공시지가(`land_price`)는 시간 분할 검증에서 학습에 한 번도 들어가지 못한다.** 값이 있는 origin이
+  2024Q2~2025Q2뿐이고, 검증 가능한 마지막 origin(2025Q2)의 학습 구간이 2024Q1까지이기 때문이다.
+  검증되지 않은 feature를 서빙 모형에만 넣지 않도록, **서빙 모형은 검증과 같은 feature set으로 학습**하고
+  land_price는 라벨이 쌓여 검증 가능해질 때까지 Base 서빙 입력에서 제외한다.
 
 ## 2026-09-26 — W2-0 예측용 master_score (Issue #35)
 근거: Issue #35, 2026Q2 모집단 실측, 2025Q2 역검증(master_base와 동일). 구현 `src/data/master_score.py`,
@@ -543,6 +567,95 @@ W2-4 이벤트 스터디(마지막 언급일-폐업일 갭)와 함께 설계한�
   - 날짜 기반 부분은 미래 원천 행에 불변이다(t 이후 인허가 행 삭제·t 이후 폐업일 제거 후 재계산 결과 동일, 실측·테스트).
     원천 스냅샷에서 사라진 과거 레코드(말소 등)는 확인할 수 없다.
 
+## 2026-09-28 — W2-2 PR #32 리뷰 반영: 분할 비교·보정 3구간·확률 계약·OOF 저장
+근거: choihongjun1 PR #32 리뷰(2026-09-26 18:26, 2026-09-27 00:25). 최종 모형 설정(base HGB 기본 하이퍼파라미터)은
+바꾸지 않는다 — 튜닝 설정(`learning_rate=0.03, max_leaf_nodes=15`, feat/w2-2-benchmark HPO) 채택은 Issue #45
+결정 대기다. 아래 비교는 두 설정 모두로 냈다.
+
+- **분할 비교표(`split_comparison.csv`)에 평가 모집단을 명시한다.** `random_split`·점포 홀드아웃은 전체 18개
+  origin에서 무작위로 뽑은 **약 20%**(`splits.random_split_baseline`/`store_holdout_split`의 `test_frac=0.2`)를
+  평가한 값이라 "2025Q2 검증 결과"가 아니다 — `test_scope` 열에 이를 적는다. 네 분할 모두 최신 origin(오늘
+  데이터는 2025Q2)만 추린 성능(`*_last_origin` 열)도 함께 낸다 — `time_split` 두 설정은 test가 이미 그 origin
+  하나뿐이라 전체 성능과 같게 나오고, `random_split`·점포 홀드아웃은 이 열로 비로소 2025Q2만의 성능을 볼 수
+  있다. 현 설정·튜닝 설정 모두로 돌려 `params` 열로 구분한다 (`src/models/train_detect.split_comparison`).
+- **보정을 fit/select/test 3구간으로 분리한다** (`train_detect.calibration_windows`) — 선택과 최종 평가를
+  같은 구간에서 하면 선택 편향이 생긴다(위 리뷰). 3구간은 서로 겹치지 않고 순서대로 이어진다:
+  - **fit**(보정기 학습, 4개 origin) → **select**(적용 여부 선택, 4개 origin) → **test**(최종 보고,
+    `TEST_SIZE`=2개 origin, 화면에 실제로 나가는 검증 구간).
+  - 오늘 데이터(2021Q1~2025Q2, 18개 origin)에서는 fit=2023Q1–Q4, select=2024Q1–Q4, test=2025Q1–Q2와 같다.
+  - **select 구간(2024Q1–Q4)의 라벨은 모형 개발 시점(오늘)에는 이미 확정돼 있다** — origin_end + 12개월
+    성숙 기준으로 2025Q4까지의 사건을 알아야 하는데 오늘(2026-09)이 이미 그 뒤이기 때문이다. 이건 **서빙
+    시점 규칙(embargo 4분기, 서빙 당시 아직 안 지난 origin은 못 쓴다)과는 별개**다 — 모형을 "지금" 개발·평가할
+    때는 과거 origin의 라벨을 다 볼 수 있지만, 서빙은 그 시점에 성숙한 라벨까지만으로 학습한 모형을 쓴다.
+- **후보 3개: raw(원 확률) / isotonic / Platt(로지스틱 재보정, `calibration.PlattCalibrator`).** Platt은
+  logit(p)에 기울기·절편을 적합하는 매끄러운 보정으로, isotonic(계단형)보다 select 구간처럼 표본이 작을 때
+  덜 흔들릴 수 있어 후보에 넣었다.
+- **선택 규칙(미리 고정, `train_detect.choose_calibration`):** fit 구간으로 세 후보를 적합하고, **select
+  구간 Brier가 가장 낮은 후보**를 고른다. raw가 아닌 후보를 골랐어도, raw 대비 Brier 차이가 점포 단위
+  클러스터 부트스트랩(`calibration.bootstrap_brier_diff`, 기본 1,000회) 95% CI상 **유의하지 않으면
+  (0을 포함하면) raw를 유지한다** — select 구간(4개 origin)은 표본이 상대적으로 작아 우연한 차이로
+  잘못 채택할 수 있어서다. 선택 이유는 `calibration_decision.json`에 사람이 읽을 수 있는 문장으로 남긴다.
+- **결과(2025Q2 master_base, base feature set, 2026-09-28 실측):**
+  - **현 설정: `platt` 채택.** select 구간(2024Q1–Q4, 118,006행) Brier 0.10649(raw) → 0.10608(platt),
+    차이 −0.00041, 부트스트랩 95% CI [−0.00059, −0.00022] (유의). test 구간(2025Q1–Q2, 58,319행)에서는
+    Brier 0.10113(raw) → 0.10137(platt·근소 악화), ECE 0.0117 → 0.0207(악화), 보정 기울기 0.730 → 1.254(1을
+    지나쳐 과잉보정). **select 구간에서 유의했던 개선이 held-out test 구간에서는 재현되지 않는다** — Brier가
+    작은 확률 대다수(폐업 안 함)에 덜 민감해, 꼬리(고위험) 쪽 재보정 오류를 못 잡아낼 수 있다. 미리 고정한
+    규칙을 그대로 따랐지만 이 한계는 남는다.
+    - **화면에 미치는 영향**: high 등급(2,019곳, 3.46%)은 platt이 단조 변환이라 raw 기준과 **완전히 같은
+      점포 집합**이지만, mid로 잡히는 점포가 raw 기준 16.8%(9,776곳) → platt 기준 28.9%(16,838곳)로 크게
+      늘고 low는 79.8% → 67.7%로 줄었다(raw에서 mid 문턱 바로 아래였던 점포들이 platt의 확대(기울기>1)로
+      문턱을 넘음). **등급 분포가 실무적으로 크게 바뀌므로, 이 채택을 최종 반영할지는 위 held-out 한계와
+      함께 팀 판단이 필요하다** (Issue #45와 별개로 남기는 열린 질문).
+  - **튜닝 설정: `raw` 유지.** select 구간에서 platt의 Brier가 raw보다 낮아 보였지만(0.105842 vs 0.105960,
+    차이 −0.00012) 부트스트랩 95% CI [−0.00027, +0.00003]가 0을 포함해 유의하지 않았다. test 구간 raw는
+    Brier 0.100613, ECE 0.0065, 보정 기울기 0.937.
+    - **2026-10-01 정정(#32 재검증)**: 이전 수치(select 0.105847 vs 0.105975, CI [−0.00030, +0.00004])는
+      `TUNED_PARAMS`가 두 값만 담고 있어 나머지가 sklearn 기본값(`max_iter=100`, `min_samples_leaf=20`,
+      `l2_regularization=0`, `early_stopping='auto'`, `random_state=None`)으로 학습된 **다른 모형·비결정적 실행**의
+      결과였다. `TUNED_PARAMS = {**DEFAULT_PARAMS, learning_rate=0.03, max_leaf_nodes=15}`로 고치고(#47과 같은 방식)
+      다시 돌린 값으로 교체했다. 결론(raw 유지)은 같다. 현 설정 결과는 바뀌지 않았다(OOF 예측값 완전 일치).
+      실제 학습 설정은 `run_meta.model_params_by_config`에 config별로 남는다.
+  - 전체 표는 `outputs/models/detect_v0/calibration_window_report.csv`, 선택 근거는 `calibration_decision.json`.
+- **high 등급의 평균 예측 확률이 실측 폐업률보다 높게 나오는 경향은 platt 적용 후에도 남는다** (다만
+  격차는 줄었다): test 구간 high 행 평균 예측 0.248 vs 실측 0.240(platt 적용, 실제 서빙 값) — 같은 fit
+  구간을 raw로 컷오프를 잡으면 0.297 vs 0.240으로 격차가 더 크다. `band_profile.csv`의 high 행
+  (`pred_mean` vs `obs_rate`). 화면에는 이 경향을 설명하는 문구를 함께 보여준다 (위 "band" 항목 참고).
+- **`probability_12m`/`ci_low`/`ci_high`/`band`/`calibrated` 계약** (필드명은 W2-5 PR #41
+  `report_schema.json` `$defs/risk`와 대조해 맞춤 — 사용자 요청의 "calibration_applied"는 실제 스키마
+  필드명이 아니라 `calibrated`다):
+
+  | 필드 | 정의 | 산출식 |
+  |---|---|---|
+  | `probability_12m` | 12개월 내 폐업 예측 확률(점추정) | `calibrated=true`면 선택된 보정기(`chosen.predict`)를 원 모형 확률(`p_oof`)에 적용한 값, `false`면 원 모형 확률 그대로 |
+  | `ci_low`/`ci_high` | 점포 단위 부트스트랩 재학습(B회) 예측의 5/95 백분위(= 90% 구간) — **신뢰구간이 아니라 "학습 데이터가 달랐다면 예측이 얼마나 흔들렸을지"의 범위** | 부트스트랩 원값에 `calibrated=true`면 같은 보정기를 적용. 점추정이 구간 밖에 놓이면 구간을 넓혀 포함시킨다(좁히지 않음) |
+  | `band` | low/mid/high 절대 확률 등급 | `probability_12m`(보정 적용 여부 반영된 값)에 `bands.assign_bands_absolute` — 컷오프는 **fit 구간** OOF(선택된 보정기 적용)로 `bands.suggest_cutoffs`가 정함 |
+  | `calibrated` | 보정을 적용했는지 (`chosen != "raw"`) | 위 선택 규칙의 결과. `false`면 `probability_12m`은 원 모형 확률과 같다 |
+
+  **보정을 적용하면(`calibrated=true`) 진단(W2-3 Shapley)은 여전히 보정 *전* 모형 확률을 분해한다** —
+  `diagnose.factor_shapley`가 `model.predict_proba`(원 모형)를 직접 쓰고, `serve.py`가
+  `res["meta"]["probability_12m"] == p_raw`(보정 전)임을 어서션으로 확인한다. **이미 서빙 쪽에
+  `serve_meta.diagnosis_scale`** 필드로 이 관계를 기록해 둔다("calibrated와 다름 (보정 전 확률)" /
+  "risk 확률과 같음") — 이 PR에서 새로 만들 필요는 없다. 화면 문구는 이 필드를 근거로 "위험요인
+  기여도의 합은 보정 전 확률 기준이며, 화면에 보이는 위험도(%)와 다를 수 있습니다"를 위험도 표시
+  근처에 각주로 보여주는 방향을 제안한다 (기여도 목록이 아니라 위험도 수치 옆).
+- **OOF 예측을 저장한다** (`outputs/models/detect_v0.../oof_predictions.parquet`, gitignore) —
+  `store_id, origin, config(현 설정/튜닝), p_oof, y`. `run_meta.json`에 파일 sha256과 행 수를 남긴다.
+  생존분석(C-index 등)은 이 PR 범위 밖이며 **후속 PR**로 진행한다.
+
+## 2026-09-29 — `first_date_truncated`의 사용 범위 (현황 기록, Issue #25/#33)
+
+**이 항목은 결정이 아니라 현재 상태 기록이다.** 절단 정보가 결측 경로로 미래 정보를 전달하는지는
+아직 검증 중이므로, "결측 처리에만 쓰므로 안전"이라고 확정하지 않는다.
+
+- `first_date_truncated`(축B QA, 수집 시점 누적 게시물 수가 200건 상한에 걸렸는지) **자체는
+  predictor로 사용하지 않는다.** `export_online_features.py`의 어느 출력에도 실리지 않는다.
+- 현재는 월별 sparse 파일의 **결측 재구성에만 쓰인다** — 절단 점포의 `oldest_raw_postdate`
+  이전 달을 0이 아니라 NA로 두는 판정(Issue #25). 구현은 이 PR이 아니라 `#33`에 있다.
+- **미확정**: 이 결측 경로의 시점 안전성은 `#33`에서 검증·결정 중이다. 절단 여부는 2026-09
+  수집 시점 정보이고 실데이터에서 온라인 결측이 사실상 절단으로 발생하므로, NA 패턴 자체가
+  미래 정보를 전달할 수 있다는 리뷰가 열려 있다. 최종 처리 방식은 `#33`에서 정한다.
+
 ## 2026-09-29 — 온라인 축B `source_snapshot` 원천 식별 (Issue #23 마무리)
 - 축B(`online_mentions_monthly.parquet`) `source_snapshot` = raw 파일명 + **raw 파일 바이트 sha256** + `collection_run_id` + 수집 당시 git SHA.
   `feature_asof` = `available_at` = 게시월 말일, 축A 정의, as-of 규칙(`available_at > origin_end` → NA)은 그대로다.
@@ -551,3 +664,16 @@ W2-4 이벤트 스터디(마지막 언급일-폐업일 갭)와 함께 설계한�
   manifest 형식은 바꾸지 않았다(기존 수집분 재수집 불필요).
 - run id·git SHA를 찾지 못한 행이 있으면 export를 멈춘다. git SHA는 run의 모든 manifest 기록에서 읽는다(중단 후 이어 받은 run 대응).
 - 한계는 그대로: 축B는 과거 글을 수집 시점에 관측한 값이라 삭제된 글이 빠져 있다(#26). 구현·실측은 `DATA_CATALOG.md` §6.
+
+## 2026-09-30 — #45 구현 이슈: 컷오프 정의 문장·fallback 기록·provenance (기본 동작 불변)
+- **정의(코드 `bands.CUT_MID_DEFINITION`·`CUT_HIGH_DEFINITION`, run_meta·serve_meta와 같은 문장)**:
+  - cut_mid = 1.2 × base_rate — 보정 창 OOF 관측 폐업률의 1.2배인 **개별 예측 확률 임계값**이다("실측 lift 1.2배가 되는 컷오프"가 아니다).
+  - cut_high = 보정 창 OOF 예측 확률의 **50~99.5 백분위를 200등분한 격자**를 낮은 쪽부터 훑어, {p ≥ c} 집단이 **200곳 이상**이고 그
+    관측 폐업률이 base_rate의 **2배 이상**인 첫 c. 그런 c가 없으면 예측 확률 95백분위로 fallback.
+- **fallback 발생 여부**를 `run_meta.band_provenance.high_fallback`(cut_high의 p95 대체)·`mid_fallback`(cut_mid ≥ cut_high여서 base_rate로 대체)에 기록한다.
+- **provenance**(`run_meta.band_provenance`, serve가 `serve_meta.cutoff_provenance`로 옮김): 보정 창 origin 목록, base_rate, cut_mid, cut_high, fallback,
+  검증 구간 high 비율, high lift와 점포 단위 부트스트랩 95% CI, 확률 척도(raw/calibrated).
+  - **2026-10-01 보완(#32 재검증)**: 창 규칙 `window_rule`(현재 `fixed` — 보정 fit 구간 고정 창. #45/#47의 동적 창과 구분),
+    컷오프 창 행 수 `n_cutoff_rows`, 목표 lift(`target_high_lift` 2.0 / `target_mid_lift` 1.2), high 최소 집단 `high_min_group_n`(200),
+    후보 격자 `high_grid`(50~99.5 백분위·200점·fallback 95백분위), high lift CI 설정 `high_lift_ci`(단위 store_id, B, seed, 백분위 2.5/97.5)를
+    함께 남긴다. 값은 `bands`의 상수에서 읽으므로 코드와 기록이 어긋나지 않는다. 기본 동작(컷오프 값)은 바뀌지 않는다.
