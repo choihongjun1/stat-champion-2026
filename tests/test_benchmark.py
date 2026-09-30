@@ -456,3 +456,35 @@ def test_competition_eval_end_to_end_and_checkpoint(tmp_path, panel, monkeypatch
     monkeypatch.setattr(bm, "nested_tuned_oof", lambda *a, **k: (_ for _ in ()).throw(AssertionError("재학습")))
     r2 = bm.competition_eval(master, tmp_path / "online.parquet", tmp_path / "comp.parquet", out, n_boot=10, licenses_path=lic)
     pd.testing.assert_frame_equal(r["summary"], r2["summary"])
+
+
+def test_lift_curve_crossings_counts_each_upward_crossing():
+    # p 구간별 실측률을 정해 누적 lift가 2를 넘었다가 내려가고 다시 넘게 만든다
+    p = np.repeat(np.linspace(0.01, 0.99, 1000), 10)
+    rate = np.where(p < 0.6, 0.05, np.where(p < 0.75, 0.9, np.where(p < 0.85, 0.0, 0.95)))
+    y = (np.random.default_rng(0).random(len(p)) < rate).astype(float)
+    r = bm.lift_curve_crossings(y, p, min_n=50)
+    assert r["n_up_crossings"] >= 2 and r["first_cut_at_target"] < r["last_cut_at_target"]
+    mono = bm.lift_curve_crossings((p > 0.8).astype(float), p, min_n=50)  # 단조 → 교차 1개
+    assert mono["n_up_crossings"] == 1
+    assert mono["first_cut_at_target"] == pytest.approx(bm.bands.suggest_cutoffs((p > 0.8).astype(float), p)["cut_high"])
+
+
+def test_nested_recheck_end_to_end_and_checkpoint(tmp_path, panel, monkeypatch):
+    monkeypatch.setattr(bm, "HPO_GRID", {"learning_rate": (0.06,), "max_leaf_nodes": (15, 31)})
+    master = tmp_path / "master.parquet"
+    panel.to_parquet(master, index=False)
+    online = panel[["store_id", "origin"]].copy()
+    rng = np.random.default_rng(12)
+    for c in bm.ONLINE_COLS:
+        online[c] = rng.poisson(1, len(online)).astype(float)
+    online.to_parquet(tmp_path / "online.parquet", index=False)
+    out = tmp_path / "out"
+    r = bm.nested_recheck(master, tmp_path / "online.parquet", out, n_boot=10)
+    assert list(r["summary"]["model"]) == list(bm.NESTED_MODELS) and len(r["bootstrap"]) in (3, 4)
+    assert set(r["bands"]["model"]) == {"a_hgb_enriched", "b_tuned_fixed", "c_tuned_nested"} and len(r["chosen"]) == 10
+    for f in out.glob("nested_recheck_*.csv"):
+        assert "store_id" not in pd.read_csv(f, nrows=0).columns
+    monkeypatch.setattr(bm, "nested_tuned_oof", lambda *a, **k: (_ for _ in ()).throw(AssertionError("재학습")))
+    r2 = bm.nested_recheck(master, tmp_path / "online.parquet", out, n_boot=10)
+    pd.testing.assert_frame_equal(r["summary"], r2["summary"])

@@ -1021,6 +1021,156 @@ def competition_eval(master_path: Path, online_path: Path, extra_path: Path, out
     return {"summary": summary, "bootstrap": boot, "decision": decision}
 
 
+# ---------------------------------------------------------------------------
+# #45 튜닝 판단 재확인 — 고정값 (0.03, 15)을 중첩 평가(각 origin 학습 구간 안 선택)와 같은 표로 비교.
+# 서빙 모형·컷오프는 바꾸지 않는다. 짧은 상호 keep, 경쟁지표 없음.
+# ---------------------------------------------------------------------------
+NESTED_MODELS = {"a_hgb_enriched": "현 hgb_enriched", "b_tuned_fixed": "튜닝 고정값 (0.03, 15)",
+                 "c_tuned_nested": "중첩 튜닝", "d_logit_enriched": "logit_enriched"}
+NESTED_PAIRS = (("c_tuned_nested", "a_hgb_enriched"), ("c_tuned_nested", "d_logit_enriched"),
+                ("b_tuned_fixed", "c_tuned_nested"))
+
+
+def lift_curve_crossings(y, p, *, target: float = 2.0, min_n: int = 200) -> dict:
+    """`bands.suggest_cutoffs`와 같은 격자(분위 0.50–0.995, 200점, {p ≥ c} ≥ min_n)에서 누적 lift(c) = 실측률(p ≥ c)
+    ÷ 전체율이 target을 아래→위로 넘는 지점. 2개 이상이면 컷오프가 격자 위치에 민감하다(불안정)."""
+    y, p = np.asarray(y, dtype=float), np.asarray(p, dtype=float)
+    base = y.mean()
+    grid = np.unique(np.quantile(p, np.linspace(0.50, 0.995, 200)))
+    cs, lifts = [], []
+    for c in grid:
+        m = p >= c
+        if m.sum() < min_n:
+            continue
+        cs.append(float(c))
+        lifts.append(float(y[m].mean() / base))
+    above = np.array(lifts) >= target
+    up = [cs[k] for k in range(len(cs)) if above[k] and (k == 0 or not above[k - 1])]
+    return {"n_grid": len(cs), "n_up_crossings": len(up), "up_crossing_cutoffs": up,
+            "n_grid_lift_1_9_to_2_1": int(sum(1.9 <= v <= 2.1 for v in lifts)),
+            "first_cut_at_target": up[0] if up else None, "last_cut_at_target": up[-1] if up else None}
+
+
+def nested_band_rows(oofs: dict[str, pd.DataFrame], stores: np.ndarray, n_boot: int) -> pd.DataFrame:
+    """고정 창(COMP_FIT_WINDOW) raw OOF로 `bands.suggest_cutoffs` → 검증 origin high 비율·lift·클러스터 CI와
+    보정 창 lift 곡선의 2배 교차 지점. 교차가 여러 개면 교차 지점마다 검증 high 비율 범위도 낸다."""
+    rows = []
+    for name, oof in oofs.items():
+        fit = oof[oof["origin"].between(*COMP_FIT_WINDOW)]
+        assert not fit["origin"].isin(BAND_TEST_ORIGINS).any()
+        cut = bands.suggest_cutoffs(fit["y"].to_numpy(), fit["p_oof"].to_numpy())
+        cross = lift_curve_crossings(fit["y"].to_numpy(), fit["p_oof"].to_numpy())
+        te_m = oof["origin"].isin(BAND_TEST_ORIGINS).to_numpy()
+        y_te, p_te = oof.loc[te_m, "y"].to_numpy(), oof.loc[te_m, "p_oof"].to_numpy()
+        hi = p_te >= cut["cut_high"]
+        lo, up = high_lift_cluster_ci(y_te, hi, stores[te_m], n_boot)
+        shares = [float((p_te >= c).mean()) for c in cross["up_crossing_cutoffs"]]
+        rows.append({"model": name, "fit_window": "~".join(COMP_FIT_WINDOW), "cut_mid": cut["cut_mid"],
+                     "cut_high": cut["cut_high"], "fit_base_rate": cut["base_rate"],
+                     "fit_p95": float(np.quantile(fit["p_oof"], 0.95)),
+                     "test_origins": "~".join((BAND_TEST_ORIGINS[0], BAND_TEST_ORIGINS[-1])),
+                     "high_share_test": float(hi.mean()), "n_high_test": int(hi.sum()),
+                     "high_lift_test": float(y_te[hi].mean() / y_te.mean()) if hi.any() else np.nan,
+                     "high_lift_ci_low": lo, "high_lift_ci_high": up,
+                     "lift_n_up_crossings": cross["n_up_crossings"],
+                     "lift_up_crossing_cutoffs": ";".join(f"{c:.4f}" for c in cross["up_crossing_cutoffs"]),
+                     "lift_grid_points_1_9_to_2_1": cross["n_grid_lift_1_9_to_2_1"],
+                     "high_share_test_min_over_crossings": min(shares) if shares else np.nan,
+                     "high_share_test_max_over_crossings": max(shares) if shares else np.nan,
+                     "cutoff_unstable": cross["n_up_crossings"] > 1})
+    return pd.DataFrame(rows)
+
+
+def nested_recheck(master_path: Path, online_path: Path, out: Path, n_boot: int) -> dict:
+    """(a) 현 hgb_enriched (b) 튜닝 고정값 (c) 중첩 튜닝 (d) logit_enriched — rolling OOF 10개 origin, keep, 경쟁지표 없음.
+    OOF는 `nested_oof/`에 체크포인트로 저장한다."""
+    t0 = time.time()
+    out.mkdir(parents=True, exist_ok=True)
+    ck = out / "nested_oof"
+    ck.mkdir(exist_ok=True)
+    df, X, y, base_cols, enriched_cols = load_inputs(master_path, online_path)
+    if not enriched_cols:
+        raise ValueError("중첩 재확인에는 온라인 feature(--online)가 필요하다")
+    tuned = {**detect.DEFAULT_PARAMS, **TUNED_PARAMS}
+    fitters = {"a_hgb_enriched": make_fitters(base_cols, enriched_cols)["hgb_enriched"],
+               "b_tuned_fixed": lambda a, b, c: detect.fit_predict(a[enriched_cols], b, c[enriched_cols], tuned),
+               "d_logit_enriched": make_fitters(base_cols, enriched_cols)["logit_enriched"]}
+    oofs = {}
+    for name in NESTED_MODELS:
+        path = ck / f"{name}.parquet"
+        if path.exists():
+            oofs[name] = pd.read_parquet(path)
+            log(f"{name}: 체크포인트 사용")
+            continue
+        log(f"{name}: rolling OOF")
+        if name == "c_tuned_nested":
+            oof, ch = nested_tuned_oof(df, X, y, enriched_cols)
+            ch.to_csv(ck / "c_tuned_nested_chosen.csv", index=False)
+        else:
+            oof = calibration.rolling_oof_predictions(df, X, y, fitters[name], min_train_origins=MIN_TRAIN_ORIGINS,
+                                                      embargo=EMBARGO)
+        oofs[name] = oof.sort_values(["origin", "idx"], ignore_index=True)
+        oofs[name].to_parquet(path, index=False)
+    chosen = pd.read_csv(ck / "c_tuned_nested_chosen.csv")
+    ref = oofs["a_hgb_enriched"]
+    assert all((o["idx"].to_numpy() == ref["idx"].to_numpy()).all() for o in oofs.values())
+    stores = df.loc[ref["idx"], "store_id"].to_numpy()
+
+    rows, by_origin = [], []
+    for name, oof in oofs.items():
+        bo = train_detect.metrics_by_origin(oof)
+        slope, icpt = calibration_slope_intercept(oof["y"], oof["p_oof"])
+        per = [(o, *calibration_slope_intercept(g["y"], g["p_oof"])) for o, g in oof.groupby("origin")]
+        by_origin.append(bo.assign(model=name, calib_slope=[s for _, s, _ in per], calib_intercept=[i for _, _, i in per]))
+        rows.append({"model": name, "label": NESTED_MODELS[name], "pooled_auc": roc_auc_score(oof["y"], oof["p_oof"]),
+                     "pooled_ap": average_precision_score(oof["y"], oof["p_oof"]), "auc_mean": bo["auc"].mean(),
+                     "ece_mean": bo["ece"].mean(), "calib_slope_pooled": slope, "calib_intercept_pooled": icpt,
+                     "calib_slope_origin_mean": float(np.mean([s for _, s, _ in per])),
+                     "calib_slope_origin_median": float(np.median([s for _, s, _ in per]))})
+    summary = pd.DataFrame(rows)
+    summary.to_csv(out / "nested_recheck_summary.csv", index=False, encoding="utf-8-sig")
+    pd.concat(by_origin, ignore_index=True).to_csv(out / "nested_recheck_by_origin.csv", index=False, encoding="utf-8-sig")
+    chosen.to_csv(out / "nested_recheck_hpo_chosen.csv", index=False, encoding="utf-8-sig")
+
+    boot = []
+    for a, b in NESTED_PAIRS:
+        boot.append({"model_a": a, "model_b": b, "scope": "10개 origin 합산",
+                     **cluster_bootstrap_diff(ref["y"], oofs[a]["p_oof"], oofs[b]["p_oof"], stores, n_boot)})
+        log(f"클러스터 부트스트랩 {a} − {b} 완료")
+    # 보조: 중첩 선택값이 고정값과 같은 origin만 — 거기서는 (b)=(c)이므로 (c)−(a)가 "튜닝 vs 현"의 사후 적용 없는 비교
+    same = chosen.loc[np.all([chosen[k] == TUNED_PARAMS[k] for k in HPO_GRID], axis=0), "origin"].tolist()
+    m = ref["origin"].isin(same).to_numpy()
+    if m.any():
+        boot.append({"model_a": "c_tuned_nested", "model_b": "a_hgb_enriched",
+                     "scope": f"선택값=고정값 origin {len(same)}개 ({min(same)}~{max(same)})",
+                     **cluster_bootstrap_diff(ref["y"].to_numpy()[m], oofs["c_tuned_nested"]["p_oof"].to_numpy()[m],
+                                              oofs["a_hgb_enriched"]["p_oof"].to_numpy()[m], stores[m], n_boot)})
+        log("클러스터 부트스트랩 (선택값=고정값 origin) 완료")
+    boot = pd.DataFrame(boot)
+    boot.to_csv(out / "nested_recheck_bootstrap.csv", index=False, encoding="utf-8-sig")
+
+    band = nested_band_rows({k: oofs[k] for k in ("a_hgb_enriched", "b_tuned_fixed", "c_tuned_nested")}, stores, n_boot)
+    band.to_csv(out / "nested_recheck_bands.csv", index=False, encoding="utf-8-sig")
+    # 보정 창 origin별 선택값·예측 분포 — 창 안에서 모형 설정이 섞이는지 본다
+    fitwin = []
+    for name in ("b_tuned_fixed", "c_tuned_nested"):
+        for o, g in oofs[name][oofs[name]["origin"].between(*COMP_FIT_WINDOW)].groupby("origin"):
+            fitwin.append({"model": name, "origin": o, "p_mean": g["p_oof"].mean(), "p_sd": g["p_oof"].std(),
+                           "p_p95": float(np.quantile(g["p_oof"], 0.95)), "obs_rate": g["y"].mean()})
+    fitwin = pd.DataFrame(fitwin).merge(chosen[["origin", *HPO_GRID]], on="origin", how="left")
+    fitwin.loc[fitwin["model"] == "b_tuned_fixed", list(HPO_GRID)] = [TUNED_PARAMS[k] for k in HPO_GRID]
+    fitwin.to_csv(out / "nested_recheck_fit_window.csv", index=False, encoding="utf-8-sig")
+
+    meta = {"master_sha256": train_detect.sha256(Path(master_path)), "online_sha256": train_detect.sha256(Path(online_path)),
+            "short_name_policy": "keep", "extra_features": None, "tuned_params": TUNED_PARAMS, "hpo_grid": HPO_GRID,
+            "cutoff_fit_window": COMP_FIT_WINDOW, "band_test_origins": BAND_TEST_ORIGINS, "n_boot": n_boot,
+            "boot_seed": BOOT_SEED, "origins": f"{ref['origin'].min()}~{ref['origin'].max()}",
+            "seconds": round(time.time() - t0, 1)}
+    (out / "nested_recheck_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    log(f"중첩 재확인 완료 ({meta['seconds']}초) → {out}")
+    return {"summary": summary, "bootstrap": boot, "bands": band, "chosen": chosen, "fit_window": fitwin}
+
+
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(description="W2-2 단순 기준 모형 비교")
     ap.add_argument("--master", type=Path, default=config.MASTER_BASE_PATH)
@@ -1044,7 +1194,12 @@ def main(argv=None) -> None:
                     help="(store_id, origin) 추가 feature 표 — 예: PR #43 경쟁지표 competition_features.parquet (없는 키는 NA)")
     ap.add_argument("--competition", action="store_true",
                     help="enriched vs enriched+comp 추가 효과 평가만 (--extra-features 필요, 모형·서빙 기본값 불변)")
+    ap.add_argument("--nested-recheck", action="store_true",
+                    help="#45 재확인: 현·튜닝 고정·중첩 튜닝 HGB·logit_enriched 비교와 등급 안정성만 (기본값 불변)")
     a = ap.parse_args(argv)
+    if a.nested_recheck:
+        nested_recheck(a.master, a.online, a.out, a.n_boot)
+        return
     if a.competition:
         if a.extra_features is None:
             raise SystemExit("--competition에는 --extra-features가 필요하다")
