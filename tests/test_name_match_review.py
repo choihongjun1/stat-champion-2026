@@ -710,9 +710,9 @@ def test_cmd_round2_with_raw_fills_sheet(tmp_path):
 
 def test_merge_judgments_new_wins_on_conflict_and_reports_distribution():
     reused = pd.DataFrame({"review_id": ["R1", "R1"], "store_id": ["A", "A"], "link": ["l1", "l2"],
-                          "verdict": ["해당가게", "다른가게"], "note": ["", ""]})
+                          "post_date": ["2021-01-01", "2021-02-01"], "verdict": ["해당가게", "다른가게"], "note": ["", ""]})
     new_sheet = pd.DataFrame({"review_id": ["N1", "N1"], "item_no": [1, 2], "link": ["l2", "l3"],
-                              "verdict": ["판단불가", "해당가게"], "note": ["", ""]})
+                              "post_date": ["2021-02-01", "2021-03-01"], "verdict": ["판단불가", "해당가게"], "note": ["", ""]})
     new_key = pd.DataFrame({"review_id": ["N1"], "store_id": ["A"], "groups": ["short_name"], "stratum": ["영업"]})
     merged, meta = nm.merge_judgments(reused, new_sheet, new_key)
     m = merged.set_index("link")
@@ -720,14 +720,39 @@ def test_merge_judgments_new_wins_on_conflict_and_reports_distribution():
     assert set(merged["link"]) == {"l1", "l2", "l3"}
     assert meta["n_conflict"] == 1 and meta["n_reused_kept"] == 1 and meta["n_new"] == 2
     assert meta["items_per_store_distribution"][3] == 1  # A는 최종 3건
+    # summarize 입력 형식: item_no(점포별 1부터)와 post_date가 있다
+    assert list(merged.columns) == ["review_id", "item_no", "post_date", "link", "verdict", "note"]
+    assert sorted(merged["item_no"]) == [1, 2, 3] and set(merged["review_id"]) == {"N1"}
+    assert m.at["l1", "post_date"] == "2021-01-01" and m.at["l3", "post_date"] == "2021-03-01"
 
 
-def test_merge_judgments_raises_when_a_store_group_has_no_items():
-    reused = pd.DataFrame({"review_id": [], "store_id": [], "link": [], "verdict": [], "note": []})
-    new_sheet = pd.DataFrame({"review_id": [], "item_no": [], "link": [], "verdict": [], "note": []})
-    new_key = pd.DataFrame({"review_id": ["N1"], "store_id": ["A"], "groups": ["short_name"], "stratum": ["영업"]})
-    with pytest.raises(ValueError, match="판정 글이 하나도"):
+def test_merge_judgments_skips_store_groups_without_items_and_reports_them():
+    """유효 글 0건인 점포×그룹은 에러 대신 건너뛰고 meta에 남긴다 (summarize가 '매칭 없음'으로 센다)."""
+    reused = pd.DataFrame({"review_id": [], "store_id": [], "link": [], "post_date": [], "verdict": [], "note": []})
+    new_sheet = pd.DataFrame({"review_id": ["N2"], "item_no": [1], "link": ["l1"], "post_date": ["2021-01-01"],
+                              "verdict": ["해당가게"], "note": [""]})
+    new_key = pd.DataFrame({"review_id": ["N1", "N2"], "store_id": ["A", "B"], "groups": ["short_name", "random;short_name"],
+                            "stratum": ["영업", "폐업"]})
+    merged, meta = nm.merge_judgments(reused, new_sheet, new_key)
+    assert list(merged["review_id"]) == ["N2"]  # N1은 건너뜀
+    assert meta["n_no_match_store_groups"] == 1 and meta["no_match_review_ids"] == ["N1"]
+    # 모두 비어 있어도 에러가 아니다
+    merged0, meta0 = nm.merge_judgments(reused, new_sheet.iloc[:0], new_key)
+    assert len(merged0) == 0 and meta0["n_no_match_store_groups"] == 3  # N1(short_name) + N2(random, short_name)
+
+
+def test_merge_judgments_fills_reused_post_date_from_old_sheet_or_raises():
+    reused = pd.DataFrame({"review_id": ["R1"], "store_id": ["A"], "link": ["l1"], "verdict": ["해당가게"], "note": [""]})
+    new_sheet = pd.DataFrame({"review_id": ["N1"], "item_no": [1], "link": ["l2"], "post_date": ["2021-02-01"],
+                              "verdict": ["다른가게"], "note": [""]})
+    new_key = pd.DataFrame({"review_id": ["N1"], "store_id": ["A"], "groups": ["random"], "stratum": [""]})
+    with pytest.raises(ValueError, match="post_date"):  # 재사용 파일에 날짜가 없고 old_dates도 없으면 조용히 비우지 않는다
         nm.merge_judgments(reused, new_sheet, new_key)
+    old_dates = pd.DataFrame({"store_id": ["A", "A"], "link": ["l1", "zz"], "post_date": ["2020-05-05", "2020-06-06"]})
+    merged, _ = nm.merge_judgments(reused, new_sheet, new_key, old_dates)
+    assert merged.set_index("link").at["l1", "post_date"] == "2020-05-05"
+    with pytest.raises(ValueError, match="post_date"):  # old_dates에 그 글이 없으면 역시 멈춘다
+        nm.merge_judgments(reused.assign(link="other"), new_sheet, new_key, old_dates)
 
 
 def test_merge_judgments_raises_on_blank_verdict():
@@ -739,8 +764,10 @@ def test_merge_judgments_raises_on_blank_verdict():
 
 
 def test_cmd_merge_end_to_end(tmp_path):
-    reused = pd.DataFrame({"review_id": ["R1"], "store_id": ["A"], "link": ["l1"], "verdict": ["해당가게"], "note": [""]})
-    new_sheet = pd.DataFrame({"review_id": ["N1"], "item_no": [1], "link": ["l2"], "verdict": ["다른가게"], "note": [""]})
+    reused = pd.DataFrame({"review_id": ["R1"], "store_id": ["A"], "link": ["l1"], "post_date": ["2021-01-01"],
+                           "verdict": ["해당가게"], "note": [""]})
+    new_sheet = pd.DataFrame({"review_id": ["N1"], "item_no": [1], "link": ["l2"], "post_date": ["2021-02-01"],
+                              "verdict": ["다른가게"], "note": [""]})
     new_key = pd.DataFrame({"review_id": ["N1"], "store_id": ["A"], "groups": ["short_name"], "stratum": ["영업"]})
     paths = {n: tmp_path / f"{n}.csv" for n in ("reused", "new_sheet", "new_key")}
     reused.to_csv(paths["reused"], index=False, encoding="utf-8-sig")
@@ -753,6 +780,35 @@ def test_cmd_merge_end_to_end(tmp_path):
     assert set(merged["link"]) == {"l1", "l2"}
     meta = json.loads(out.with_name("name_match_sheet_merged_meta.json").read_text(encoding="utf-8"))
     assert meta["n_merged_items"] == 2
+
+
+def test_merge_then_summarize_reads_merge_output_directly_with_no_match_store(tmp_path, capsys):
+    """유효 글 0건 점포(R3)가 있어도 merge가 경고만 내고, 그 출력을 summarize가 그대로 읽어 '매칭 없음'으로 센다.
+    재사용 파일에 post_date가 없으면(이전 round2 산출물) --old-sheet/--old-key로 채운다."""
+    old_key = pd.DataFrame({"review_id": ["R1"], "store_id": ["A"], "groups": ["random"], "stratum": [""]})
+    old_sheet = pd.DataFrame({"review_id": ["R1"], "item_no": [1], "post_date": ["2021-01-01"], "link": ["l1"],
+                              "verdict": ["해당가게"], "note": [""]})
+    reused = pd.DataFrame({"review_id": ["R1"], "store_id": ["A"], "link": ["l1"], "verdict": ["해당가게"], "note": [""]})
+    new_sheet = pd.DataFrame({"review_id": ["N2"], "item_no": [1], "post_date": ["2021-03-01"], "link": ["l2"],
+                              "verdict": ["다른가게"], "note": [""]})
+    key = pd.DataFrame({"review_id": ["N1", "N2", "N3"], "store_id": ["A", "B", "C"], "groups": ["random"] * 3,
+                        "stratum": [""] * 3})
+    targets = key[["review_id", "store_id"]].assign(name_raw="가", name_norm="가", gu="마포구", dong="서교동", biz_type="일반음식점")
+    p = {n: tmp_path / f"{n}.csv" for n in ("old_key", "old_sheet", "reused", "new_sheet", "key", "targets")}
+    for n, d in (("old_key", old_key), ("old_sheet", old_sheet), ("reused", reused), ("new_sheet", new_sheet),
+                 ("key", key), ("targets", targets)):
+        d.to_csv(p[n], index=False, encoding="utf-8-sig")
+    merged_path = tmp_path / "merged.csv"
+    nm.main(["merge", "--reused", str(p["reused"]), "--new-sheet", str(p["new_sheet"]), "--new-key", str(p["key"]),
+             "--old-sheet", str(p["old_sheet"]), "--old-key", str(p["old_key"]), "--out", str(merged_path)])
+    assert "경고: 유효 글 0건 점포×그룹 1건" in capsys.readouterr().out  # N3(C)는 글이 없다
+    merged = pd.read_csv(merged_path, encoding="utf-8-sig", dtype=str)
+    assert set(merged["link"]) == {"l1", "l2"} and (merged["post_date"] != "").all() and "item_no" in merged
+    nm.main(["summarize", "--targets", str(p["targets"]), "--key", str(p["key"]), "--sheet", str(merged_path),
+             "--separate-no-match", "--out", str(tmp_path / "out")])
+    r = pd.read_csv(tmp_path / "out" / "name_match_rates.csv").set_index("group")
+    assert r.at["random", "stores_no_match"] == 1 and r.at["random", "items_decided"] == 2
+    assert r.at["random", "items_other"] == 1
 
 
 # ---------------------------------------------------------------------------- round2 재사용 파일 저장·merge 기본값·매칭 없음 분리
@@ -772,10 +828,12 @@ def test_round2_writes_reused_file_and_merge_defaults_to_it(tmp_path):
     nm.main(["round2", "--old-sheet", str(paths["old_sheet"]), "--old-key", str(paths["old_key"]),
              "--new-targets", str(paths["new_targets"]), "--new-key", str(paths["new_key"]), "--out", str(out)])
     reused = pd.read_csv(out / nm.REUSED_FILE, encoding="utf-8-sig")
-    assert list(reused.columns) == ["review_id", "store_id", "link", "verdict", "note"]
+    assert list(reused.columns) == ["review_id", "store_id", "link", "post_date", "verdict", "note"]
     assert len(reused) == 3 and set(reused["review_id"]) == {"N1"}  # 새 회차 review_id로 다시 매겨 저장
+    assert (reused["post_date"] == "2021-01-01").all()  # merge가 그룹별 구간 재집계에 쓸 날짜도 함께 저장
     # merge: --reused 생략 → 새 판정표와 같은 폴더의 재사용 파일을 쓴다
-    new_sheet = pd.DataFrame({"review_id": ["N2"], "item_no": [1], "link": ["b1"], "verdict": ["해당가게"], "note": [""]})
+    new_sheet = pd.DataFrame({"review_id": ["N2"], "item_no": [1], "post_date": ["2021-02-01"], "link": ["b1"],
+                              "verdict": ["해당가게"], "note": [""]})
     new_sheet.to_csv(out / "judged.csv", index=False, encoding="utf-8-sig")
     merged = nm.cmd_merge(type("A", (), {"reused": None, "new_sheet": out / "judged.csv", "new_key": paths["new_key"],
                                          "out": tmp_path / "merged.csv"})())

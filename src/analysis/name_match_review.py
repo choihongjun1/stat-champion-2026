@@ -802,7 +802,8 @@ def carry_over(old_sheet: pd.DataFrame, old_key: pd.DataFrame, new_targets: pd.D
     `need`가 그룹별로 몇 건이 더 필요한지(TOP_N_PER_GROUP=3 미만) 알려준다.
 
     반환
-    - reused: [review_id(새 회차), store_id, link, verdict, note] — summarize 입력으로 그대로 합칠 수 있다
+    - reused: [review_id(새 회차), store_id, link, post_date, verdict, note] — summarize 입력으로 그대로 합칠 수 있다
+      (post_date는 merge가 그룹별 구간 재집계용 날짜를 채우는 데 쓴다)
     - need: [review_id, group, n_valid, n_needed] — n_needed = max(0, 3 − n_valid). store_id는 없다
       (review_id로 충분 — 점포 식별 정보 없음).
     - stats: 그룹별 재사용 건수 등 (점포 식별 정보 없음)
@@ -819,7 +820,7 @@ def carry_over(old_sheet: pd.DataFrame, old_key: pd.DataFrame, new_targets: pd.D
         dates = pd.to_datetime(old["post_date"], format="%Y-%m-%d", errors="coerce")
         old = old[_within_union(dates, old["store_id"], bounds_by_group)]
 
-    reused = (old[["review_id", "store_id", "link", "verdict", "note"]]
+    reused = (old[["review_id", "store_id", "link", "post_date", "verdict", "note"]]
               .drop_duplicates(["store_id", "link"]).reset_index(drop=True))
 
     all_new = new_key.drop_duplicates("store_id")
@@ -963,14 +964,20 @@ def cmd_round2(a) -> dict:
 
 
 # ---------------------------------------------------------------------------- merge (재사용 + 새 판정 합치기)
-def merge_judgments(reused: pd.DataFrame, new_sheet: pd.DataFrame, new_key: pd.DataFrame
-                    ) -> tuple[pd.DataFrame, dict]:
+def merge_judgments(reused: pd.DataFrame, new_sheet: pd.DataFrame, new_key: pd.DataFrame,
+                    old_dates: pd.DataFrame | None = None) -> tuple[pd.DataFrame, dict]:
     """재사용 판정 파일 + 새 판정표(판정 완료본)를 이번 회차 key 기준으로 합친다. 키는 (store, link) —
     review_id는 이번 회차 key로 다시 매긴다(재사용 파일의 review_id는 지난 회차 것일 수 있어 믿지 않는다).
     같은 (store, link)가 양쪽에 있으면 새 판정을 우선한다(사람이 다시 본 것이 더 최신).
 
-    이번 회차 key의 모든 점포×그룹이 판정 글 ≥1건을 갖지 않으면(=하나도 없으면) 에러로 멈춘다. verdict
-    미입력(빈 칸)이 있어도 에러 — summarize까지 가서 judge()가 늦게 잡지 않도록 여기서 먼저 막는다.
+    이번 회차 key의 점포×그룹 중 판정 글이 하나도 없는 것(유효 글 0건 — M1 날짜 필터로 글이 모두 빠진 경우)은
+    에러 대신 건너뛰고 meta에 건수·review_id를 남긴다. 이 점포는 key·targets에 그대로 있으므로 summarize가
+    `--separate-no-match`에서 '매칭 없음'으로 센다. verdict 미입력(빈 칸)은 여전히 에러 — summarize까지 가서
+    judge()가 늦게 잡지 않도록 여기서 먼저 막는다.
+
+    출력은 summarize 입력 형식이다: review_id, item_no(점포별 1부터), post_date, link, verdict, note.
+    post_date는 새 판정표의 열, 재사용 파일의 열을 쓰고, 재사용 파일에 없으면 old_dates(store_id, link,
+    post_date — 지난 회차 판정표+key)로 채운다. 끝내 못 채운 글이 있으면 에러(날짜 없이는 그룹별 구간 재집계가 안 된다).
     """
     new_map = new_key.drop_duplicates("store_id").set_index("store_id")["review_id"]
     key_cols = ["store_id", "link"]
@@ -980,9 +987,18 @@ def merge_judgments(reused: pd.DataFrame, new_sheet: pd.DataFrame, new_key: pd.D
     blank_r = reused["verdict"].fillna("").astype(str).str.strip() == ""
     if blank_r.any():
         raise ValueError(f"재사용 판정 파일에 verdict 미입력 글 {int(blank_r.sum())}건")
+    if "post_date" not in reused:
+        reused["post_date"] = ""
+    if old_dates is not None and len(reused):
+        lookup = old_dates.drop_duplicates(key_cols).set_index(key_cols)["post_date"]
+        need = reused["post_date"].fillna("").astype(str).str.strip() == ""
+        reused.loc[need, "post_date"] = [lookup.get((s, l), "") for s, l in
+                                        zip(reused.loc[need, "store_id"], reused.loc[need, "link"])]
 
     new_sheet = new_sheet.copy()
     new_sheet = new_sheet[pd.to_numeric(new_sheet["item_no"], errors="coerce").fillna(0) > 0]
+    if "post_date" not in new_sheet:
+        new_sheet["post_date"] = ""
     new_sheet = new_sheet.merge(new_key[["review_id", "store_id"]].drop_duplicates("review_id"),
                                 on="review_id", how="left").drop_duplicates(key_cols)
     blank = new_sheet["verdict"].fillna("").astype(str).str.strip() == ""
@@ -992,26 +1008,26 @@ def merge_judgments(reused: pd.DataFrame, new_sheet: pd.DataFrame, new_key: pd.D
     conflict = set(map(tuple, reused[key_cols].to_numpy())) & set(map(tuple, new_sheet[key_cols].to_numpy()))
     n_conflict = len(conflict)
     kept_reused = reused[~reused[key_cols].apply(tuple, axis=1).isin(conflict)]
-    merged = pd.concat([kept_reused[["review_id", "store_id", "link", "verdict", "note"]],
-                        new_sheet[["review_id", "store_id", "link", "verdict", "note"]]], ignore_index=True)
+    cols = ["review_id", "store_id", "link", "post_date", "verdict", "note"]
+    merged = pd.concat([kept_reused[cols], new_sheet[cols]], ignore_index=True)
     merged = merged.drop_duplicates(key_cols, keep="last").reset_index(drop=True)
+    no_date = merged["post_date"].fillna("").astype(str).str.strip() == ""
+    if no_date.any():
+        raise ValueError(f"post_date를 못 채운 글 {int(no_date.sum())}건 — 재사용 파일에 post_date가 없으면 "
+                         "--old-sheet/--old-key(지난 회차 판정표·key)를 함께 준다")
 
     all_new = new_key.drop_duplicates("store_id")
     counts = merged.groupby("store_id").size()
-    missing = []
-    for r in all_new.itertuples(index=False):
-        for g in str(r.groups).split(GROUP_SEP):
-            if counts.get(r.store_id, 0) == 0:
-                missing.append((r.review_id, g))
-    if missing:
-        rids = sorted({rid for rid, _ in missing})
-        raise ValueError(f"이번 회차 key에 판정 글이 하나도 없는 점포×그룹 {len(missing)}건 (review_id {rids})")
+    no_match = [(r.review_id, g) for r in all_new.itertuples(index=False) for g in str(r.groups).split(GROUP_SEP)
+                if counts.get(r.store_id, 0) == 0]
+    merged["item_no"] = merged.groupby("review_id").cumcount() + 1
 
     n_by_store = merged.groupby("store_id").size()
     dist = n_by_store.value_counts().reindex([1, 2, 3], fill_value=0).astype(int).to_dict()
     meta = {"n_reused_kept": len(kept_reused), "n_new": len(new_sheet), "n_conflict": n_conflict,
-           "n_merged_items": len(merged), "n_stores": len(all_new), "items_per_store_distribution": dist}
-    return merged.drop(columns="store_id"), meta
+           "n_merged_items": len(merged), "n_stores": len(all_new), "items_per_store_distribution": dist,
+           "n_no_match_store_groups": len(no_match), "no_match_review_ids": sorted({rid for rid, _ in no_match})}
+    return merged[["review_id", "item_no", "post_date", "link", "verdict", "note"]], meta
 
 
 def cmd_merge(a) -> pd.DataFrame:
@@ -1021,7 +1037,13 @@ def cmd_merge(a) -> pd.DataFrame:
     reused = pd.read_csv(reused_path, dtype=str, keep_default_na=False, encoding="utf-8-sig")
     new_sheet = pd.read_csv(a.new_sheet, dtype=str, keep_default_na=False, encoding="utf-8-sig")
     new_key = pd.read_csv(a.new_key, dtype=str, keep_default_na=False, encoding="utf-8-sig")
-    merged, meta = merge_judgments(reused, new_sheet, new_key)
+    old_dates = None
+    if getattr(a, "old_sheet", None) and getattr(a, "old_key", None):
+        old_sheet = pd.read_csv(a.old_sheet, dtype=str, keep_default_na=False, encoding="utf-8-sig")
+        old_key = pd.read_csv(a.old_key, dtype=str, keep_default_na=False, encoding="utf-8-sig")
+        old_dates = old_sheet.merge(old_key[["review_id", "store_id"]], on="review_id", how="left")[
+            ["store_id", "link", "post_date"]]
+    merged, meta = merge_judgments(reused, new_sheet, new_key, old_dates)
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     merged.to_csv(out, index=False, encoding="utf-8-sig")
@@ -1030,6 +1052,9 @@ def cmd_merge(a) -> pd.DataFrame:
     print(f"merge: 재사용 유지 {meta['n_reused_kept']} + 새 판정 {meta['n_new']} (충돌 {meta['n_conflict']}, "
           f"새 판정 우선) → {meta['n_merged_items']}건, {meta['n_stores']}개 점포 · 글 수 분포 "
           f"{meta['items_per_store_distribution']} → {out}")
+    if meta["n_no_match_store_groups"]:
+        print(f"경고: 유효 글 0건 점포×그룹 {meta['n_no_match_store_groups']}건은 건너뛴다 (review_id "
+              f"{meta['no_match_review_ids']}) — summarize --separate-no-match에서 '매칭 없음'으로 센다")
     return merged
 
 
@@ -1093,6 +1118,9 @@ def main(argv=None) -> None:
                    help=f"round2가 만든 재사용 판정 (기본: --new-sheet와 같은 폴더의 {REUSED_FILE})")
     g.add_argument("--new-sheet", type=Path, required=True, help="round2 sheet를 사람이 판정까지 채운 파일")
     g.add_argument("--new-key", type=Path, required=True, help="이번 회차 선정 그룹 키")
+    g.add_argument("--old-sheet", type=Path, default=None,
+                   help="재사용 파일에 post_date가 없을 때(이전 round2 산출물) 날짜를 채울 지난 회차 판정표")
+    g.add_argument("--old-key", type=Path, default=None, help="--old-sheet의 지난 회차 key (store_id 연결용)")
     g.add_argument("--out", type=Path, required=True)
     a = ap.parse_args(argv)
     {"targets": cmd_targets, "sheet": cmd_sheet, "summarize": cmd_summarize, "round2": cmd_round2,

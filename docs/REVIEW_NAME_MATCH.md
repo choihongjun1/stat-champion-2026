@@ -132,6 +132,24 @@ python -m src.analysis.name_match_review round2 \
   남고 판정표는 0행이 된다 (원본 공유 필요).
 - `round2_report.json`에는 점포 식별 정보 없이 그룹별 재사용/대기 건수만 남는다.
 
+판정자가 `name_match_sheet_round2.csv`를 채워 돌려주면 재사용 판정과 합쳐 집계한다.
+
+```
+python -m src.analysis.name_match_review merge \
+    --reused outputs/review/round2/name_match_reused_round2.csv \
+    --new-sheet outputs/review/round2/name_match_sheet_round2.csv --new-key outputs/review/name_match_key.csv \
+    --old-sheet outputs/review/_round1/name_match_sheet.csv --old-key outputs/review/_round1/name_match_key.csv \
+    --out outputs/review/round2/name_match_merged.csv
+python -m src.analysis.name_match_review summarize --targets outputs/review/name_match_targets.csv \
+    --key outputs/review/name_match_key.csv --sheet outputs/review/round2/name_match_merged.csv \
+    --licenses outputs/standardized/licenses_3gu.parquet --master outputs/master/master_base.parquet \
+    --separate-no-match --out outputs/review/summary/round2
+```
+- merge 출력은 summarize 입력 그대로다(`item_no`, `post_date` 포함). `--old-sheet/--old-key`는 재사용 파일에
+  `post_date`가 없을 때(이 기능 이전의 round2 산출물)만 필요하다. 날짜를 못 채운 글이 있으면 멈춘다.
+- **유효 글 0건인 점포×그룹**(M1 날짜 필터로 글이 모두 빠진 경우)은 merge가 에러 대신 건너뛰고 경고·건수를 낸다.
+  summarize `--separate-no-match`가 이 점포를 '매칭 없음'으로 따로 센다(오탐률 분모에는 넣지 않는다).
+
 ## 한계
 - **글 날짜로 영업/폐업을 짐작할 수 있다.** 판정표의 `post_date`가 오래전에 끊긴 점포는 폐업 점포일 가능성이 높아 보인다.
   층 정보를 판정표에서 뺐어도 이 단서는 남으므로, 짧은 상호 층 차이는 완전한 blind 비교가 아니다.
