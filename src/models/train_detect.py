@@ -15,10 +15,14 @@
   embargo 없는 분할은 비교용으로만 돌린다.
 - **rolling OOF**: 학습 origin이 최소 4개가 되는 origin부터 (t−5까지 학습 → t 예측)을 모든 origin에
   반복해, 전 구간에서 정직한 out-of-sample 예측을 모은다. 성능표·민감도 비교·보정은 모두 이것으로 한다.
-- **보정(isotonic)**: 검증 origin보다 embargo만큼 앞선 OOF 예측으로만 적합한다(그 라벨은 검증
-  시점에 확정돼 있다). 검증 구간에서 ECE가 개선될 때만 적용하고, raw/calibrated를 둘 다 기록한다.
-- **불확실성 구간**: 점포 단위 부트스트랩 재학습 5~95 백분위 (Venn-ABERS는 폭이 사실상 0이라 기각).
-- **band**: 절대 확률 컷오프. high = 평균 대비 2배, mid = 1.2배 이상이 되는 가장 낮은 컷오프.
+- **보정 3구간(fit/select/test)**: raw·isotonic·Platt 후보를 fit 구간 OOF로 적합하고, select 구간 Brier가
+  가장 낮은 후보를 고르되 raw 대비 점포 단위 부트스트랩 95% CI가 0을 포함하면 raw를 유지한다. test 구간은
+  선택이 끝난 뒤 보고에만 쓴다 (`calibration_windows`·`choose_calibration`).
+- **불확실성 구간**: 점포 단위 부트스트랩 재학습 예측의 5~95 백분위 = **90% 구간** (95% CI가 아니다.
+  Venn-ABERS는 폭이 사실상 0이라 기각).
+- **band**: 절대 확률 컷오프 (정의 문장은 `bands.CUT_MID_DEFINITION`·`CUT_HIGH_DEFINITION`).
+  mid = 1.2 × base_rate인 개별 예측 확률 임계값, high = 50~99.5 백분위 격자에서 {p ≥ c} 집단(≥200곳)의
+  관측 폐업률이 base_rate의 2배 이상인 첫 c(없으면 p95 fallback). 컷오프 창은 보정 fit 구간(고정 창)이다.
 - **평가 구간 분리**: 상권 polygon 스냅샷(2023-10-23) 이후 origin(2023Q4~)만으로 한 성능을 따로 낸다.
   현재 경계를 과거 origin에 소급하는 문제가 없는 구간이다.
 
@@ -54,7 +58,10 @@ TEST_SIZE = 2  # 최종 검증 origin 수 (마지막 2개)
 MODEL_NAME = "detect_v0"
 # #32 리뷰(2026-09-26·27): 튜닝 후보(HPO, feat/w2-2-benchmark). 최종 채택은 #45 결정 대기 — 여기서는
 # 비교용으로만 쓰고, risk_scores.parquet 등 실제 서빙 산출물은 여전히 DEFAULT_PARAMS(현 설정)로 만든다.
-TUNED_PARAMS = {"learning_rate": 0.03, "max_leaf_nodes": 15}
+# DEFAULT_PARAMS 전체를 유지하고 두 값만 바꾼다 — 두 값만 넘기면 나머지(max_iter·min_samples_leaf·l2·
+# early_stopping·random_state)가 sklearn 기본값이 되어 다른 모형이 되고 실행마다 결과가 달라진다.
+TUNED_PARAMS = {**detect.DEFAULT_PARAMS, "learning_rate": 0.03, "max_leaf_nodes": 15}
+CONFIG_PARAMS = {"현 설정": dict(detect.DEFAULT_PARAMS), "튜닝": dict(TUNED_PARAMS)}  # OOF config → 실제 모형 설정
 # 보정 3구간(#32 리뷰 M2): fit(보정기 학습) 4개 origin, select(적용 여부 선택) 4개 origin, test(최종 보고,
 # TEST_SIZE개) — 서로 겹치지 않게 순서대로 이어 붙인다. 선택과 최종 평가를 같은 구간에서 하면 선택 편향이
 # 생긴다(choihongjun1 리뷰). 오늘 데이터(2021Q1~2025Q2, 18개 origin)에서는 fit=2023Q1–Q4, select=2024Q1–Q4,
@@ -330,7 +337,9 @@ def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
 
     meta = {"master": str(master_path), "master_sha256": sha256(master_path), "embargo": EMBARGO,
             "min_train_origins": MIN_TRAIN_ORIGINS, "eval_from": EVAL_FROM, "test_origins": test_origins,
-            "n_boot": n_boot, "params": detect.DEFAULT_PARAMS, "feature_sets": {}}
+            "n_boot": n_boot, "params": detect.DEFAULT_PARAMS,  # 서빙(#36 model_params)이 읽는 키 — 현 설정
+            # OOF·분할 비교·보정 비교의 config 이름 → 실제로 학습에 넘긴 최종 모형 설정 (둘 다 DEFAULT 전체 포함)
+            "model_params_by_config": CONFIG_PARAMS, "feature_sets": {}}
 
     by_origin_all, summary, oof_base, X_base = [], [], None, None
     for fs in feature_sets:
@@ -362,7 +371,7 @@ def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
 
     if with_split_comparison:
         log("분할 방식 비교 (embargo 4/0, random, 점포 홀드아웃 × 현 설정·튜닝 설정)")
-        split_comparison(df, X_base, y, {"현 설정": None, "튜닝": TUNED_PARAMS}).to_csv(
+        split_comparison(df, X_base, y, CONFIG_PARAMS).to_csv(
             out_dir / "split_comparison.csv", index=False)
     log(f"변수 기여 진단 (permutation, {origins[-1]})")
     imp = permutation_importance(df, X_base, y, origins)
@@ -379,7 +388,7 @@ def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
     log(f"보정 선택: {analysis['chosen']} — {analysis['decision']['reason']}")
     log("\n" + analysis["report"].to_string(index=False))
 
-    oof_tuned = rolling_oof(df, X_base, y, params=TUNED_PARAMS)
+    oof_tuned = rolling_oof(df, X_base, y, params=CONFIG_PARAMS["튜닝"])
     analysis_tuned = calibration_analysis(oof_tuned, df, origins, n_boot=calib_boot)
     log(f"[비교용] 튜닝 설정 보정 선택: {analysis_tuned['chosen']} — {analysis_tuned['decision']['reason']}")
     pd.concat([analysis["report"].assign(params="현 설정"), analysis_tuned["report"].assign(params="튜닝")],
@@ -427,11 +436,22 @@ def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
     lift, lift_lo, lift_hi = bands.high_lift_cluster_ci(
         te_oof["y"].to_numpy(), is_high_te, df.loc[te_oof["idx"].to_numpy(), "store_id"].to_numpy(), n_boot=calib_boot)
     meta["band_definition"] = {"cut_mid": bands.CUT_MID_DEFINITION, "cut_high": bands.CUT_HIGH_DEFINITION}
+    q_lo, q_hi, q_n = bands.HIGH_GRID_QUANTILES
     meta["band_provenance"] = {
+        # 고정 창: 컷오프 창 = 보정 fit 구간(calibration_windows["fit"], 오늘 데이터 2023Q1–Q4). #45/#47의
+        # 동적 창(서빙 시점 최근 확정 origin)과 구분하려고 규칙을 문장으로 남긴다.
+        "window_rule": "fixed: calibration_windows()['fit'] (test 직전 SELECT_WINDOW개 앞의 FIT_WINDOW개 origin)",
         "calib_origins": analysis["windows"]["fit"], "test_origins": analysis["windows"]["test"],
+        "n_cutoff_rows": int(len(fit_oof)),
         "base_rate": cut["base_rate"], "cut_mid": cut["cut_mid"], "cut_high": cut["cut_high"],
         "high_fallback": cut["high_fallback"], "mid_fallback": cut["mid_fallback"],
+        "target_high_lift": bands.TARGET_HIGH_LIFT, "target_mid_lift": bands.TARGET_MID_LIFT,
+        "high_min_group_n": bands.HIGH_MIN_GROUP,
+        "high_grid": {"quantile_from": q_lo, "quantile_to": q_hi, "n_points": q_n,
+                      "fallback_quantile": bands.HIGH_FALLBACK_QUANTILE},
         "high_share_test": float(is_high_te.mean()), "high_lift_test": lift, "high_lift_ci95": [lift_lo, lift_hi],
+        "high_lift_ci": {"unit": "store_id", "n_boot": calib_boot, "seed": bands.LIFT_CI_SEED,
+                         "percentiles": list(bands.LIFT_CI_PERCENTILES)},
         "scale": "calibrated" if chosen != "raw" else "raw", "method": "bands.suggest_cutoffs"}
 
     # --- 불확실성 구간

@@ -490,7 +490,7 @@ W2-4 이벤트 스터디(마지막 언급일-폐업일 갭)와 함께 설계한�
   적용한다. raw·calibrated 지표를 둘 다 남긴다 (origin별 base rate 변동이 커서 보정이 오히려 나빠질 수
   있다 — 실측 상대 27% 변동). → **2026-09-28 갱신**: 선택(적용 여부 판단)과 최종 평가에 같은 구간을 쓰는
   절차는 선택 편향이 생긴다(#32 리뷰) — 아래 "보정 3구간·후보 비교" 항목의 fit/select/test 분리로 바뀌었다.
-- **불확실성 구간 = 점포 단위 부트스트랩 재학습의 5~95 백분위** (기본 B=20). Venn-ABERS는 보정 표본이
+- **불확실성 구간 = 점포 단위 부트스트랩 재학습의 5~95 백분위 = 90% 구간** (95% CI가 아니다, 기본 B=20). Venn-ABERS는 보정 표본이
   크면 폭이 사실상 0이라(평균 0.0013, 구간 커버 0/10) 화면에 쓰지 않는다. 화면 문구는 "예측이 얼마나
   흔들리는가"의 구간이며 "폐업 확률의 범위"가 아니다. 점추정이 구간 밖에 놓이면 구간을 넓혀 포함시킨다.
 - **band = 절대 확률 컷오프.** high = {p ≥ c} 집단의 실측 위험이 보정 구간 평균의 2배 이상이 되는 가장
@@ -592,7 +592,7 @@ W2-4 이벤트 스터디(마지막 언급일-폐업일 갭)와 함께 설계한�
   덜 흔들릴 수 있어 후보에 넣었다.
 - **선택 규칙(미리 고정, `train_detect.choose_calibration`):** fit 구간으로 세 후보를 적합하고, **select
   구간 Brier가 가장 낮은 후보**를 고른다. raw가 아닌 후보를 골랐어도, raw 대비 Brier 차이가 점포 단위
-  클러스터 부트스트랩(`calibration.bootstrap_metric_diff`, 기본 1,000회) 95% CI상 **유의하지 않으면
+  클러스터 부트스트랩(`calibration.bootstrap_brier_diff`, 기본 1,000회) 95% CI상 **유의하지 않으면
   (0을 포함하면) raw를 유지한다** — select 구간(4개 origin)은 표본이 상대적으로 작아 우연한 차이로
   잘못 채택할 수 있어서다. 선택 이유는 `calibration_decision.json`에 사람이 읽을 수 있는 문장으로 남긴다.
 - **결과(2025Q2 master_base, base feature set, 2026-09-28 실측):**
@@ -607,8 +607,15 @@ W2-4 이벤트 스터디(마지막 언급일-폐업일 갭)와 함께 설계한�
       늘고 low는 79.8% → 67.7%로 줄었다(raw에서 mid 문턱 바로 아래였던 점포들이 platt의 확대(기울기>1)로
       문턱을 넘음). **등급 분포가 실무적으로 크게 바뀌므로, 이 채택을 최종 반영할지는 위 held-out 한계와
       함께 팀 판단이 필요하다** (Issue #45와 별개로 남기는 열린 질문).
-  - **튜닝 설정: `raw` 유지.** select 구간에서 platt의 Brier가 raw보다 낮아 보였지만(0.105847 vs 0.105975)
-    부트스트랩 95% CI [−0.00030, +0.00004]가 0을 포함해 유의하지 않았다.
+  - **튜닝 설정: `raw` 유지.** select 구간에서 platt의 Brier가 raw보다 낮아 보였지만(0.105842 vs 0.105960,
+    차이 −0.00012) 부트스트랩 95% CI [−0.00027, +0.00003]가 0을 포함해 유의하지 않았다. test 구간 raw는
+    Brier 0.100613, ECE 0.0065, 보정 기울기 0.937.
+    - **2026-10-01 정정(#32 재검증)**: 이전 수치(select 0.105847 vs 0.105975, CI [−0.00030, +0.00004])는
+      `TUNED_PARAMS`가 두 값만 담고 있어 나머지가 sklearn 기본값(`max_iter=100`, `min_samples_leaf=20`,
+      `l2_regularization=0`, `early_stopping='auto'`, `random_state=None`)으로 학습된 **다른 모형·비결정적 실행**의
+      결과였다. `TUNED_PARAMS = {**DEFAULT_PARAMS, learning_rate=0.03, max_leaf_nodes=15}`로 고치고(#47과 같은 방식)
+      다시 돌린 값으로 교체했다. 결론(raw 유지)은 같다. 현 설정 결과는 바뀌지 않았다(OOF 예측값 완전 일치).
+      실제 학습 설정은 `run_meta.model_params_by_config`에 config별로 남는다.
   - 전체 표는 `outputs/models/detect_v0/calibration_window_report.csv`, 선택 근거는 `calibration_decision.json`.
 - **high 등급의 평균 예측 확률이 실측 폐업률보다 높게 나오는 경향은 platt 적용 후에도 남는다** (다만
   격차는 줄었다): test 구간 high 행 평균 예측 0.248 vs 실측 0.240(platt 적용, 실제 서빙 값) — 같은 fit
@@ -621,7 +628,7 @@ W2-4 이벤트 스터디(마지막 언급일-폐업일 갭)와 함께 설계한�
   | 필드 | 정의 | 산출식 |
   |---|---|---|
   | `probability_12m` | 12개월 내 폐업 예측 확률(점추정) | `calibrated=true`면 선택된 보정기(`chosen.predict`)를 원 모형 확률(`p_oof`)에 적용한 값, `false`면 원 모형 확률 그대로 |
-  | `ci_low`/`ci_high` | 점포 단위 부트스트랩 재학습(B회) 예측의 5/95 백분위 — **신뢰구간이 아니라 "학습 데이터가 달랐다면 예측이 얼마나 흔들렸을지"의 범위** | 부트스트랩 원값에 `calibrated=true`면 같은 보정기를 적용. 점추정이 구간 밖에 놓이면 구간을 넓혀 포함시킨다(좁히지 않음) |
+  | `ci_low`/`ci_high` | 점포 단위 부트스트랩 재학습(B회) 예측의 5/95 백분위(= 90% 구간) — **신뢰구간이 아니라 "학습 데이터가 달랐다면 예측이 얼마나 흔들렸을지"의 범위** | 부트스트랩 원값에 `calibrated=true`면 같은 보정기를 적용. 점추정이 구간 밖에 놓이면 구간을 넓혀 포함시킨다(좁히지 않음) |
   | `band` | low/mid/high 절대 확률 등급 | `probability_12m`(보정 적용 여부 반영된 값)에 `bands.assign_bands_absolute` — 컷오프는 **fit 구간** OOF(선택된 보정기 적용)로 `bands.suggest_cutoffs`가 정함 |
   | `calibrated` | 보정을 적용했는지 (`chosen != "raw"`) | 위 선택 규칙의 결과. `false`면 `probability_12m`은 원 모형 확률과 같다 |
 
@@ -661,8 +668,12 @@ W2-4 이벤트 스터디(마지막 언급일-폐업일 갭)와 함께 설계한�
 ## 2026-09-30 — #45 구현 이슈: 컷오프 정의 문장·fallback 기록·provenance (기본 동작 불변)
 - **정의(코드 `bands.CUT_MID_DEFINITION`·`CUT_HIGH_DEFINITION`, run_meta·serve_meta와 같은 문장)**:
   - cut_mid = 1.2 × base_rate — 보정 창 OOF 관측 폐업률의 1.2배인 **개별 예측 확률 임계값**이다("실측 lift 1.2배가 되는 컷오프"가 아니다).
-  - cut_high = 보정 창 OOF에서 {p ≥ c} 집단의 관측 폐업률이 base_rate의 2배 이상이 되는 가장 낮은 c(집단 200곳 이상). 그런 c가 없으면
-    예측 확률 95백분위로 fallback.
+  - cut_high = 보정 창 OOF 예측 확률의 **50~99.5 백분위를 200등분한 격자**를 낮은 쪽부터 훑어, {p ≥ c} 집단이 **200곳 이상**이고 그
+    관측 폐업률이 base_rate의 **2배 이상**인 첫 c. 그런 c가 없으면 예측 확률 95백분위로 fallback.
 - **fallback 발생 여부**를 `run_meta.band_provenance.high_fallback`(cut_high의 p95 대체)·`mid_fallback`(cut_mid ≥ cut_high여서 base_rate로 대체)에 기록한다.
 - **provenance**(`run_meta.band_provenance`, serve가 `serve_meta.cutoff_provenance`로 옮김): 보정 창 origin 목록, base_rate, cut_mid, cut_high, fallback,
   검증 구간 high 비율, high lift와 점포 단위 부트스트랩 95% CI, 확률 척도(raw/calibrated).
+  - **2026-10-01 보완(#32 재검증)**: 창 규칙 `window_rule`(현재 `fixed` — 보정 fit 구간 고정 창. #45/#47의 동적 창과 구분),
+    컷오프 창 행 수 `n_cutoff_rows`, 목표 lift(`target_high_lift` 2.0 / `target_mid_lift` 1.2), high 최소 집단 `high_min_group_n`(200),
+    후보 격자 `high_grid`(50~99.5 백분위·200점·fallback 95백분위), high lift CI 설정 `high_lift_ci`(단위 store_id, B, seed, 백분위 2.5/97.5)를
+    함께 남긴다. 값은 `bands`의 상수에서 읽으므로 코드와 기록이 어긋나지 않는다. 기본 동작(컷오프 값)은 바뀌지 않는다.
