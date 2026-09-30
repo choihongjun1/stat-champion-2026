@@ -470,6 +470,36 @@ def test_lift_curve_crossings_counts_each_upward_crossing():
     assert mono["first_cut_at_target"] == pytest.approx(bm.bands.suggest_cutoffs((p > 0.8).astype(float), p)["cut_high"])
 
 
+def test_serving_window_hpo_uses_serving_train_window_with_embargo(tmp_path, panel, monkeypatch):
+    monkeypatch.setattr(bm, "HPO_GRID", {"learning_rate": (0.06,), "max_leaf_nodes": (15, 31)})
+    master = tmp_path / "master.parquet"
+    panel.to_parquet(master, index=False)
+    online = panel[["store_id", "origin"]].copy()
+    for c in bm.ONLINE_COLS:
+        online[c] = 1.0
+    online.to_parquet(tmp_path / "online.parquet", index=False)
+    origins = sorted(panel["origin"].unique())
+    score = str(pd.Period(origins[-1], freq="Q") + 1)  # 라벨 없는 다음 분기를 서빙한다고 가정
+    t = bm.serving_window_hpo(master, tmp_path / "online.parquet", tmp_path, score)
+    last = str(pd.Period(score, freq="Q") - (bm.EMBARGO + 1))
+    assert (t["serving_train"] == f"{origins[0]}~{last}").all() and (t["inner_val"] == last).all()
+    in_end = t["inner_train"].iloc[0].split("~")[1]
+    assert pd.Period(in_end, freq="Q") <= pd.Period(last, freq="Q") - (bm.EMBARGO + 1)
+    assert list(t["rank"]) == [1, 2] and t["inner_auc"].is_monotonic_decreasing
+
+
+def test_dynamic_window_uses_only_matured_recent_origins(panel):
+    origins = sorted(panel["origin"].unique())
+    rng = np.random.default_rng(3)
+    oof = pd.DataFrame({"origin": panel["origin"].to_numpy(), "y": panel["event_12m"].to_numpy(),
+                        "p_oof": rng.random(len(panel))})
+    r = bm.dynamic_window_high(oof, origins)
+    for t, part in zip(bm.BAND_TEST_ORIGINS, r["dyn_windows"].split("; ")):
+        end = origins[origins.index(t) - bm.EMBARGO - 1]
+        start = origins[origins.index(t) - bm.EMBARGO - bm.DYNAMIC_WINDOW_SIZE]
+        assert part.startswith(f"{t}: {start}~{end}")
+
+
 def test_nested_recheck_end_to_end_and_checkpoint(tmp_path, panel, monkeypatch):
     monkeypatch.setattr(bm, "HPO_GRID", {"learning_rate": (0.06,), "max_leaf_nodes": (15, 31)})
     master = tmp_path / "master.parquet"
@@ -481,8 +511,11 @@ def test_nested_recheck_end_to_end_and_checkpoint(tmp_path, panel, monkeypatch):
     online.to_parquet(tmp_path / "online.parquet", index=False)
     out = tmp_path / "out"
     r = bm.nested_recheck(master, tmp_path / "online.parquet", out, n_boot=10)
-    assert list(r["summary"]["model"]) == list(bm.NESTED_MODELS) and len(r["bootstrap"]) in (3, 4)
-    assert set(r["bands"]["model"]) == {"a_hgb_enriched", "b_tuned_fixed", "c_tuned_nested"} and len(r["chosen"]) == 10
+    n_pairs = len(bm.NESTED_PAIRS)
+    assert list(r["summary"]["model"]) == list(bm.NESTED_MODELS)
+    assert len(r["bootstrap"]) in (n_pairs, n_pairs + len(bm.NESTED_SUBSET_PAIRS))
+    assert set(r["bands"]["model"]) == {"a_hgb_enriched", "b_tuned_fixed", "c_tuned_nested", "e_serving_fixed"}
+    assert r["bands"]["dyn_high_share_test"].between(0, 1).all() and len(r["chosen"]) == 10
     for f in out.glob("nested_recheck_*.csv"):
         assert "store_id" not in pd.read_csv(f, nrows=0).columns
     monkeypatch.setattr(bm, "nested_tuned_oof", lambda *a, **k: (_ for _ in ()).throw(AssertionError("재학습")))

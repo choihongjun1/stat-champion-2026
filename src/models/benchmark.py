@@ -1026,9 +1026,16 @@ def competition_eval(master_path: Path, online_path: Path, extra_path: Path, out
 # 서빙 모형·컷오프는 바꾸지 않는다. 짧은 상호 keep, 경쟁지표 없음.
 # ---------------------------------------------------------------------------
 NESTED_MODELS = {"a_hgb_enriched": "현 hgb_enriched", "b_tuned_fixed": "튜닝 고정값 (0.03, 15)",
-                 "c_tuned_nested": "중첩 튜닝", "d_logit_enriched": "logit_enriched"}
+                 "c_tuned_nested": "중첩 튜닝", "d_logit_enriched": "logit_enriched",
+                 "e_serving_fixed": "서빙 구간 선택값 (0.03, 31)"}
+# 서빙 학습 구간(2026Q2 → 2021Q1~2025Q1)에 같은 격자·내부 분할(embargo 4)을 적용해 고른 값 (serving_window_hpo.csv)
+SERVING_WINDOW_PARAMS = {"learning_rate": 0.03, "max_leaf_nodes": 31}
 NESTED_PAIRS = (("c_tuned_nested", "a_hgb_enriched"), ("c_tuned_nested", "d_logit_enriched"),
-                ("b_tuned_fixed", "c_tuned_nested"))
+                ("b_tuned_fixed", "c_tuned_nested"), ("e_serving_fixed", "a_hgb_enriched"))
+# 중첩 선택값이 고정값 (0.03, 15)와 같은(학습 구간이 충분한) origin에서만 비교하는 쌍
+NESTED_SUBSET_PAIRS = (("c_tuned_nested", "a_hgb_enriched"), ("e_serving_fixed", "a_hgb_enriched"),
+                       ("e_serving_fixed", "b_tuned_fixed"))
+DYNAMIC_WINDOW_SIZE = 4  # 동적 창: 검증 origin t마다 라벨이 확정된(≤ t−EMBARGO−1) 최근 4개 origin
 
 
 def lift_curve_crossings(y, p, *, target: float = 2.0, min_n: int = 200) -> dict:
@@ -1051,9 +1058,55 @@ def lift_curve_crossings(y, p, *, target: float = 2.0, min_n: int = 200) -> dict
             "first_cut_at_target": up[0] if up else None, "last_cut_at_target": up[-1] if up else None}
 
 
-def nested_band_rows(oofs: dict[str, pd.DataFrame], stores: np.ndarray, n_boot: int) -> pd.DataFrame:
+def serving_window_hpo(master_path: Path, online_path: Path, out: Path, score_origin: str = "2026Q2") -> pd.DataFrame:
+    """서빙 학습 구간(score origin s → 라벨 확정 origin ≤ s−EMBARGO−1, `serve.training_mask`와 같은 규칙)에 `hpo`와 같은
+    격자·내부 시간 분할(내부 검증 = 최근 학습 origin, 내부 학습 embargo 4분기)을 적용한 후보별 내부 AUC. 선택만, 서빙 불변."""
+    out.mkdir(parents=True, exist_ok=True)
+    df, X, y, base_cols, cols = load_inputs(master_path, online_path)
+    origins = sorted(df["origin"].unique())
+    last = str(pd.Period(score_origin, freq="Q") - (EMBARGO + 1))
+    train_o = [o for o in origins if o <= last]
+    in_tr, in_val, gap = inner_split(train_o)
+    if not gap:
+        raise ValueError("서빙 학습 구간이 짧아 내부 검증에 embargo를 둘 수 없다")
+    tr_m, va_m = df["origin"].isin(in_tr).to_numpy(), (df["origin"] == in_val).to_numpy()
+    rows = []
+    for v in itertools.product(*HPO_GRID.values()):
+        g = dict(zip(HPO_GRID, v))
+        p = detect.fit_predict(X.loc[tr_m, cols], y[tr_m], X.loc[va_m, cols], {**detect.DEFAULT_PARAMS, **g})
+        rows.append({**g, "inner_auc": roc_auc_score(y[va_m], p)})
+        log(f"서빙 구간 HPO {g}: 내부 AUC {rows[-1]['inner_auc']:.4f}")
+    t = pd.DataFrame(rows).sort_values("inner_auc", ascending=False, ignore_index=True)
+    t.insert(0, "rank", range(1, len(t) + 1))
+    t["serving_train"], t["inner_train"], t["inner_val"] = f"{train_o[0]}~{train_o[-1]}", f"{in_tr[0]}~{in_tr[-1]}", in_val
+    t.to_csv(out / "serving_window_hpo.csv", index=False, encoding="utf-8-sig")
+    return t
+
+
+def dynamic_window_high(oof: pd.DataFrame, origins: list[str], size: int = DYNAMIC_WINDOW_SIZE) -> dict:
+    """동적 창 규칙: 검증 origin t마다 t 시점에 라벨이 확정된 최근 `size`개 origin(≤ t−EMBARGO−1) raw OOF로
+    `bands.suggest_cutoffs` → t의 high 판정. 검증 origin 전체 high 비율·lift와 origin별 창·컷오프."""
+    ys, his, info = [], [], []
+    for t in BAND_TEST_ORIGINS:
+        end = origins.index(t) - EMBARGO - 1
+        w = origins[end - size + 1: end + 1]
+        assert len(w) == size and labels_matured_by(w, origins, t)
+        fit = oof[oof["origin"].isin(w)]
+        cut = bands.suggest_cutoffs(fit["y"].to_numpy(), fit["p_oof"].to_numpy())
+        te = oof[oof["origin"] == t]
+        ys.append(te["y"].to_numpy())
+        his.append(te["p_oof"].to_numpy() >= cut["cut_high"])
+        info.append(f"{t}: {w[0]}~{w[-1]} cut_high {cut['cut_high']:.4f}")
+    y, hi = np.concatenate(ys), np.concatenate(his)
+    return {"dyn_high_share_test": float(hi.mean()),
+            "dyn_high_lift_test": float(y[hi].mean() / y.mean()) if hi.any() else np.nan, "dyn_windows": "; ".join(info)}
+
+
+def nested_band_rows(oofs: dict[str, pd.DataFrame], stores: np.ndarray, n_boot: int,
+                     origins: list[str] | None = None) -> pd.DataFrame:
     """고정 창(COMP_FIT_WINDOW) raw OOF로 `bands.suggest_cutoffs` → 검증 origin high 비율·lift·클러스터 CI와
-    보정 창 lift 곡선의 2배 교차 지점. 교차가 여러 개면 교차 지점마다 검증 high 비율 범위도 낸다."""
+    보정 창 lift 곡선의 2배 교차 지점. 교차가 여러 개면 교차 지점마다 검증 high 비율 범위도 낸다.
+    origins를 주면 동적 창(`dynamic_window_high`) high 비율도 같이 낸다."""
     rows = []
     for name, oof in oofs.items():
         fit = oof[oof["origin"].between(*COMP_FIT_WINDOW)]
@@ -1077,7 +1130,8 @@ def nested_band_rows(oofs: dict[str, pd.DataFrame], stores: np.ndarray, n_boot: 
                      "lift_grid_points_1_9_to_2_1": cross["n_grid_lift_1_9_to_2_1"],
                      "high_share_test_min_over_crossings": min(shares) if shares else np.nan,
                      "high_share_test_max_over_crossings": max(shares) if shares else np.nan,
-                     "cutoff_unstable": cross["n_up_crossings"] > 1})
+                     "cutoff_unstable": cross["n_up_crossings"] > 1,
+                     **(dynamic_window_high(oof, origins) if origins is not None else {})})
     return pd.DataFrame(rows)
 
 
@@ -1094,7 +1148,9 @@ def nested_recheck(master_path: Path, online_path: Path, out: Path, n_boot: int)
     tuned = {**detect.DEFAULT_PARAMS, **TUNED_PARAMS}
     fitters = {"a_hgb_enriched": make_fitters(base_cols, enriched_cols)["hgb_enriched"],
                "b_tuned_fixed": lambda a, b, c: detect.fit_predict(a[enriched_cols], b, c[enriched_cols], tuned),
-               "d_logit_enriched": make_fitters(base_cols, enriched_cols)["logit_enriched"]}
+               "d_logit_enriched": make_fitters(base_cols, enriched_cols)["logit_enriched"],
+               "e_serving_fixed": lambda a, b, c: detect.fit_predict(a[enriched_cols], b, c[enriched_cols],
+                                                                     {**detect.DEFAULT_PARAMS, **SERVING_WINDOW_PARAMS})}
     oofs = {}
     for name in NESTED_MODELS:
         path = ck / f"{name}.parquet"
@@ -1141,15 +1197,16 @@ def nested_recheck(master_path: Path, online_path: Path, out: Path, n_boot: int)
     same = chosen.loc[np.all([chosen[k] == TUNED_PARAMS[k] for k in HPO_GRID], axis=0), "origin"].tolist()
     m = ref["origin"].isin(same).to_numpy()
     if m.any():
-        boot.append({"model_a": "c_tuned_nested", "model_b": "a_hgb_enriched",
-                     "scope": f"선택값=고정값 origin {len(same)}개 ({min(same)}~{max(same)})",
-                     **cluster_bootstrap_diff(ref["y"].to_numpy()[m], oofs["c_tuned_nested"]["p_oof"].to_numpy()[m],
-                                              oofs["a_hgb_enriched"]["p_oof"].to_numpy()[m], stores[m], n_boot)})
-        log("클러스터 부트스트랩 (선택값=고정값 origin) 완료")
+        for a, b in NESTED_SUBSET_PAIRS:
+            boot.append({"model_a": a, "model_b": b, "scope": f"선택값=고정값 origin {len(same)}개 ({min(same)}~{max(same)})",
+                         **cluster_bootstrap_diff(ref["y"].to_numpy()[m], oofs[a]["p_oof"].to_numpy()[m],
+                                                  oofs[b]["p_oof"].to_numpy()[m], stores[m], n_boot)})
+            log(f"클러스터 부트스트랩 {a} − {b} (선택값=고정값 origin) 완료")
     boot = pd.DataFrame(boot)
     boot.to_csv(out / "nested_recheck_bootstrap.csv", index=False, encoding="utf-8-sig")
 
-    band = nested_band_rows({k: oofs[k] for k in ("a_hgb_enriched", "b_tuned_fixed", "c_tuned_nested")}, stores, n_boot)
+    band = nested_band_rows({k: oofs[k] for k in ("a_hgb_enriched", "b_tuned_fixed", "c_tuned_nested", "e_serving_fixed")},
+                            stores, n_boot, sorted(df["origin"].unique()))
     band.to_csv(out / "nested_recheck_bands.csv", index=False, encoding="utf-8-sig")
     # 보정 창 origin별 선택값·예측 분포 — 창 안에서 모형 설정이 섞이는지 본다
     fitwin = []
@@ -1163,6 +1220,7 @@ def nested_recheck(master_path: Path, online_path: Path, out: Path, n_boot: int)
 
     meta = {"master_sha256": train_detect.sha256(Path(master_path)), "online_sha256": train_detect.sha256(Path(online_path)),
             "short_name_policy": "keep", "extra_features": None, "tuned_params": TUNED_PARAMS, "hpo_grid": HPO_GRID,
+            "serving_window_params": SERVING_WINDOW_PARAMS, "dynamic_window_size": DYNAMIC_WINDOW_SIZE,
             "cutoff_fit_window": COMP_FIT_WINDOW, "band_test_origins": BAND_TEST_ORIGINS, "n_boot": n_boot,
             "boot_seed": BOOT_SEED, "origins": f"{ref['origin'].min()}~{ref['origin'].max()}",
             "seconds": round(time.time() - t0, 1)}
@@ -1196,7 +1254,12 @@ def main(argv=None) -> None:
                     help="enriched vs enriched+comp 추가 효과 평가만 (--extra-features 필요, 모형·서빙 기본값 불변)")
     ap.add_argument("--nested-recheck", action="store_true",
                     help="#45 재확인: 현·튜닝 고정·중첩 튜닝 HGB·logit_enriched 비교와 등급 안정성만 (기본값 불변)")
+    ap.add_argument("--serving-window-hpo", action="store_true",
+                    help="서빙 학습 구간(2026Q2 기준)에 같은 격자·내부 분할(embargo 4)을 적용한 선택만 (서빙 불변)")
     a = ap.parse_args(argv)
+    if a.serving_window_hpo:
+        serving_window_hpo(a.master, a.online, a.out)
+        return
     if a.nested_recheck:
         nested_recheck(a.master, a.online, a.out, a.n_boot)
         return
