@@ -635,12 +635,16 @@ def weighted_rate(counts: dict[str, tuple[int, int]], pool_n: dict[str, int]) ->
 
 
 def rates(items: pd.DataFrame, stores: pd.DataFrame, short_pool_n: dict[str, int] | None = None,
-         bounds_by_group: dict[str, dict[str, tuple]] | None = None) -> pd.DataFrame:
+         bounds_by_group: dict[str, dict[str, tuple]] | None = None, separate_no_match: bool = False) -> pd.DataFrame:
     """그룹별 오탐률. short_pool_n(층 → 모집단 점포 수)이 있으면 short_name 행은 층별 모집단 비율로 가중한 값이고,
     비가중(표본 그대로, 층별 같은 수) 값은 *_unweighted 열에 참고로 둔다.
 
     bounds_by_group이 있으면(추가 리뷰: 겹침 점포) 그룹별 행은 그 그룹 자기 구간을 통과한 글만 세고
-    점포 판정도 그 글로 다시 계산한다 — "전체" 행은 그대로(추출 때 이미 합집합으로 걸러졌다)."""
+    점포 판정도 그 글로 다시 계산한다 — "전체" 행은 그대로(추출 때 이미 합집합으로 걸러졌다).
+
+    separate_no_match=True(옵션, 기본 꺼짐): 그 그룹의 유효 글이 0건인 점포×그룹을 `stores_no_match`로 따로 세고
+    `stores_undecided`(판단불가로 끝난 점포)에서 뺀다. 오탐률 분모는 어느 쪽이든 바뀌지 않는다(판정 글이 없으면
+    원래 분모에 안 들어간다)."""
     out = []
     groups = [g for g in GROUPS if in_group(stores["groups"], g).any()]
     if SHORT in groups:
@@ -658,6 +662,10 @@ def rates(items: pd.DataFrame, stores: pd.DataFrame, short_pool_n: dict[str, int
                "store_ci_low": lo_s, "store_ci_high": hi_s,
                "stores_undecided": int((st["store_verdict"] == "판정불가").sum()),
                "weighted": False, "item_fp_rate_unweighted": nan, "store_fp_rate_unweighted": nan}
+        if separate_no_match:
+            no_match = ~st["review_id"].isin(set(it["review_id"]))
+            row["stores_no_match"] = int(no_match.sum())
+            row["stores_undecided"] = int(((st["store_verdict"] == "판정불가") & ~no_match).sum())
         if grp == SHORT and short_pool_n:
             by = {s: _counts(*_group_view(items, stores, f"{SHORT}:{s}", bounds_by_group)) for s in short_pool_n}
             row.update(weighted=True, item_fp_rate_unweighted=row["item_fp_rate"],
@@ -725,7 +733,7 @@ def cmd_summarize(a) -> pd.DataFrame:
             serve_as_of = json.loads(Path(meta_path).read_text(encoding="utf-8")).get("serve_as_of")
         bounds_by_group = date_bounds_by_group(lic, key, master_span=master_span, serve_as_of=serve_as_of)
         print("겹침 점포는 그룹마다 자기 구간을 통과한 글로 다시 집계한다 (추가 리뷰)")
-    tab = rates(items, stores, short_pool_n, bounds_by_group)
+    tab = rates(items, stores, short_pool_n, bounds_by_group, separate_no_match=a.separate_no_match)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     tab.to_csv(out / "name_match_rates.csv", index=False, encoding="utf-8-sig")
@@ -747,6 +755,9 @@ def cmd_summarize(a) -> pd.DataFrame:
             continue
         lines.append(f"| {r.group} | {_pct(r.item_fp_rate)} ({r.items_other}/{r.items_decided}) | {ci_i} | "
                      f"{_pct(r.store_fp_rate)} ({r.stores_fp}/{r.stores_decided}) | {ci_s} | {r.stores_undecided} |")
+    if "stores_no_match" in tab.columns:
+        lines += ["", "- **매칭 없음**(유효 글 0건, 오탐률 분모 제외 — `--separate-no-match`): " +
+                  ", ".join(f"{r.group} {int(r.stores_no_match)}곳" for r in tab.itertuples(index=False))]
     lines += ["", "- 신뢰구간(Wilson)은 무작위 표본(random, short_name)에만 붙인다. priority는 선정 기준이 달라 "
               "모집단 추정에 쓰지 않는다.",
               "- 두 그룹에 속한 점포는 두 그룹 모두에 센다. `전체`는 점포당 한 번.",
@@ -775,6 +786,7 @@ def cmd_summarize(a) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------- 회차 간 판정 재사용 (재검수 부담 축소)
+REUSED_FILE = "name_match_reused_round2.csv"  # round2 --out에 저장, merge --reused 기본값
 TOP_N_PER_GROUP = 3  # 점포×그룹의 목표 유효 판정 글 수 (추가 리뷰)
 
 
@@ -939,6 +951,8 @@ def cmd_round2(a) -> dict:
 
     targets2.to_csv(out / "name_match_targets_round2.csv", index=False, encoding="utf-8-sig")
     sheet2.to_csv(out / "name_match_sheet_round2.csv", index=False, encoding="utf-8-sig")
+    # merge --reused의 기본 입력. store_id가 있으니 분석 쪽에만 둔다(판정자에게 전달하지 않는다).
+    reused.to_csv(out / REUSED_FILE, index=False, encoding="utf-8-sig")
     report = {**stats, "n_new_items_found": int(sum(actual.values())), "n_stores_pending_raw_access": len(rid_needed),
              "actual_new_items_by_review_id": actual, "note": note}
     (out / "round2_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1001,7 +1015,10 @@ def merge_judgments(reused: pd.DataFrame, new_sheet: pd.DataFrame, new_key: pd.D
 
 
 def cmd_merge(a) -> pd.DataFrame:
-    reused = pd.read_csv(a.reused, dtype=str, keep_default_na=False, encoding="utf-8-sig")
+    reused_path = a.reused or Path(a.new_sheet).parent / REUSED_FILE  # 기본: 새 판정표와 같은 폴더의 round2 재사용 파일
+    if not Path(reused_path).exists():
+        raise FileNotFoundError(f"재사용 판정 파일이 없다: {reused_path} — round2 --out 폴더에 있는 {REUSED_FILE}을 --reused로 준다")
+    reused = pd.read_csv(reused_path, dtype=str, keep_default_na=False, encoding="utf-8-sig")
     new_sheet = pd.read_csv(a.new_sheet, dtype=str, keep_default_na=False, encoding="utf-8-sig")
     new_key = pd.read_csv(a.new_key, dtype=str, keep_default_na=False, encoding="utf-8-sig")
     merged, meta = merge_judgments(reused, new_sheet, new_key)
@@ -1056,6 +1073,8 @@ def main(argv=None) -> None:
                    help="겹침 점포 그룹별 재집계용 (없으면 그룹별 날짜 재필터를 생략 — extraction 시점 합집합 그대로 집계)")
     m.add_argument("--master", type=Path, default=None)
     m.add_argument("--serve-as-of", default=None)
+    m.add_argument("--separate-no-match", action="store_true",
+                   help="유효 글 0건인 점포×그룹을 '매칭 없음'으로 따로 집계 (기본 꺼짐 — 최홍준 님 답 전까지 기본값 불변)")
     m.add_argument("--out", type=Path, required=True)
     r = sub.add_parser("round2", help="회차 간 판정 재사용 — 부족분은 --raw로 새로 뽑는다 (분석 쪽)")
     r.add_argument("--old-sheet", type=Path, required=True)
@@ -1070,7 +1089,8 @@ def main(argv=None) -> None:
     r.add_argument("--seed", type=int, default=20260927)
     r.add_argument("--out", type=Path, required=True)
     g = sub.add_parser("merge", help="재사용 판정 + 새 판정표(판정 완료본)를 합친다 (분석 쪽)")
-    g.add_argument("--reused", type=Path, required=True, help="round2가 만든 재사용 판정 (review_id,store_id,link,verdict,note)")
+    g.add_argument("--reused", type=Path, default=None,
+                   help=f"round2가 만든 재사용 판정 (기본: --new-sheet와 같은 폴더의 {REUSED_FILE})")
     g.add_argument("--new-sheet", type=Path, required=True, help="round2 sheet를 사람이 판정까지 채운 파일")
     g.add_argument("--new-key", type=Path, required=True, help="이번 회차 선정 그룹 키")
     g.add_argument("--out", type=Path, required=True)

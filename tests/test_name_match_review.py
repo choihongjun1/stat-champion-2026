@@ -753,3 +753,66 @@ def test_cmd_merge_end_to_end(tmp_path):
     assert set(merged["link"]) == {"l1", "l2"}
     meta = json.loads(out.with_name("name_match_sheet_merged_meta.json").read_text(encoding="utf-8"))
     assert meta["n_merged_items"] == 2
+
+
+# ---------------------------------------------------------------------------- round2 재사용 파일 저장·merge 기본값·매칭 없음 분리
+def test_round2_writes_reused_file_and_merge_defaults_to_it(tmp_path):
+    old_key = pd.DataFrame({"review_id": ["R1"], "store_id": ["A"], "groups": ["random"], "stratum": [""]})
+    old_sheet = pd.DataFrame({"review_id": ["R1", "R1", "R1"], "item_no": [1, 2, 3], "post_date": ["2021-01-01"] * 3,
+                              "link": ["a1", "a2", "a3"], "verdict": ["해당가게", "다른가게", "해당가게"], "note": ""})
+    new_key = pd.DataFrame({"review_id": ["N1", "N2"], "store_id": ["A", "B"], "groups": ["random", "random"],
+                            "stratum": ["", ""]})
+    new_targets = pd.DataFrame({"review_id": ["N1", "N2"], "store_id": ["A", "B"], "name_raw": ["가A", "가B"],
+                                "name_norm": ["가a", "가b"], "gu": ["마포구"] * 2, "dong": ["서교동"] * 2,
+                                "biz_type": ["일반음식점"] * 2})
+    paths = {n: tmp_path / f"{n}.csv" for n in ("old_sheet", "old_key", "new_targets", "new_key")}
+    for n, d in (("old_sheet", old_sheet), ("old_key", old_key), ("new_targets", new_targets), ("new_key", new_key)):
+        d.to_csv(paths[n], index=False, encoding="utf-8-sig")
+    out = tmp_path / "out"
+    nm.main(["round2", "--old-sheet", str(paths["old_sheet"]), "--old-key", str(paths["old_key"]),
+             "--new-targets", str(paths["new_targets"]), "--new-key", str(paths["new_key"]), "--out", str(out)])
+    reused = pd.read_csv(out / nm.REUSED_FILE, encoding="utf-8-sig")
+    assert list(reused.columns) == ["review_id", "store_id", "link", "verdict", "note"]
+    assert len(reused) == 3 and set(reused["review_id"]) == {"N1"}  # 새 회차 review_id로 다시 매겨 저장
+    # merge: --reused 생략 → 새 판정표와 같은 폴더의 재사용 파일을 쓴다
+    new_sheet = pd.DataFrame({"review_id": ["N2"], "item_no": [1], "link": ["b1"], "verdict": ["해당가게"], "note": [""]})
+    new_sheet.to_csv(out / "judged.csv", index=False, encoding="utf-8-sig")
+    merged = nm.cmd_merge(type("A", (), {"reused": None, "new_sheet": out / "judged.csv", "new_key": paths["new_key"],
+                                         "out": tmp_path / "merged.csv"})())
+    assert set(merged["link"]) == {"a1", "a2", "a3", "b1"}
+    with pytest.raises(FileNotFoundError, match="재사용 판정 파일"):  # 기본 위치에 파일이 없으면 명확히 멈춘다
+        (tmp_path / "x").mkdir()
+        new_sheet.to_csv(tmp_path / "x" / "judged.csv", index=False, encoding="utf-8-sig")
+        nm.cmd_merge(type("A", (), {"reused": None, "new_sheet": tmp_path / "x" / "judged.csv",
+                                    "new_key": paths["new_key"], "out": tmp_path / "m2.csv"})())
+
+
+def test_rates_separate_no_match_reports_count_without_changing_denominator():
+    targets = pd.DataFrame({"review_id": ["R1", "R2", "R3"], "store_id": ["A", "B", "C"]})
+    key = pd.DataFrame({"review_id": ["R1", "R2", "R3"], "store_id": ["A", "B", "C"],
+                        "groups": ["random"] * 3, "stratum": [""] * 3})
+    sheet = pd.DataFrame({"review_id": ["R1", "R2"], "item_no": [1, 1], "post_date": ["2021-01-01"] * 2,
+                          "verdict": ["다른가게", "판단불가"]})  # R3: 글 0건(매칭 없음), R2: 판단불가만
+    items, stores, _ = nm.judge(sheet, targets, key)
+    base = nm.rates(items, stores).set_index("group")
+    sep = nm.rates(items, stores, separate_no_match=True).set_index("group")
+    assert "stores_no_match" not in base.columns  # 기본 출력은 그대로
+    assert base.at["random", "stores_undecided"] == 2  # R2(판단불가)와 R3(글 없음)이 섞여 있다
+    assert sep.at["random", "stores_no_match"] == 1 and sep.at["random", "stores_undecided"] == 1
+    for c in ("stores_decided", "stores_fp", "store_fp_rate", "items_decided"):
+        assert base.at["random", c] == sep.at["random", c]  # 분모·오탐률 불변
+
+
+def test_summarize_cli_separate_no_match_flag(tmp_path):
+    targets = pd.DataFrame({"review_id": ["R1", "R2"], "store_id": ["A", "B"]})
+    key = targets.assign(groups="random", stratum="")
+    sheet = pd.DataFrame({"review_id": ["R1"], "item_no": [1], "post_date": ["2021-01-01"], "verdict": ["해당가게"]})
+    tp, sp, kp = tmp_path / "t.csv", tmp_path / "s.csv", tmp_path / "k.csv"
+    targets.to_csv(tp, index=False, encoding="utf-8-sig")
+    sheet.to_csv(sp, index=False, encoding="utf-8-sig")
+    key.to_csv(kp, index=False, encoding="utf-8-sig")
+    nm.main(["summarize", "--targets", str(tp), "--key", str(kp), "--sheet", str(sp), "--separate-no-match",
+             "--out", str(tmp_path / "out")])
+    r = pd.read_csv(tmp_path / "out" / "name_match_rates.csv").set_index("group")
+    assert r.at["random", "stores_no_match"] == 1
+    assert "매칭 없음" in (tmp_path / "out" / "name_match_summary.md").read_text(encoding="utf-8")
