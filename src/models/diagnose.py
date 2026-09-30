@@ -13,6 +13,16 @@ SHAP 라이브러리(TreeExplainer)를 쓰지 않는 이유: HistGradientBoostin
 해석 경계 (DECISIONS.md 2026-09-10, CLAUDE.md): 기여도는 **예측이 어떤 관측 특성에서 비롯됐는지**의
 분해이지 인과효과가 아니다. "이 요인을 바꾸면 위험이 내려간다"는 표현은 Stage 3 검증을 거친 요인에만 쓴다.
 
+#34 단독 출력과 #36(서빙) 최종 출력의 차이 (#34 리뷰 ④, 2026-09-30)
+| 항목 | #34 단독 (이 브랜치) | #36 최종 (feat/w2-serve) |
+|---|---|---|
+| direction | 부호만("위험 증가/감소") | |기여|<0.001이면 "영향 미미" (`DIRECTION_EPS`, 설명문과 같은 기준) |
+| 표시 보류 이유 | display=false만 | + `hold_reason`(online_review/data_missing), `missing_reason` 코드 |
+| 데이터 없음 요인 | 그대로 진단문 생성 | 요인 feature가 전부 결측이면 data_missing 보류 |
+| driver_code | 없음 | 온라인 요인만(decline/lapse/absent/unobservable/no_change/presence, #41 분류표와 동일) |
+| 절단 점포 온라인 요인 | 구분 없음 | 전부·일부 결측이면 data_missing/online_unobservable 보류(기여값 보존) |
+| 비용 요인 | 계산 제외(available=false) | 같음 |
+
 실행:
     python -m src.models.diagnose --online outputs/online/online_features.parquet --primary enriched
 """
@@ -61,7 +71,8 @@ FACTORS: list[dict] = [
      "note": "매출 공개 코드 기준 부분관측치(하한)"},
     {"id": "rent_level", "name": "임대료 수준(공시지가)", "category": "비용", "actionability": "policy",
      "features": ["land_price"],
-     "note": "임대료 대리 지표. 시간 분할 학습에 값이 들어가지 못해 현재는 기여 0 (DECISIONS.md 2026-09-25)"},
+     "note": "임대료 대리 지표. 시간 분할 학습에 값이 들어가지 못해 현재는 계산 대상에서 제외된다 — 기여 0이 아니라 "
+             "`비용_available=False`(explain의 active 요인에 없음, #34 리뷰 ④). DECISIONS.md 2026-09-25·09-30"},
 ]
 CATEGORIES = ("입지·수요", "경쟁", "비용", "사업체 구조")
 ACTIONABILITY = ("owner", "policy", "external")
