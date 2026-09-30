@@ -1,102 +1,122 @@
 # -*- coding: utf-8 -*-
-"""#34 리뷰 — Shapley 배경 표본 안정성 연구 테스트."""
+"""#34 리뷰 ① — Shapley 배경 안정성 실험·서빙 배경 저장/재현 테스트."""
 from __future__ import annotations
+
+import json
 
 import numpy as np
 import pandas as pd
 import pytest
 
 from src.analysis import shapley_background_stability as sbs
-from src.models import features, splits, train_detect
+from src.models import background
 from tests.test_models import _online_table, synthetic_master
 
 
-def test_sample_random_is_distinct_and_sized():
-    pool = np.arange(100)
-    out = sbs.sample_random(pool, 20, seed=1)
-    assert len(out) == 20 and len(set(out)) == 20
-    assert set(out) <= set(pool)
-
-
-def test_sample_stratified_covers_every_stratum_present_in_quota():
-    pool = np.arange(100)
-    strata = pd.Series(["A"] * 90 + ["B"] * 10)
-    out = sbs.sample_stratified(pool, strata, 20, seed=1)
-    assert len(out) == 20 and len(set(out)) == 20
-    picked_strata = strata.loc[out]
-    assert "A" in set(picked_strata) and "B" in set(picked_strata)  # 작은 층도 최소 1개 보장
-
-
-def test_sample_kmeans_returns_distinct_valid_rows():
+def test_samplers_distinct_and_sized():
+    pool = np.arange(200)
+    assert len(set(sbs.sample_random(pool, 20, 1))) == 20
+    strata = pd.Series(["A"] * 180 + ["B"] * 20)
+    out = sbs.sample_stratified(pool, strata, 20, 1)
+    assert len(set(out)) == 20 and {"A", "B"} <= set(strata.loc[out])
     rng = np.random.default_rng(0)
     X = pd.DataFrame({"a": rng.normal(size=200), "b": rng.normal(size=200)})
-    pool = np.arange(200)
-    out = sbs.sample_kmeans(X, pool, 10, seed=0)
-    assert len(out) == 10 and len(set(out)) == 10
-    assert set(out) <= set(pool)
+    km = sbs.sample_kmeans(X, pool, 10, 0)
+    assert len(set(km)) == 10 and set(km) <= set(pool)
 
 
-def test_top1_ids_picks_argmax_column():
-    phi = np.array([[0.1, 0.9, -0.2], [0.5, 0.1, 0.05]])
-    ids = sbs._top1_ids(phi, ["x", "y", "z"])
-    assert list(ids) == ["y", "x"]
+def test_agreement_metrics():
+    ref = np.array([[0.1, 0.9], [0.5, 0.1], [0.2, -0.3]])
+    phi = np.array([[0.2, 0.8], [0.1, 0.5], [0.3, 0.1]])
+    assert sbs.top1_agreement(phi, ref) == pytest.approx(2 / 3)
+    assert sbs.sign_agreement(phi[:, 1], ref[:, 1]) == pytest.approx(2 / 3)
 
 
-def test_recommend_prefers_fastest_config_meeting_threshold():
-    table = pd.DataFrame([
-        {"method": "random", "n_background": 16, "seed": 1, "base_value": 0.1,
-         "top1_agreement_vs_256": 0.80, "online_sign_agreement_vs_256": 0.80, "seconds_per_1000_stores": 1.0},
-        {"method": "random", "n_background": 64, "seed": 1, "base_value": 0.1,
-         "top1_agreement_vs_256": 0.95, "online_sign_agreement_vs_256": 0.93, "seconds_per_1000_stores": 4.0},
-        {"method": "random", "n_background": 128, "seed": 1, "base_value": 0.1,
-         "top1_agreement_vs_256": 0.97, "online_sign_agreement_vs_256": 0.96, "seconds_per_1000_stores": 8.0},
-    ])
-    rec = sbs.recommend(table, min_agree=0.90)
-    assert rec["met_threshold"]
-    assert rec["chosen"]["n_background"] == 64  # 임계 충족 중 가장 빠른 것
+def _rows(method, n, top1s, signs, sec):
+    return [{"method": method, "n_background": n, "seed": i, "top1": t, "sign": s, "seconds_per_1000": sec,
+             "base_value": 0.1 + i / 100} for i, (t, s) in enumerate(zip(top1s, signs))]
 
 
-def test_recommend_falls_back_to_best_agreement_when_none_meet_threshold():
-    table = pd.DataFrame([
-        {"method": "random", "n_background": 16, "seed": 1, "base_value": 0.1,
-         "top1_agreement_vs_256": 0.5, "online_sign_agreement_vs_256": 0.5, "seconds_per_1000_stores": 1.0},
-        {"method": "random", "n_background": 64, "seed": 1, "base_value": 0.1,
-         "top1_agreement_vs_256": 0.7, "online_sign_agreement_vs_256": 0.6, "seconds_per_1000_stores": 4.0},
-    ])
-    rec = sbs.recommend(table, min_agree=0.90)
-    assert not rec["met_threshold"]
-    assert rec["chosen"]["n_background"] == 64
+def test_recommend_uses_seed_median_and_fastest():
+    t = pd.DataFrame(_rows("random", 64, [0.80, 0.95, 0.91, 0.92, 0.93], [0.96] * 5, 100)  # 중앙값 0.92 — 충족
+                     + _rows("random", 16, [0.95, 0.60, 0.60, 0.95, 0.60], [0.99] * 5, 30)  # 중앙값 0.60 — 미달
+                     + _rows("stratified", 128, [0.97] * 5, [0.98] * 5, 200))
+    rec = sbs.recommend(t)
+    assert rec["met_rule"] and (rec["chosen"]["method"], rec["chosen"]["n_background"]) == ("random", 64)
+    # 부호 기준(95%) 미달이면 채택하지 않는다
+    t2 = pd.DataFrame(_rows("random", 64, [0.95] * 5, [0.94] * 5, 10) + _rows("random", 256, [0.93] * 5, [0.96] * 5, 50))
+    assert sbs.recommend(t2)["chosen"]["n_background"] == 256
+    # 아무것도 충족하지 않으면 두 일치율 중앙값의 최솟값이 가장 높은 설정 + met_rule False
+    t3 = pd.DataFrame(_rows("random", 16, [0.7] * 5, [0.9] * 5, 10) + _rows("random", 64, [0.85] * 5, [0.88] * 5, 50))
+    rec3 = sbs.recommend(t3)
+    assert not rec3["met_rule"] and rec3["chosen"]["n_background"] == 64
 
 
-def test_save_background_index_hash_changes_with_content(tmp_path):
-    df = pd.DataFrame({"store_id": ["A", "B", "C"], "origin": ["2024Q1"] * 3})
-    h1 = sbs.save_background_index(df, np.array([0, 1]), tmp_path / "bg1.csv")
-    h2 = sbs.save_background_index(df, np.array([0, 2]), tmp_path / "bg2.csv")
-    h3 = sbs.save_background_index(df, np.array([0, 1]), tmp_path / "bg3.csv")
-    assert h1 != h2
-    assert h1 == h3
+def _panel_df(n=30):
+    return pd.DataFrame({"store_id": [f"S{i:03d}" for i in range(n)], "origin": ["2024Q1"] * n})
 
 
-def test_study_end_to_end_synthetic(monkeypatch):
-    """작은 합성 데이터로 study()가 끝까지 돌고 표·배경 인덱스가 정합적인지만 확인한다."""
-    monkeypatch.setattr(sbs, "BG_SIZES", (4, 8))
-    monkeypatch.setattr(sbs, "SEEDS", (1, 2))
+def test_background_roundtrip_preserves_rows_and_order(tmp_path):
+    df = _panel_df()
+    idx = np.array([7, 2, 19, 11])
+    m = background.save_background(df, idx, tmp_path, meta={"method": "random"})
+    raw = (tmp_path / background.ROWS_FILE).read_text(encoding="utf-8")
+    assert "S0" not in raw  # store_id를 파일에 남기지 않는다
+    # 다른 순서·더 큰 패널(서빙 학습 구간이 넓어진 경우)에서도 같은 행을 같은 순서로 찾는다
+    df2 = pd.concat([_panel_df(), pd.DataFrame({"store_id": ["X1"], "origin": ["2024Q2"]})]).iloc[::-1].reset_index(drop=True)
+    pos, man = background.load_background(tmp_path / "background_manifest.json", df2)
+    assert df2.iloc[pos]["store_id"].tolist() == df.iloc[idx]["store_id"].tolist()
+    assert man["sha256"] == m["sha256"] and man["n"] == 4 and man["method"] == "random"
 
+
+def test_background_errors_on_missing_or_tampered(tmp_path):
+    df = _panel_df()
+    with pytest.raises(FileNotFoundError, match="manifest"):
+        background.load_background(tmp_path / "background_manifest.json", df)
+    background.save_background(df, np.array([1, 2, 3]), tmp_path)
+    rows = tmp_path / background.ROWS_FILE
+    rows.write_text(rows.read_text(encoding="utf-8").replace(rows.read_text(encoding="utf-8").splitlines()[1], "0" * 32),
+                    encoding="utf-8")
+    with pytest.raises(ValueError, match="해시"):
+        background.load_background(tmp_path / "background_manifest.json", df)
+    background.save_background(df, np.array([1, 2, 3]), tmp_path)
+    with pytest.raises(ValueError, match="학습 패널에 없다"):
+        background.load_background(tmp_path / "background_manifest.json", df.iloc[5:])
+    rows.unlink()
+    with pytest.raises(FileNotFoundError, match="행 파일"):
+        background.load_background(tmp_path / "background_manifest.json", df)
+
+
+@pytest.fixture
+def small_design(monkeypatch, tmp_path):
     panel = synthetic_master(n_stores=80)
-    online_cols = ["store_id", "origin"] + list(features.ONLINE_PREDICTORS) + ["online_feature_asof"]
-    panel = panel.merge(_online_table(panel)[online_cols], on=["store_id", "origin"], how="left", validate="1:1")
-    cols = features.select_features(panel.columns, "enriched")
-    X = features.build_X(panel, cols)
-    y = panel["event_12m"].to_numpy()
-    origins = splits.sorted_origins(panel)
+    mp, op = tmp_path / "master.parquet", tmp_path / "online.parquet"
+    panel.to_parquet(mp, index=False)
+    _online_table(panel).to_parquet(op, index=False)
+    monkeypatch.setattr(sbs, "ORIGIN", sorted(panel["origin"].unique())[-1])
+    monkeypatch.setattr(sbs, "EVAL_N", 12)
+    monkeypatch.setattr(sbs, "REF_N", 16)
+    monkeypatch.setattr(sbs, "SEEDS", (1, 2))
+    monkeypatch.setattr(sbs, "CANDIDATES", [("random", 4), ("stratified", 4), ("kmeans", 4)])
+    return mp, op
 
-    res = sbs.study(panel, X, y, origins, primary="enriched", max_stores=15, seed=0)
-    tab = res["table"]
-    assert set(tab["method"]) == {"random", "stratified", "kmeans"}
-    assert (tab["top1_agreement_vs_256"] <= 1.0).all() and (tab["top1_agreement_vs_256"] >= 0.0).all()
-    assert tab["online_sign_agreement_vs_256"].notna().all()
-    assert (tab.loc[tab["method"] != "kmeans"].groupby(["method", "n_background"]).size() == len(sbs.SEEDS)).all()
 
-    rec = sbs.recommend(tab)
-    key = (rec["chosen"]["method"], int(rec["chosen"]["n_background"]), sbs.SEEDS[0])
-    assert key in res["backgrounds"]
+def test_run_checkpoints_resume_and_saves_background(small_design, tmp_path, monkeypatch):
+    mp, op = small_design
+    out, bg_dir = tmp_path / "exp", tmp_path / "bg"
+    res = sbs.run(mp, op, out, bg_dir)
+    lines = (out / "results.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 3 * 2 and set(res["summary"]["method"]) == {"random", "stratified", "kmeans"}
+    assert (bg_dir / "background_manifest.json").exists() and res["manifest"]["n"] == res["chosen"]["n_background"]
+    # 다시 실행하면 끝난 설정·기준 배경은 다시 계산하지 않는다
+    calls = []
+    real = sbs._shapley
+    monkeypatch.setattr(sbs, "_shapley", lambda s, bg: calls.append(len(bg)) or real(s, bg))
+    sbs.run(mp, op, out, bg_dir)
+    assert calls == [] and len((out / "results.jsonl").read_text(encoding="utf-8").splitlines()) == 6
+    # 설계가 바뀌면(평가 점포 수) 이어 쓰지 않고 멈춘다
+    monkeypatch.setattr(sbs, "EVAL_N", 10)
+    with pytest.raises(RuntimeError, match="설계"):
+        sbs.run(mp, op, out, bg_dir)
+    design = json.loads((out / "design.json").read_text(encoding="utf-8"))
+    assert design["eval_n"] == 12 and design["ref_n"] == 16
