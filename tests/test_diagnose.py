@@ -381,44 +381,36 @@ def test_load_truncated_stores_reads_qa_csv(tmp_path):
     assert diagnose.load_truncated_stores(p) == {"A"}
 
 
-def test_load_background_index_maps_positions_and_rejects_missing(tmp_path):
-    df = pd.DataFrame({"store_id": ["A", "B", "C"], "origin": ["2024Q1", "2024Q1", "2024Q1"]})
-    idx_path = tmp_path / "bg.csv"
-    pd.DataFrame({"store_id": ["C", "A"], "origin": ["2024Q1", "2024Q1"]}).to_csv(idx_path, index=False)
-    assert list(diagnose.load_background_index(idx_path, df)) == [2, 0]
+def test_run_reproduces_manifest_background(tmp_path, panel):
+    """#34: background manifest를 주면 무작위 대신 저장된 배경(해시 키)을 그대로 쓰고, 같은 결과가 재현된다."""
+    from src.models import background
 
-    bad_path = tmp_path / "bg_bad.csv"
-    pd.DataFrame({"store_id": ["Z"], "origin": ["2024Q1"]}).to_csv(bad_path, index=False)
-    with pytest.raises(ValueError):
-        diagnose.load_background_index(bad_path, df)
-
-
-def test_background_fingerprint_matches_save_background_index_hash(tmp_path):
-    """diagnose.background_fingerprint와 shapley_background_stability.save_background_index는 같은 해시를
-    내야 한다 — #34가 저장한 배경을 서빙이 그대로 썼는지 sha256으로 대조할 수 있게."""
-    from src.analysis.shapley_background_stability import save_background_index
-
-    df = pd.DataFrame({"store_id": [f"S{i}" for i in range(5)], "origin": ["2024Q1"] * 5})
-    bg_idx = np.array([1, 3])
-    fp = diagnose.background_fingerprint(df, bg_idx)
-    h = save_background_index(df, bg_idx, tmp_path / "bg.csv")
-    assert fp["sha256"] == h and fp["n"] == 2
-
-
-def test_run_reproduces_saved_background_index(tmp_path, panel):
-    """#34: --background-index로 저장된 배경을 주면 무작위 대신 그 (store_id, origin)을 그대로 쓴다."""
     mp, op = tmp_path / "master.parquet", tmp_path / "online.parquet"
     panel.to_parquet(mp, index=False)
     _online_table(panel).to_parquet(op, index=False)
     origins = sorted(panel["origin"].unique())
-    train_pool = panel[panel["origin"] < origins[-5]]  # run()의 학습 구간(origins[:t-EMBARGO])보다 넉넉히 이전
-    bg_rows = train_pool[["store_id", "origin"]].drop_duplicates().head(4)
-    bg_path = tmp_path / "bg.csv"
-    bg_rows.to_csv(bg_path, index=False)
+    pool = np.flatnonzero((panel["origin"] < origins[-5]).to_numpy())
+    background.save_background(panel, pool[:4], tmp_path / "bg")
+    man = tmp_path / "bg" / "background_manifest.json"
+    kw = dict(online_path=op, primary="enriched", origin=None, n_background=4, max_stores=30, background_manifest=man)
+    a = diagnose.run(mp, tmp_path / "d1", seed=1, **kw)
+    b = diagnose.run(mp, tmp_path / "d2", seed=2, **kw)  # 시드가 달라도 배경이 같으므로(표본 점포만 다름) 같은 점포는 같은 기여
+    m = a.merge(b, on=["store_id", "origin", "factor_id"], suffixes=("_a", "_b"))
+    assert len(m) and np.allclose(m["contribution_a"], m["contribution_b"])
 
-    long = diagnose.run(mp, tmp_path / "diag", online_path=op, primary="enriched", origin=None,
-                        n_background=4, max_stores=30, background_index_path=bg_path)
-    assert len(long) > 0  # 배경 인덱스가 학습 구간과 맞지 않으면 run()이 이미 예외로 멈춘다
+
+def test_background_rows_errors_and_random_fallback(tmp_path, panel):
+    from src.models import background
+
+    tr = np.ones(len(panel), bool)
+    with pytest.raises(FileNotFoundError, match="manifest"):
+        diagnose.background_rows(tmp_path / "none.json", panel, tr, np.random.default_rng(0), 4)
+    background.save_background(panel, np.array([0, 1, 2]), tmp_path)
+    tr2 = tr.copy(); tr2[1] = False
+    with pytest.raises(ValueError, match="학습 구간 밖"):
+        diagnose.background_rows(tmp_path / "background_manifest.json", panel, tr2, np.random.default_rng(0), 4)
+    idx, info = diagnose.background_rows(None, panel, tr, np.random.default_rng(0), 5)
+    assert len(idx) == 5 and info["source"] == "random" and len(info["rows_sha256"]) == 64
 
 
 def test_run_with_qa_holds_truncated_stores_end_to_end(tmp_path, panel):

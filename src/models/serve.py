@@ -40,7 +40,7 @@ import numpy as np
 import pandas as pd
 
 from src.data import config
-from src.models import bands, detect, diagnose, features, train_detect, uncertainty
+from src.models import background, bands, detect, diagnose, features, train_detect, uncertainty
 
 SCHEMA_VERSION = "0.2"  # 0.2: score_origin, factors[].missing_reason·hold_reason, direction "영향 미미"
 # 2026-09-30(#34/#41): factors[].driver_code 추가 — #41 report_schema.json $defs/online_driver_code와 같은 선택
@@ -129,7 +129,7 @@ def model_params(run_meta: dict) -> tuple[dict, str]:
 
 def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *, primary: str,
         online_path: Path | None = None, online_score_path: Path | None = None,
-        licenses_path: Path | None = None, qa_path: Path | None = None, background_index_path: Path | None = None,
+        licenses_path: Path | None = None, qa_path: Path | None = None, background_manifest: Path | None = None,
         n_boot: int = 20, n_background: int = 16, seed: int = 20260925) -> pd.DataFrame:
     t0 = time.time()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -198,18 +198,9 @@ def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *,
     if online_score_path is not None and qa_path is not None:
         truncated_stores = diagnose.load_truncated_stores(qa_path)
         train_detect.log(f"절단 점포 {len(truncated_stores):,}곳 (QA {qa_path})")
-    if background_index_path is not None:
-        bg = diagnose.load_background_index(background_index_path, lab)
-        outside_tr = ~np.isin(bg, np.flatnonzero(tr))
-        if outside_tr.any():
-            raise ValueError(f"배경 인덱스 중 {int(outside_tr.sum())}건이 이 학습 구간(tr) 밖이다")
-        train_detect.log(f"배경 {len(bg)}개 — 저장된 인덱스 재현 ({background_index_path})")
-        Xb = features.build_X(lab.iloc[bg], cols, categories=cats)
-    else:
-        bg = rng.choice(len(Xtr), n_background, replace=False)
-        Xb = Xtr.iloc[bg]
-    bg_fp = diagnose.background_fingerprint(lab, bg) if background_index_path is not None \
-        else diagnose.background_fingerprint(lab.loc[tr].reset_index(drop=True), bg)
+    # 배경: manifest(#34 확정)가 있으면 그대로 재현, 없으면(테스트·명시적 --random-background) 학습 구간 무작위
+    bg, bg_fp = diagnose.background_rows(background_manifest, lab, tr, rng, n_background)
+    Xb = features.build_X(lab.iloc[bg], cols, categories=cats)
     meta = sc[["store_id", "origin", "biz_type", "gu", "age_months"]]
     res = diagnose.explain(model, Xs, Xb, meta, sc, truncated_stores=truncated_stores)
     long = res["long"]
@@ -253,8 +244,7 @@ def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *,
         "cutoff_provenance": {**(run_meta.get("band_provenance") or {}),
                               "high_share_served": float((risk["band"] == "high").mean())},
         "band_cutoffs": cut, "n_boot": n_boot, "n_background": n_background,
-        "background": {"source": str(background_index_path) if background_index_path else "random",
-                       **bg_fp},
+        "background": bg_fp,
         "qa": str(qa_path) if qa_path else None, "n_truncated_stores": len(truncated_stores) if truncated_stores else 0,
         "detect_run": str(detect_dir), "detect_master_sha256": run_meta.get("master_sha256"),
         "master": str(master_path), "master_sha256": train_detect.sha256(master_path),
@@ -295,8 +285,10 @@ def main(argv=None) -> None:
     ap.add_argument("--n-background", type=int, default=16)
     ap.add_argument("--qa", type=Path, default=None,
                     help="온라인 QA csv — 있으면 절단 점포를 온라인 요인 data_missing으로 보류 (#34)")
-    ap.add_argument("--background-index", type=Path, default=None,
-                    help="shapley_background_stability가 저장한 배경(store_id,origin) csv — 있으면 재현, 없으면 무작위")
+    ap.add_argument("--background-manifest", type=Path, default=background.DEFAULT_MANIFEST,
+                    help="#34에서 확정한 Shapley 배경 manifest (기본 outputs/diagnosis/background/background_manifest.json, 없으면 오류)")
+    ap.add_argument("--random-background", action="store_true",
+                    help="manifest 대신 학습 구간 무작위 --n-background개 (재현 안 됨 — 비교·시험용)")
     ap.add_argument("--out", type=Path, default=None)
     a = ap.parse_args(argv)
     licenses = a.licenses
@@ -311,7 +303,8 @@ def main(argv=None) -> None:
     out = a.out or (config.REPO_ROOT / "outputs" / "serve" / f"{origin}_{a.primary}")
     run(a.master, a.score, detect_dir, out, primary=a.primary, online_path=a.online,
         online_score_path=a.online_score, licenses_path=licenses, qa_path=a.qa,
-        background_index_path=a.background_index, n_boot=a.n_boot, n_background=a.n_background)
+        background_manifest=None if a.random_background else a.background_manifest,
+        n_boot=a.n_boot, n_background=a.n_background)
 
 
 if __name__ == "__main__":

@@ -512,31 +512,32 @@ def load_truncated_stores(qa_path: Path) -> set:
     return truncated_store_ids(load_qa(qa_path))
 
 
-def load_background_index(path: Path, df: pd.DataFrame) -> np.ndarray:
-    """#34 리뷰: Shapley 배경 안정성 연구(`shapley_background_stability`)가 고른 배경(store_id×origin)을
-    그대로 재현한다 — df에서 그 (store_id, origin)의 위치를 찾는다. 학습 구간(tr) 안에 있는지는 호출자가 확인한다."""
-    idx_df = pd.read_csv(path, dtype=str)
-    key = pd.Series(np.arange(len(df)), index=pd.MultiIndex.from_frame(df[["store_id", "origin"]].astype(str)))
-    want = pd.MultiIndex.from_frame(idx_df[["store_id", "origin"]].astype(str))
-    missing = want.difference(key.index)
-    if len(missing):
-        raise ValueError(f"배경 인덱스에 이 df에 없는 (store_id, origin) {len(missing)}건: {list(missing[:5])}")
-    return key.loc[want].to_numpy()
+def background_rows(manifest_path: Path | None, df: pd.DataFrame, tr: np.ndarray, rng, n_background: int
+                    ) -> tuple[np.ndarray, dict]:
+    """Shapley 배경 행 위치(df 기준)와 재현 정보. manifest가 있으면 #34 실험이 확정한 배경을 그대로 재현하고
+    (`background.load_background`: 파일 없음·해시 불일치·행 누락이면 오류, 학습 구간 밖 행이면 오류),
+    None이면 학습 구간에서 무작위 n_background개(재현 정보는 행 키 해시)."""
+    from src.models import background
 
-
-def background_fingerprint(df: pd.DataFrame, bg_idx: np.ndarray) -> dict:
-    """배경(store_id×origin)의 재현 정보. `shapley_background_stability.save_background_index`와 같은
-    해시 방식이라, `--background-index`로 그 산출물을 그대로 쓰면 sha256이 정확히 같다(재현 확인용)."""
+    if manifest_path is not None:
+        idx, man = background.load_background(manifest_path, df)
+        outside = ~np.isin(idx, np.flatnonzero(tr))
+        if outside.any():
+            raise ValueError(f"배경 행 {int(outside.sum())}개가 이 학습 구간 밖이다")
+        train_detect.log(f"배경 {len(idx)}개 — manifest 재현 ({man.get('method')} {man.get('n_background', len(idx))}, {manifest_path})")
+        return idx, {"source": str(manifest_path), "method": man.get("method"), "n": int(len(idx)),
+                     "rows_sha256": man["sha256"], "met_rule": man.get("met_rule")}
     import hashlib
 
-    idx_df = df.iloc[bg_idx][["store_id", "origin"]].reset_index(drop=True)
-    h = hashlib.sha256(idx_df.to_csv(index=False).encode("utf-8")).hexdigest()
-    return {"n": len(idx_df), "sha256": h}
+    idx = rng.choice(np.flatnonzero(tr), n_background, replace=False)
+    keys = background.row_keys(df.iloc[idx]["store_id"].astype(str), df.iloc[idx]["origin"].astype(str))
+    return idx, {"source": "random", "method": "random", "n": int(len(idx)),
+                 "rows_sha256": hashlib.sha256("\n".join(keys).encode()).hexdigest()}
 
 
 def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: str, origin: str | None,
         n_background: int, max_stores: int | None, seed: int = 20260925,
-        qa_path: Path | None = None, background_index_path: Path | None = None) -> pd.DataFrame:
+        qa_path: Path | None = None, background_manifest: Path | None = None) -> pd.DataFrame:
     t0 = time.time()
     out_dir.mkdir(parents=True, exist_ok=True)
     df = train_detect.load_master(master_path)
@@ -563,14 +564,7 @@ def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: 
         truncated_stores = load_truncated_stores(qa_path)
         train_detect.log(f"절단 점포 {len(truncated_stores):,}곳 (QA {qa_path})")
 
-    if background_index_path is not None:
-        bg_idx = load_background_index(background_index_path, df)
-        outside_tr = ~np.isin(bg_idx, np.flatnonzero(tr))
-        if outside_tr.any():
-            raise ValueError(f"배경 인덱스 중 {int(outside_tr.sum())}건이 이 학습 구간(tr) 밖이다")
-        train_detect.log(f"배경 {len(bg_idx)}개 — 저장된 인덱스 재현 ({background_index_path})")
-    else:
-        bg_idx = rng.choice(np.flatnonzero(tr), n_background, replace=False)
+    bg_idx, _ = background_rows(background_manifest, df, tr, rng, n_background)
     meta = df.iloc[te_idx][["store_id", "origin", "biz_type", "gu", "age_months"]].reset_index(drop=True)
     res = explain(model, X.iloc[te_idx], X.iloc[bg_idx], meta, df.iloc[te_idx].reset_index(drop=True),
                  truncated_stores=truncated_stores)
@@ -613,14 +607,14 @@ def main(argv=None) -> None:
     ap.add_argument("--max-stores", type=int, default=None, help="동작 확인용 표본 점포 수")
     ap.add_argument("--qa", type=Path, default=None,
                     help="온라인 QA csv — 있으면 절단 점포를 온라인 요인 data_missing으로 보류 (#34)")
-    ap.add_argument("--background-index", type=Path, default=None,
-                    help="shapley_background_stability가 저장한 배경(store_id,origin) csv — 있으면 재현, 없으면 무작위")
+    ap.add_argument("--background-manifest", type=Path, default=None,
+                    help="#34 배경 manifest(outputs/diagnosis/background/background_manifest.json) — 있으면 재현, 없으면 무작위")
     ap.add_argument("--out", type=Path, default=None)
     a = ap.parse_args(argv)
     out = a.out or (config.REPO_ROOT / "outputs" / "models" / f"diagnosis_{a.primary}")
     run(a.master, out, online_path=a.online, primary=a.primary, origin=a.origin,
         n_background=a.n_background, max_stores=a.max_stores, qa_path=a.qa,
-        background_index_path=a.background_index)
+        background_manifest=a.background_manifest)
 
 
 if __name__ == "__main__":

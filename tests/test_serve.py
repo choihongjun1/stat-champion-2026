@@ -174,3 +174,25 @@ def test_serve_uses_run_meta_hyperparameters(detect_run, tmp_path):
     sm = json.loads((tmp_path / "out_tweaked" / "serve_meta.json").read_text(encoding="utf-8"))
     assert sm["model_params"]["max_iter"] == 50 and sm["model_params_is_default"] is False
     assert np.abs(base["probability_12m"].to_numpy() - tweaked["probability_12m"].to_numpy()).max() > 1e-6  # 실제로 반영됨
+
+
+
+def test_serve_uses_background_manifest_and_cli_requires_it(detect_run, tmp_path):
+    """#34: serve는 manifest의 배경을 재현하고 serve_meta에 해시를 남긴다. CLI 기본값의 manifest가 없으면 명확한 오류."""
+    from src.models import background
+
+    lab = train_detect.load_master(detect_run["mp"])
+    tr = serve.training_mask(lab, detect_run["last"])
+    background.save_background(lab, np.flatnonzero(tr)[:4], tmp_path / "bg", meta={"method": "stratified", "n_background": 4})
+    man = tmp_path / "bg" / "background_manifest.json"
+    _serve(detect_run, tmp_path / "o1", background_manifest=man)
+    _serve(detect_run, tmp_path / "o2", background_manifest=man)
+    s1 = json.loads((tmp_path / "o1" / "serve_meta.json").read_text(encoding="utf-8"))["background"]
+    assert s1["method"] == "stratified" and s1["rows_sha256"] == json.loads(man.read_text(encoding="utf-8"))["sha256"]
+    d1, d2 = (pd.read_parquet(tmp_path / o / "diagnosis.parquet") for o in ("o1", "o2"))
+    assert np.allclose(d1["contribution"], d2["contribution"])
+    with pytest.raises(FileNotFoundError, match="manifest"):
+        serve.main(["--master", str(detect_run["mp"]), "--score", str(detect_run["sp"]), "--primary", "enriched",
+                    "--detect-dir", str(detect_run["ddir"]), "--online", str(detect_run["op"]),
+                    "--online-score", str(detect_run["osp"]), "--n-boot", "0", "--out", str(tmp_path / "o3"),
+                    "--background-manifest", str(tmp_path / "missing.json")])
