@@ -104,7 +104,7 @@ def bootstrap_interval(
     group : 주면 **점포 단위**로 리샘플한다. 패널에서는 이게 맞다 —
             행 단위로 뽑으면 같은 점포의 18개 행이 쪼개져 독립처럼 취급되어
             구간이 실제보다 좁게 나온다.
-    alpha : 0.10이면 5~95 백분위 구간
+    alpha : 0.10이면 5~95 백분위 구간 (= 90% 구간, 95% CI가 아니다)
     """
     rng = np.random.default_rng(seed)
     n = len(y_train)
