@@ -59,6 +59,23 @@
   주소텍스트 기준 값이며, 위 표의 QA 행에 해당한다.
 - 한계: 인허가일자는 개업일 proxy(승계·양도양수 시 업력 왜곡 가능), 이전(移轉)은 식별 불가.
 
+### 1-1. 파생: 경쟁지표 테이블 (W2, 2026-09-26)
+
+- 모듈: `src/data/competition_features.py` · 정의·결정: `DECISIONS.md` 2026-09-26 "W2 경쟁지표 6종 정의"
+- 입력: `outputs/standardized/licenses_3gu.parquet` (110,347행, `store_id`·`business_type`·`gu`·`pnu`·`bjd_code`·
+  `license_date`·`close_date`) + 패널 키(`store_id`, `origin`, `origin_end`)
+- 출력 (커밋하지 않음): `outputs/competition/competition_features.parquet` (master_base 키, 527,934행),
+  `outputs/competition/competition_features_score_2026Q2.parquet` (master_score 키, 28,711행), 각각 `_meta.json`·`_qa.md`
+- 키: `(store_id, origin)` 유일, 패널과 같은 행 순서. 지표 6개(`comp_*`, 점포 수 Int64 / 증감률 Float64)와 provenance
+  (`comp_feature_asof`, `comp_available_at`(NA), `comp_available_at_basis`="unverified", `comp_source_snapshot`,
+  `comp_raw_last_observed`, `comp_location_basis`="license_current_address", `comp_location_status`)
+- 위치 상태 (인허가 110,347곳, 2026-09-26 실측): ok 110,148 / PNU·법정동 모두 없음 195 / 자치구–법정동 코드 불일치 4
+  (= `gu_mismatch`). PNU만 없는 점포 0. 법정동 70개, 코드–이름 1:1, 구를 넘는 동명 0.
+- 결측률: master_base 키 0.18%(968행 = 위치 없음 944 + 불일치 24), `comp_dong_density_yoy`는 전년 점포 0인 8행이 더해진다.
+  master_score 키 0.11%(31행 = 위치 없음 30 + 불일치 1, `density_yoy`는 분모 0인 3행 추가). 2021Q1도 산출(결측 0.23%). 상권 미배정(`trdar_cd` NA) 118,412행 중 117,803행에서 동 지표 산출.
+- 한계: 경쟁 모집단은 3개 구 × 3개 업종 인허가 점포뿐. 위치는 현재 스냅샷 주소의 소급. 실제 공개 시점 미확인.
+  `density_yoy`는 점포 수 증감률이며 open·close와 항등식으로 겹친다.
+
 ## 2. 소진공 상가(상권)정보 (공공데이터포털, UTF-8)
 
 - 파일: `data/00_raw/소진공_상가정보/` — **7개 스냅샷: 202412, 202503, 202506, 202510, 202512, 202603, 202606** (간격 2~4개월, 불균일).
@@ -319,11 +336,55 @@ B-3가 아래 산출물로 파생한다. 소진공 소멸은 주 폐업 라벨�
 - 결과: 경영_영업이익 결측 0%, 적자 5.5%.
 - 가중치: 사업체수가중값 1종만 제공. 지역은 시도(17개)까지 — 자치구 불가, 전국 분석 + 서울 부분집합 평가.
 
-## 6. 네이버·카카오 온라인 정보 (미수집, W1 ④)
+## 6. 네이버·카카오 온라인 정보 (W1-4/W2-1 수집 완료 — 축A·축B 전체)
 
-- 블로그·카페 검색: **작성일이 존재하므로 월별 시계열로 재구성하면 과거 시점 feature로 사용 가능** — 수집 시 store_id × month 형태로 저장.
-- 지역검색 등록 여부·순위, 카카오 로컬 등록 여부: 수집 시점의 현재값 → **현재 진단 표시용으로만 사용, 과거 예측 feature 사용 금지**.
-- 모든 수집 레코드에 `collected_at`, `query_used` 기록 필수. 수집 후 매칭률과 함께 이 문서 갱신.
+- 수집 도구: `src/data/collect_online_presence.py`(등록 여부·현재 누적 건수 요약, "축A"), `src/data/collect_blog_monthly.py`(블로그 월별 시계열, 시나리오 c, "축B").
+- **네이버 지역검색·블로그·카페글은 API HUB 애플리케이션(키) 하나당 일 25,000회 한도를 공유한다** (콘솔 "한도 설정" 화면과 429 응답으로 실측 확인 — 공식 문서엔 명시 안 됨). 카카오 로컬은 앱당 일 10만 회.
+- **카페글 검색 API 응답에는 작성일(postdate)이 없다.** 월별 시계열 재구성은 **블로그만 가능**.
+- 등록 여부·검색 순위(네이버 지역·카카오 로컬): 수집 시점의 현재값 → **현재 진단 표시용으로만 사용, 과거 예측 feature 사용 금지**.
+- 매칭 판정: 지역·카카오 등록 여부는 상호명 일치 + 후보 주소의 **법정동·시군구(구) 일치**를 모두 요구 (2026-09-23 리뷰 반영: 동만으로는 3구 법정동 49개 중 19개가 타 시군구에도 존재해 동명이동 오매칭 발생 확인, PR #21 리뷰). 조건에 맞는 후보가 둘 이상이면 `ambiguous=True`로 표시. 블로그·카페 언급은 제목+본문에 상호명이 실제로 포함된 것만 카운트, 협찬 문구(`SPONSOR_KEYWORDS`, `collect_online_presence.py`) 포함 여부를 별도 집계.
+
+### 시범 수집 실측 (광진구 1,000건 표본, 2026-09-16 수집, 영업/폐업 층화표집)
+
+| 지표 | 영업중 (n=253) | 폐업 (n=747) |
+|---|---|---|
+| 네이버 지역 등록률 | 68.0% | 13.4% |
+| 카카오맵 등록률 | 60.1% | 11.5% |
+| 블로그 언급 보유율 | 56.9% | 41.8% |
+| 카페 언급 보유율 | 38.7% | 37.3% |
+
+### 3구 전체 수집 완료 — 2026-09-24 기준
+
+- 모집단: `개방자치단체코드` 기준 **정본 110,347건** (`DECISIONS.md` 2026-09-21). 주소텍스트 기준(110,355건)과의 불일치 20건은 `gu_mismatch` 등으로 QA 보존, 모집단 정의에는 미사용.
+- store_id: `standardize.py`와 동일한 `{GR|SR|BT}_{관리번호}` 형식으로 통일 (`build_targets.py`가 `io_license`/`config` 직접 사용).
+- **축A(등록·요약값): 110,347/110,347건 완료 (100%), 오류 0건.** 구 일치 조건 추가 후, 기존 수집분 중 구 불일치가 의심되는 363건(naver 32 + kakao 347, 중복 제외)을 재조회해 정정 반영 완료.
+  - `naver_local_registered=True`: 29,768건 (26.98%)
+  - `kakao_registered=True`: 26,840건 (24.32%)
+  - (참고) 재조회 전 기존 수집분 100,879건만 놓고 보면 각각 28,426건 / 25,563건이다 — 이 값을 전체 모집단 비율로 쓰지 말 것.
+- **축B(블로그 월별): 110,347/110,347건 완료 (100%), 오류 0건.** 월별 행수 622,088건. `first_date_truncated=True`(200건 상한 도달): 3,931건 (3.56%) — 사전 표본(300건) 실측 2.0%로 `MAX_PAGES=2` 유지 결정, 실측치도 일관됨.
+  - 원본(raw) 전량 보존: `data/raw/online/blog_items.jsonl.gz` (229MB, git 미추적) — 매칭 기준 변경 시 오프라인 재적용, 절단 지점 재계산에 사용. 카페는 원본 미보존, 재적용 대상 아님.
+  - run manifest: `data/raw/online/collection_manifest.jsonl`에 `collection_run_id`/설정값/git SHA/시작·종료시간/input checksum 기록.
+    `input_checksum_sha256`은 **수집 입력 대상 목록**(`all_targets.csv` 등)의 해시이고, raw(`blog_items.jsonl.gz`)의 해시가 아니다.
+
+### 알려진 한계
+
+- **짧거나 흔한 단어형 상호명(예: "요즘", "오늘")에서 블로그·카페 매칭 오탐 확인됨.** 상호명이 본문에 포함되기만 하면 언급으로 카운트하는 방식이라, 무관한 글이 섞여 건수가 부풀려질 수 있다. 정규화 후 2자 이하 상호가 전체의 8.90%(9,817건)이며, 이 집단의 폐업률(82.6%)이 일반(73.0%)보다 높아 오탐 노이즈가 라벨과 상관될 위험이 있다. 9/27 짧은 상호 100건 영업/폐업 층화·blind 검수 후 정밀도 재평가 예정 (블로그만 해당, 이슈 #28).
+- **오래된 게시물 삭제 편향 가능성.** 블로그 보유율이 폐업 점포(41.8%)가 영업중(56.9%)보다 낮은 데는 실제 차이 외에 오래된 글 삭제·블로그 폐쇄가 섞여 있을 수 있다. origin별 "과거 온라인 feature 사용 안전성" 진단을 별도로 진행 예정 (이슈 #26).
+- **temporal 메타데이터는 `src/data/export_online_features.py`가 `outputs/online/*.parquet`으로 내보낼 때 부여한다** (이슈 #23, 수집 스크립트는 부여하지 않는다).
+  - 축A(`online_presence.parquet`): `feature_asof` = `available_at` = **수집 시각**(KST 기준 tz-naive). 수집 시점의 현재값이라 모든 origin보다 늦고, 따라서 master 조인의 as-of 규칙에서 **과거 origin에서는 자동으로 NA**가 된다 — "현재 진단 표시용" 결정이 규칙으로 강제된다.
+  - 축B(`online_mentions_monthly.parquet`): `feature_asof` = `available_at` = **해당 게시월의 말일**.
+  - as-of 컷오프(`available_at > origin_end` → NA)는 이 스크립트가 아니라 **W2-0 master 조인의 기존 규칙**(`src/data/master.py`)이 적용한다.
+  - `source_snapshot`은 날짜값이 아니라 원천 식별자다 — 축A는 원천 CSV 식별자. (`label_schema.py` 관례)
+    축B는 `blog_items.jsonl.gz@sha256:<64자>#run:<collection_run_id>#git:<git SHA 12자>`:
+    - `sha256` = export가 참조한 raw 파일 **바이트 자체**의 해시(gzip 해제 전). 같은 내용이라도 다시 압축하면 값이 바뀐다.
+    - `--resume` 수집은 같은 raw에 이어 쓰고 run별 중간 raw는 남지 않으므로, run 종료 시점이 아니라 **export 시점의 최종 raw 전체**를
+      해시한다(현재 파일로 언제든 재검증 가능). 행별 run·SHA는 `#run:`/`#git:`과 `collection_run_id`·`git_sha` 컬럼이 맡는다.
+    - run id나 manifest SHA가 없는 행이 있으면 export를 멈춘다(`unknown`으로 내보내지 않음).
+    - 2026-09-29 실측: raw 239,968,176바이트, sha256 `3a7fc8db94b0e834…`, run 1개(`20260923T143942Z-a589611d`), 월별 622,088행 전부
+      raw의 매칭 글 수와 일치.
+- **카페 언급은 매칭 기준 변경의 재적용 대상이 아님.** 축B(블로그 월별) 수집만 원본을 보존한다. 카페 언급 수는 모델 feature로도 화면 표시(등록 여부 2개 + 축B 최근 12개월 블로그 수)에도 쓰이지 않아 원본을 저장하지 않으며, 향후 이름 매칭 기준이 바뀌어도 카페는 현행 규칙을 그대로 유지한다.
+- `naver_blog_total`/`naver_cafe_total`(축A)은 **관련도순 상위 100건(1페이지) 안에서 상호명이 매칭된 건수**일 뿐 전체 언급 수가 아니며, API 원본 total과도 다르다. **모델·화면은 축B(월별)를 쓰고 축A의 총량 컬럼은 QA 용도로만 쓴다.** 기존 100,879건은 이 원본 total(`*_api_total`)을 보존하지 않음 — 절단(100건 상한) 도달 행이 **기존 100,879건 기준** 0.061%(블로그)/0.106%(카페)뿐이라 재수집하지 않기로 결정 (전체 110,347건 기준으로는 0.064%/0.112%) (`DECISIONS.md` 2026-09-23).
+- 모든 수집 레코드에 `collected_at`, `query_used` 기록. 축B는 `collection_run_id`, `oldest_raw_postdate` 추가.
 
 ## 포기·대체 (참고)
 
