@@ -123,7 +123,7 @@ def test_small_cells_and_mapping(frames):
     table = build_composition_table(mdis.iloc[:4], panel.iloc[:4], panel_asof="2023Q3")
     assert cell(table, "표본", "전체 N", "A") == "<5 (<5)"
     assert cell(table, "표본", "전체 N", "D") == "<5 (<5)"
-    assert cell(table, "표본", "전체 N", "B") == "<5 (<5)"
+    assert cell(table, "표본", "전체 N", "B") == "0 (—)"
     assert cell(table, "업종", "56", "대응 수준") == "부분 대응"
     assert cell(table, "업종", "96", "대응 수준") == "부분 대응"
     assert cell(table, "업종", "47", "대응 수준") == "대응 없음"
@@ -139,7 +139,8 @@ def test_cli_outputs_provenance_and_language(frames, tmp_path):
     assert main(["--mdis", str(mpath), "--panel", str(ppath), "--out-dir", str(out)]) == 0
     md = (out / "composition_table.md").read_text(encoding="utf-8")
     assert md.startswith(HEADER)
-    assert "&lt;5 (&lt;5)" in md
+    assert "0 (0.00%)" in md
+    assert "D56=그중 일반음식점+휴게음식점" in md
     csv = pd.read_csv(out / "composition_table.csv", keep_default_na=False)
     assert csv.equals(build_composition_table(mdis, panel))
     meta = json.loads((out / "composition_meta.json").read_text(encoding="utf-8"))
@@ -149,6 +150,8 @@ def test_cli_outputs_provenance_and_language(frames, tmp_path):
         assert meta["inputs"][name]["path"] == str(path.resolve())
     assert meta["panel_asof"] == "2023Q4"
     assert meta["panel_asof_end"] == "2023-12-31"
+    assert meta["mapping_rule_version"] == "S7-20261001-v2"
+    assert meta["masking_change_reason"] == "0은 공표 위험이 없어 표시"
     assert re.fullmatch(r"[0-9a-f]{40}", meta["generated_commit_sha"])
     assert set(meta["package_versions"]) == {"pandas", "numpy", "pyarrow"}
     # C1 is absent from origin/main at the task baseline: direct requested list.
@@ -187,3 +190,49 @@ def test_cli_error_no_outputs(tmp_path):
         main(["--mdis", str(tmp_path / "absent.parquet"), "--out-dir", str(out)])
     assert exc.value.code == 2
     assert not out.exists()
+
+
+@pytest.mark.parametrize("dtype", ["bool", "int64"])
+def test_region_binary_mapping(frames, dtype):
+    mdis, panel = frames
+    mdis = mdis.copy()
+    mdis["is_seoul"] = mdis["is_seoul"].astype(dtype)
+    table = build_composition_table(mdis, panel)
+    assert unpack(cell(table, "지역(시도)", "서울", "A")) == (600, 50)
+    assert unpack(cell(table, "지역(시도)", "서울 외", "A")) == (600, 50)
+    assert cell(table, "지역(시도)", "결측", "A") == "0 (0.00%)"
+    assert unpack(cell(table, "지역(시도)", "서울", "C(전체)")) == (600, 100)
+
+
+def test_binary_nullable_integer():
+    from src.analysis.composition_compare import _binary
+    result = _binary(pd.Series([True, False, None], dtype="boolean"))
+    assert str(result.dtype) == "Int64"
+    assert result.iloc[:2].tolist() == [1, 0]
+    assert pd.isna(result.iloc[2])
+
+
+@pytest.mark.parametrize("n,expected", [(0, "0 (0.00%)"), (1, "<5 (<5)"), (4, "<5 (<5)"), (5, "5 (100.00%)")])
+def test_masking_boundaries(n, expected):
+    from src.analysis.composition_compare import _cell
+    series = pd.Series(["hit"] * n + (["other"] * 5 if n == 0 else []), dtype="object")
+    assert _cell(series, "hit", ("hit", "other")) == expected
+
+
+def test_zero_denominator():
+    from src.analysis.composition_compare import _cell
+    assert _cell(pd.Series([], dtype="object"), "hit", ("hit",)) == "0 (—)"
+
+
+def test_d56_counts_and_distribution(frames):
+    mdis, panel = frames
+    panel = panel.copy()
+    panel.loc[panel["biz_type"].eq("미용업"), "age_months"] = 200
+    table = build_composition_table(mdis, panel)
+    assert unpack(cell(table, "표본", "전체 N", "D56")) == (600, 100)
+    assert unpack(cell(table, "업종", "56", "D56")) == (600, 100)
+    assert cell(table, "업종", "96", "D56") == "0 (0.00%)"
+    assert sum(unpack(cell(table, "업력", x, "D56"))[0] for x in TENURE_BINS) == 600
+    assert all(unpack(cell(table, "업력", x, "D56")) == (120, 20) for x in TENURE_BINS)
+    assert unpack(cell(table, "업력", "10년 이상", "D"))[0] == 420
+    assert sum(unpack(cell(table, "지역(구)", x, "D56"))[0] for x in ("광진구", "마포구", "영등포구")) == 600

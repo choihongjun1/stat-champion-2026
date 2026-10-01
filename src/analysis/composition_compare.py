@@ -19,8 +19,8 @@ import pandas as pd
 from src.data import config
 
 HEADER = "두 자료의 구성 차이를 보여 주는 기술 통계이며, 재가중이나 검정을 하지 않았습니다."
-RULE_VERSION = "S7-20261001-v1"
-SAMPLES = ("A", "B", "C(전체)", "C(56)", "D")
+RULE_VERSION = "S7-20261001-v2"
+SAMPLES = ("A", "B", "C(전체)", "C(56)", "D", "D56")
 COLUMNS = ("차원", "범주", *SAMPLES, "대응 수준", "정의 차이 주석")
 TENURE_BINS = ("<1년", "1–3년", "3–5년", "5–10년", "10년 이상")
 SIZE_BINS = ("1명", "2명", "3–4명", "5명 이상")
@@ -55,7 +55,7 @@ def _binary(series: pd.Series) -> pd.Series:
     out = pd.to_numeric(series, errors="coerce")
     if (series.notna() & (~out.isin([0, 1]))).any():
         raise ValueError("이진 열은 0/1 또는 bool이어야 합니다")
-    return out
+    return out.astype("Int64")
 
 
 def tenure_categories(values: pd.Series, invalid: pd.Series | None = None) -> pd.Series:
@@ -87,7 +87,7 @@ def size_categories(values: pd.Series) -> pd.Series:
 
 def _cell(categories: pd.Series, category: str, valid_labels: tuple[str, ...]) -> str:
     n = int(categories.eq(category).sum())
-    if n < 5:
+    if 1 <= n < 5:
         return "<5 (<5)"
     denominator = int(categories.isin(valid_labels).sum())
     pct = f"{100 * n / denominator:.2f}%" if denominator else "—"
@@ -161,7 +161,8 @@ def build_composition_table(
                      tenure_col=panel_tenure_col, license_col=panel_license_col,
                      close_col=panel_close_col)
     groups = dict(zip(SAMPLES, (a, b, a.loc[a["_seoul"].eq(1)],
-                               b.loc[b["_seoul"].eq(1)], d)))
+                               b.loc[b["_seoul"].eq(1)], d,
+                               d.loc[d["_biz"].isin(MAPPING["56"][0])])))
     rows: list[dict[str, str]] = []
 
     def add(dimension, category, cats, labels, level="대응", note=""):
@@ -173,17 +174,18 @@ def build_composition_table(
 
     # Cohort totals are counted from input, never hard-coded to the published 5042.
     totals = {key: pd.Series("전체 N", index=df.index) for key, df in groups.items()}
-    add("표본", "전체 N", totals, ("전체 N",), note="A=47·56·96; B=56; C=서울 부분집합; D=기준 분기 적격 점포")
-    industry_cats = {key: df["_industry"] for key, df in groups.items() if key != "D"}
-    industry_cats["D"] = d["_biz"].map({"일반음식점": "56", "휴게음식점": "56", "미용업": "96", "결측": "결측"})
+    add("표본", "전체 N", totals, ("전체 N",), note="A=47·56·96; B=56; C=서울 부분집합; D=기준 분기 적격 점포 전체; D56=일반음식점+휴게음식점")
+    industry_cats = {key: df["_industry"] for key, df in groups.items() if key not in ("D", "D56")}
+    for key in ("D", "D56"):
+        industry_cats[key] = groups[key]["_biz"].map({"일반음식점": "56", "휴게음식점": "56", "미용업": "96", "결측": "결측"})
     for code, name in (("47", "소매업"), ("56", "음식점·주점업"), ("96", "개인서비스업")):
         types, level, reason = MAPPING[code]
         add("업종", code, industry_cats, tuple(MAPPING), level,
             f"MDIS {code} {name} ↔ 패널 {' + '.join(types) if types else '없음'}; {reason}")
     add("업종", "결측", industry_cats, tuple(MAPPING), "부분 대응")
     for dim, cats, labels, note in (
-        ("업력", {key: tenure_categories(df["_age"]) if key == "D" else tenure_categories(df["tenure_months"], df["tenure_invalid_flag"]) for key, df in groups.items()}, TENURE_BINS, TENURE_NOTE),
-        ("규모", {key: size_categories(df["일반_합계종사자수"]) for key, df in groups.items() if key != "D"}, SIZE_BINS, "MDIS: 대표자 포함 총 종사자수(MDIS_CODEBOOK.md:20)"),
+        ("업력", {key: tenure_categories(df["_age"]) if key in ("D", "D56") else tenure_categories(df["tenure_months"], df["tenure_invalid_flag"]) for key, df in groups.items()}, TENURE_BINS, TENURE_NOTE),
+        ("규모", {key: size_categories(df["일반_합계종사자수"]) for key, df in groups.items() if key not in ("D", "D56")}, SIZE_BINS, "MDIS: 대표자 포함 총 종사자수(MDIS_CODEBOOK.md:20)"),
     ):
         compare_size = panel_size_col is not None and panel_size_definition == "employees"
         if dim == "규모" and compare_size:
@@ -197,13 +199,13 @@ def build_composition_table(
                 rows[-1]["D"] = ""
         if dim == "규모" and not compare_size:
             description = {"area": "면적", "unknown": "열 미지정 또는 정의 미확인", "employees": "열 미지정"}[panel_size_definition]
-            rows.append(dict(zip(COLUMNS, ("규모", f"비교 불가 — 정의 다름(MDIS 종사자 수 / 패널 {description})", "", "", "", "", "", "대응 없음", "패널 값은 채우지 않음; MASTER_SPEC.md:39의 area는 면적"))))
-    region = {key: df["_seoul"].map({1: "서울", 0: "서울 외"}).fillna("결측") for key, df in groups.items() if key != "D"}
+            rows.append({**{key: "" for key in COLUMNS}, "차원": "규모", "범주": f"비교 불가 — 정의 다름(MDIS 종사자 수 / 패널 {description})", "대응 수준": "대응 없음", "정의 차이 주석": "패널 값은 채우지 않음; MASTER_SPEC.md:39의 area는 면적"})
+    region = {key: df["_seoul"].map({1: "서울", 0: "서울 외"}).fillna("결측") for key, df in groups.items() if key not in ("D", "D56")}
     for category in ("서울", "서울 외", "결측"):
         add("지역(시도)", category, region, ("서울", "서울 외"), "대응 없음", "MDIS는 서울/서울 외만 표시; 구별 분포와 직접 대응하지 않음")
     for category in (*GUS, "결측"):
-        add("지역(구)", category, {"D": d["_gu"]}, GUS, "대응 없음", "패널 3구 행정구역; MASTER_SPEC.md:44")
-    treatment = {key: _binary(df["treat_binary"]).map({1: "있음", 0: "없음"}).fillna("결측") for key, df in groups.items() if key != "D"}
+        add("지역(구)", category, {key: groups[key]["_gu"] for key in ("D", "D56")}, GUS, "대응 없음", "패널 3구 행정구역; MASTER_SPEC.md:44")
+    treatment = {key: _binary(df["treat_binary"]).map({1: "있음", 0: "없음"}).fillna("결측") for key, df in groups.items() if key not in ("D", "D56")}
     for category in ("있음", "없음", "결측"):
         add("전자상거래 매출실적", category, treatment, ("있음", "없음"), "대응 없음", "MDIS만 제공; 패널 해당 정보 없음")
     return pd.DataFrame(rows, columns=COLUMNS)
@@ -222,7 +224,8 @@ def write_outputs(table: pd.DataFrame, out_dir: Path) -> None:
     table.to_csv(out_dir / "composition_table.csv", index=False, encoding="utf-8-sig")
     def escape(value):
         return str(value).replace("|", "\\|").replace("\n", " ").replace("<", "&lt;")
-    lines = [HEADER, "", "각 셀: n (%). n<5인 셀은 두 값 모두 <5로 표시합니다.", "",
+    lines = [HEADER, "", "D=기준 분기 패널 전체; D56=그중 일반음식점+휴게음식점(56 부분 대응).", "",
+             "각 셀: n (%). 0은 표시하고 1≤n≤4인 셀은 두 값 모두 <5로 표시합니다. 유효 N=0이면 %는 —입니다.", "",
              "| " + " | ".join(COLUMNS) + " |", "| " + " | ".join(["---"] * len(COLUMNS)) + " |"]
     lines += ["| " + " | ".join(escape(x) for x in row) + " |" for row in table.itertuples(index=False, name=None)]
     (out_dir / "composition_table.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -269,6 +272,7 @@ def main(argv: list[str] | None = None) -> int:
             "column_arguments": {key: getattr(args, key) for key in ("panel_biz_col", "panel_tenure_col", "panel_license_col", "panel_close_col", "panel_size_col", "panel_size_definition")},
             "panel_eligibility": "master_base 계약: 인허가일≤분기 말, 폐업일 없음 또는 분기 말 이후; MASTER_SPEC.md:21,23",
             "denominator_policy": DENOM_NOTE, "small_cell_threshold": 5,
+            "masking_change_reason": "0은 공표 위험이 없어 표시",
         }
         write_outputs(table, args.out_dir)
         (args.out_dir / "composition_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
