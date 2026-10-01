@@ -8,6 +8,8 @@
 
 import hashlib
 import json
+import platform
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -39,6 +41,22 @@ def sha256_of(path: Path) -> str:
         for chunk in iter(lambda: f.read(8 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def git_provenance() -> dict:
+    """결과를 만든 코드의 commit SHA와 작업트리 dirty 여부(추적 파일 변경 + 신규 파일)."""
+
+    def git(*a):
+        return subprocess.run(["git", "-C", str(REPO_ROOT), *a], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
+
+    return {"commit": git("rev-parse", "HEAD") or "unknown", "dirty": bool(git("status", "--porcelain"))}
+
+
+def env_versions() -> dict:
+    import sklearn
+
+    return {"python": platform.python_version(), "numpy": np.__version__, "pandas": pd.__version__,
+            "scikit-learn": sklearn.__version__, "doubleml": doubleml.__version__}
 
 
 def fmt(v, nd=4):
@@ -74,6 +92,9 @@ def results_markdown(results, meta) -> str:
     L = ["# W3-6 DML 결과 (집계값만)", ""]
     L.append(f"- 입력 sha256: {meta['input_sha256']} / 행 수 {meta['input_rows']}")
     L.append(f"- doubleml {meta['doubleml']}, 실행 {meta['started']}, 소요 {meta['runtime_sec']:.0f}초")
+    v = meta["versions"]
+    L.append(f"- 코드 commit {meta['code']['commit'][:12]} (작업트리 dirty: {'예' if meta['code']['dirty'] else '아니오'}), "
+             f"python {v['python']}, numpy {v['numpy']}, pandas {v['pandas']}, scikit-learn {v['scikit-learn']}, doubleml {v['doubleml']}")
     L.append("- 처치 treat_binary, 결과 profit_margin(표본별 1%·99% clip), IRM ATE, n_folds 5, n_rep 3, truncate 0.05, seed 20261001")
     L.append("- clip 건수 = 절단 전 교차적합 성향점수(반복 평균)가 [하한 <0.05 / 상한 >0.95]인 행 수(같은 표본 분할로 ml_m 재적합; DoubleML 저장값과의 최대 차이는 JSON의 ps_refit_max_abs_diff). 유효 표본 = 절단 IPW의 Kish 유효 표본")
     L.append("")
@@ -119,8 +140,8 @@ def results_markdown(results, meta) -> str:
         L.append(
             f"| {r['sample']} | {fmt(g['ps_min'])} | {fmt(g['ps_max'])} | {fmt(q['p05'])} | {fmt(q['p25'])} | {fmt(q['p50'])} | {fmt(q['p75'])} | {fmt(q['p95'])} | "
             f"{fmt(g['treated_share'], 3)} | {g['kish_ess']:.1f}/{g['kish_ess_treated']:.1f}/{g['kish_ess_control']:.1f} | "
-            f"{smd['smd_before'].abs().max():.3f} → {smd['smd_after'].abs().max():.3f} | "
-            f"{int((smd['smd_before'].abs() > 0.1).sum())} → {int((smd['smd_after'].abs() > 0.1).sum())} |"
+            f"{smd['smd_before'][np.isfinite(smd['smd_before'])].abs().max():.3f} → {smd['smd_after'][np.isfinite(smd['smd_after'])].abs().max():.3f} | "
+            f"{int((smd['smd_before'].abs() > 0.1).sum())} → {int((smd['smd_after'].abs() > 0.1).sum())} (정의 불가 {int(smd['smd_undefined'].sum())}) |"
         )
     return "\n".join(L) + "\n"
 
@@ -165,6 +186,8 @@ def main() -> None:
         "input_sha256": sha256_of(INPUT),
         "input_rows": int(len(df)),
         "doubleml": doubleml.__version__,
+        "code": git_provenance(),
+        "versions": env_versions(),
         "started": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
     print(f"입력 {meta['input_rows']}행, sha256 {meta['input_sha256'][:16]}…, doubleml {meta['doubleml']}")

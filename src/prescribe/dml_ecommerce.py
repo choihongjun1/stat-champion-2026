@@ -11,7 +11,10 @@ import warnings
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
+from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LassoCV, LogisticRegression
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 SEED = 20261001
 OUTCOME = "profit_margin"
@@ -72,19 +75,22 @@ def build_design(df: pd.DataFrame, include_industry: bool = True) -> pd.DataFram
     return x[keep].reset_index(drop=True)
 
 
-def standardize_continuous(x: pd.DataFrame) -> pd.DataFrame:
-    out = x.copy()
-    sd = out[CONTINUOUS_COL].std(ddof=0)
-    if sd > 0:
-        out[CONTINUOUS_COL] = (out[CONTINUOUS_COL] - out[CONTINUOUS_COL].mean()) / sd
-    return out
+def _with_scaling(estimator, columns):
+    """연속형(tenure_months)만 fold 안에서 표준화하는 파이프라인. DoubleML이 학습기에 numpy 배열을 넘기므로
+    열은 이름이 아니라 위치로 고른다. tenure 열이 설계행렬에 없으면(상수라 삭제된 경우) 표준화 단계 없이 그대로 쓴다."""
+    if columns is None or CONTINUOUS_COL not in list(columns):
+        return estimator
+    pos = [list(columns).index(CONTINUOUS_COL)]
+    scale = ColumnTransformer([("t", StandardScaler(), pos)], remainder="passthrough")
+    return Pipeline([("scale", scale), ("m", estimator)])
 
 
-def make_learners(kind: str = "hgb"):
+def make_learners(kind: str = "hgb", columns=None):
     if kind == "hgb":
         return HistGradientBoostingRegressor(**HGB_PARAMS), HistGradientBoostingClassifier(**HGB_PARAMS)
     if kind == "simple":
-        return LassoCV(cv=5, random_state=SEED), LogisticRegression(C=1.0, max_iter=2000)
+        return (_with_scaling(LassoCV(cv=5, random_state=SEED), columns),
+                _with_scaling(LogisticRegression(C=1.0, max_iter=2000), columns))
     raise ValueError(f"unknown learner kind: {kind}")
 
 
@@ -100,7 +106,7 @@ def _build_irm(x: pd.DataFrame, y: np.ndarray, d: np.ndarray, kind: str, weights
     frame["_y"] = np.asarray(y, dtype=float)
     frame["_d"] = np.asarray(d, dtype=float)
     data = dml.DoubleMLData(frame, y_col="_y", d_cols="_d", x_cols=list(x.columns))
-    ml_g, ml_m = make_learners(kind)
+    ml_g, ml_m = make_learners(kind, list(x.columns))
     np.random.seed(SEED)  # 표본 분할은 생성자에서 뽑힌다
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -124,7 +130,7 @@ def raw_propensity(model, x: pd.DataFrame, d: np.ndarray, kind: str) -> np.ndarr
     절단 건수와 [0.05, 0.95] 밖 행을 알 수 없어, 같은 표본 분할(model.smpls)로 ml_m을 다시 적합해 얻는다."""
     from sklearn.base import clone
 
-    ml_m = make_learners(kind)[1]
+    ml_m = make_learners(kind, list(x.columns))[1]
     xv = x.to_numpy(float)
     reps = []
     for folds in model.smpls:
@@ -206,11 +212,22 @@ def smd_table(x: pd.DataFrame, d: np.ndarray, ps: np.ndarray) -> pd.DataFrame:
             var = np.average((v[m] - mean) ** 2, weights=wg)
             out.append((mean, var))
         denom = np.sqrt((out[0][1] + out[1][1]) / 2)
-        return float((out[0][0] - out[1][0]) / denom) if denom > 0 else 0.0
+        diff = out[0][0] - out[1][0]
+        if denom > 0:
+            return float(diff / denom), False
+        # 분모 0: 두 군 모두 분산이 없다. 평균차도 0이면 SMD=0, 아니면 정의되지 않음(inf, smd_undefined)
+        return (0.0, False) if abs(diff) < 1e-12 else (float("inf"), True)
 
     ones = np.ones(len(d))
+    before = [smd(c, ones) for c in x.columns]
+    after = [smd(c, w) for c in x.columns]
     return pd.DataFrame(
-        {"covariate": list(x.columns), "smd_before": [smd(c, ones) for c in x.columns], "smd_after": [smd(c, w) for c in x.columns]}
+        {
+            "covariate": list(x.columns),
+            "smd_before": [b[0] for b in before],
+            "smd_after": [a[0] for a in after],
+            "smd_undefined": [b[1] or a[1] for b, a in zip(before, after)],
+        }
     )
 
 
@@ -288,12 +305,14 @@ def run_sample(df: pd.DataFrame, name: str, include_industry: bool, benchmark_gr
 
     def excluded():
         keep = (ps_main >= TRIM) & (ps_main <= 1 - TRIM)
-        f = fit_irm(x[keep].reset_index(drop=True), y.to_numpy()[keep], d[keep], "hgb")
+        # S2: 결과변수는 해당 분석 표본의 무가중 1·99% 분위로 clip — 남긴 행의 원본 값으로 다시 계산한다
+        ye, cinfo = winsorize_outcome(df.loc[keep, OUTCOME])
+        f = fit_irm(x[keep].reset_index(drop=True), ye.to_numpy(), d[keep], "hgb")
         dg = ps_diagnostics(f["ps"], d[keep])
-        return row(f, n=int(keep.sum()), n_treated=int(d[keep].sum()), n_clip_lower=dg["n_clip_lower"], n_clip_upper=dg["n_clip_upper"], n_excluded=int((~keep).sum()), kish_ess=dg["kish_ess"])
+        return row(f, n=int(keep.sum()), n_treated=int(d[keep].sum()), n_clip_lower=dg["n_clip_lower"], n_clip_upper=dg["n_clip_upper"], n_excluded=int((~keep).sum()), kish_ess=dg["kish_ess"], clip=cinfo)
 
     def simple():
-        f = fit_irm(standardize_continuous(x), y.to_numpy(), d, "simple")
+        f = fit_irm(x, y.to_numpy(), d, "simple")  # 표준화는 학습기 파이프라인이 fold 안에서 한다
         dg = ps_diagnostics(f["ps"], d)
         return row(f, n_clip_lower=dg["n_clip_lower"], n_clip_upper=dg["n_clip_upper"], n_excluded=0, kish_ess=dg["kish_ess"])
 

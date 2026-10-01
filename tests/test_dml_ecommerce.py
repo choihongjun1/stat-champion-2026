@@ -114,4 +114,77 @@ def test_run_sample_returns_all_analyses_on_synthetic_data():
     assert set(res["analyses"]) == {"1_main", "2_weighted", "3_excluded", "4_simple", "5_ovb", "6_seoul"}
     assert res["analyses"]["1_main"]["n"] == 1200
     assert res["clip"]["lower"] < res["clip"]["upper"]
+    # 정상 합성 입력이면 6개 분석 모두 status 없이 유한한 추정·CI를 낸다 (R1-5)
+    for key, a in res["analyses"].items():
+        assert "status" not in a, (key, a)
+        assert np.isfinite(a["ate"]) and np.isfinite(a["ci_low"]) and np.isfinite(a["ci_high"]), key
 
+
+
+def test_ci_covers_true_ate_in_confounded_dgp():
+    """교란이 있는 합성 DGP(참값 0.5)에서 추정이 참값에서 SE의 3배 안에 있고 CI가 참값을 포함한다."""
+    df = _synthetic(3000, ate=0.5, seed=3)
+    x = de.build_design(df)
+    f = de.fit_irm(x, df[de.OUTCOME].to_numpy(), df[de.TREATMENT].to_numpy(), "hgb", n_rep=1)
+    assert abs(f["ate"] - 0.5) < 3 * f["se"]
+    assert f["ci_low"] <= 0.5 <= f["ci_high"]
+
+
+def test_failed_analysis_is_recorded_as_unfittable(monkeypatch):
+    real = de.fit_irm
+
+    def flaky(x, y, d, kind="hgb", *a, **k):
+        if kind == "simple":
+            raise RuntimeError("forced failure")
+        return real(x, y, d, kind, *a, **k)
+
+    monkeypatch.setattr(de, "fit_irm", flaky)
+    res = de.run_sample(_synthetic(800), "합성", True, {"tenure_months": [de.CONTINUOUS_COL]})
+    assert res["analyses"]["4_simple"]["status"] == "적합 불가"
+    assert "status" not in res["analyses"]["1_main"]
+
+
+def test_excluded_analysis_reclips_outcome_on_its_own_sample():
+    """R1-1: 행 제외 민감도는 남긴 행의 원본 결과변수로 분위를 다시 계산한다(전체 표본 분위가 아님)."""
+    rng = np.random.default_rng(5)
+    df = _synthetic(2000, seed=5)
+    z = (df[de.CONTINUOUS_COL].fillna(100) - 100) / 20
+    d = rng.binomial(1, 1 / (1 + np.exp(-2.5 * z - 1.5)))  # 강한 선택 -> 성향점수가 [0.05, 0.95] 밖인 행이 생긴다
+    df[de.TREATMENT] = d
+    df[de.OUTCOME] = 0.5 * d + 0.7 * z + rng.normal(scale=0.5, size=len(df))
+    res = de.run_sample(df, "합성", True, {"tenure_months": [de.CONTINUOUS_COL]})
+    ex = res["analyses"]["3_excluded"]
+    assert ex["n_excluded"] > 0
+    assert (ex["clip"]["lower"], ex["clip"]["upper"]) != (res["clip"]["lower"], res["clip"]["upper"])
+
+
+def test_simple_learner_standardizes_inside_the_pipeline():
+    from sklearn.pipeline import Pipeline
+
+    x = de.build_design(_synthetic(300))
+    ml_g, ml_m = de.make_learners("simple", list(x.columns))
+    assert isinstance(ml_g, Pipeline) and isinstance(ml_m, Pipeline)
+    assert hasattr(ml_m, "predict_proba")
+
+
+def test_simple_learner_works_without_tenure_column():
+    df = _synthetic(1000)
+    df[de.CONTINUOUS_COL] = 100.0  # 상수 -> 설계행렬에서 삭제된다
+    df[de.FLAG_COL] = 0
+    x = de.build_design(df)
+    assert de.CONTINUOUS_COL not in x.columns
+    ml_g, ml_m = de.make_learners("simple", list(x.columns))
+    assert not hasattr(ml_g, "steps") and not hasattr(ml_m, "steps")
+    f = de.fit_irm(x, df[de.OUTCOME].to_numpy(), df[de.TREATMENT].to_numpy(), "simple", n_rep=1)
+    assert np.isfinite(f["ate"])
+
+
+def test_smd_zero_denominator_cases():
+    """R1-3: 분모 0이고 평균차 0이면 0, 평균차가 0이 아니면 inf + smd_undefined."""
+    d = np.array([1, 1, 1, 0, 0, 0, 0, 0])
+    x = pd.DataFrame({"same": np.full(8, 5.0), "split": d.astype(float), "varied": np.arange(8, dtype=float)})
+    t = de.smd_table(x, d, np.full(8, 0.4)).set_index("covariate")
+    assert t.loc["same", "smd_before"] == 0.0 and not t.loc["same", "smd_undefined"]
+    assert np.isinf(t.loc["split", "smd_before"]) and t.loc["split", "smd_undefined"]
+    assert np.isfinite(t.loc["varied", "smd_before"]) and not t.loc["varied", "smd_undefined"]
+    assert int((t["smd_before"].abs() > 0.1).sum()) >= 2  # inf도 0.1 초과로 센다
