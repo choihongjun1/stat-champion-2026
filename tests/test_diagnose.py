@@ -451,7 +451,7 @@ def test_run_requires_background_manifest_by_default(tmp_path, panel, monkeypatc
         diagnose.run(mp, tmp_path / "d", online_path=op, primary="enriched", origin=None, max_stores=10)
     with pytest.raises(FileNotFoundError, match="manifest"):
         diagnose.main(["--master", str(mp), "--online", str(op), "--primary", "enriched", "--max-stores", "10",
-                       "--out", str(tmp_path / "d2")])
+                       "--out", str(tmp_path / "d2"), "--default-params"])
 
 
 def test_run_with_s8_manifest_records_sensitivity_and_provenance(tmp_path, panel):
@@ -564,3 +564,28 @@ def test_truncated_store_online_factor_is_held_end_to_end(tmp_path, panel):
     assert (t["display"], t["hold_reason"], t["missing_reason_code"]) == (False, "data_missing", "online_unobservable")
     other = on.loc[some_na.iloc[1]]
     assert other["hold_reason"] != "data_missing"  # 일부 결측이지만 절단이 아니면 이 사유로 보류하지 않는다
+
+
+def test_cli_requires_detect_run_unless_default_params_is_explicit(tmp_path, monkeypatch):
+    """#51: 최종 경로(CLI)는 --detect-run 없이 DEFAULT_PARAMS로 조용히 진단하지 않는다 — 명시적 --default-params만 허용."""
+    seen = {}
+    monkeypatch.setattr(diagnose, "run", lambda *a, **k: seen.update(k))
+    with pytest.raises(SystemExit):
+        diagnose.main(["--out", str(tmp_path / "d")])
+    with pytest.raises(SystemExit):
+        diagnose.main(["--detect-run", str(tmp_path / "det"), "--default-params"])
+    assert not seen
+    diagnose.main(["--detect-run", str(tmp_path / "det"), "--out", str(tmp_path / "d")])
+    assert seen["detect_run"] == tmp_path / "det"
+    seen.clear()
+    diagnose.main(["--default-params", "--out", str(tmp_path / "d")])
+    assert seen["detect_run"] is None
+
+
+def test_legacy_detect_run_without_params_name_is_marked(tmp_path):
+    """#51 이전 run_meta(params_name 없음)는 params_name=None으로 숨기지 않고 legacy 여부를 적는다."""
+    from src.models import detect
+
+    (tmp_path / "old.json").write_text(json.dumps({"params": detect.DEFAULT_PARAMS}), encoding="utf-8")
+    got, src = diagnose.model_params_from_detect_run(tmp_path / "old.json")
+    assert got == detect.DEFAULT_PARAMS and "params_name=legacy_default" in src

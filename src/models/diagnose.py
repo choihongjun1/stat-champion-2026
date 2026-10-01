@@ -24,6 +24,7 @@ SHAP 라이브러리(TreeExplainer)를 쓰지 않는 이유: HistGradientBoostin
   `--random-background N`으로 명시할 때만(비교·시험용, 운영 출력 아님). 배경은 설명만 바꾸고 위험 확률·등급은 바꾸지 않는다
   (`explain_s8`이 두 배경의 확률이 같은지 검사).
 - 모형 설정: `--detect-run`(탐지 실행 run_meta.params)과 같아야 한다 — 최종 재생성에서는 #51의 채택 설정 run_meta를 준다.
+  CLI는 `--detect-run`이 없으면 멈춘다. DEFAULT_PARAMS로 돌리려면 `--default-params`를 명시한다(비교·시험용, 운영 출력 아님).
 
 실행:
     python -m src.models.background create --master outputs/master/master_base.parquet   # S8 배경 manifest (한 번)
@@ -630,16 +631,17 @@ def explain_s8(model: detect.DetectModel, Xt: pd.DataFrame, Xb_primary: pd.DataF
 def model_params_from_detect_run(detect_run: Path | None) -> tuple[dict, str]:
     """진단 모형 설정 = 탐지 실행(`train_detect` run_meta.json의 `params`, #51 이후 채택 (0.03, 31))과 같아야 한다 —
     진단이 risk_scores와 같은 모형을 분해하도록. 지정하지 않으면 detect.DEFAULT_PARAMS이고 출처에 그렇게 적는다
-    (최종 재생성 전에 #51 run_meta로 연결해야 한다)."""
+    (함수 수준 fallback — 시험용. CLI는 `--detect-run` 또는 명시적 `--default-params` 없이는 멈춘다).
+    params_name이 없는 #51 이전 run_meta는 legacy_default / legacy_unnamed로 적는다(`train_detect.run_meta_params_name`)."""
     if detect_run is None:
-        return dict(detect.DEFAULT_PARAMS), "detect.DEFAULT_PARAMS (detect run 미지정 — 최종 재생성 전 #51 run_meta로 연결)"
+        return dict(detect.DEFAULT_PARAMS), "detect.DEFAULT_PARAMS (detect run 미지정 — 비교·시험용 fallback, 운영 출력 아님)"
     p = Path(detect_run)
     meta_path = p if p.suffix == ".json" else p / "run_meta.json"
     rm = json.loads(meta_path.read_text(encoding="utf-8"))
     params = rm.get("params")
     if not isinstance(params, dict) or not params:
         raise ValueError(f"탐지 실행 run_meta에 params가 없다: {meta_path}")
-    return dict(params), f"detect run_meta.params ({meta_path}, params_name={rm.get('params_name')})"
+    return dict(params), f"detect run_meta.params ({meta_path}, params_name={train_detect.run_meta_params_name(rm)})"
 
 
 def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: str, origin: str | None,
@@ -752,9 +754,16 @@ def main(argv=None) -> None:
     ap.add_argument("--random-background", type=int, default=None, metavar="N",
                     help="manifest 대신 학습 구간 무작위 N개 하나로 (비교·시험용, 운영 출력 아님, 해석 민감 없음)")
     ap.add_argument("--detect-run", type=Path, default=None,
-                    help="탐지 실행 폴더(run_meta.json) — 모형 설정을 그대로 쓴다. 최종 재생성에서는 반드시 지정(#51)")
+                    help="탐지 실행 폴더(run_meta.json) — 모형 설정을 그대로 쓴다. 필수(#51), --default-params일 때만 생략")
+    ap.add_argument("--default-params", action="store_true",
+                    help="--detect-run 없이 detect.DEFAULT_PARAMS로 진단 (비교·시험용, 운영 출력 아님)")
     ap.add_argument("--out", type=Path, default=None)
     a = ap.parse_args(argv)
+    if a.detect_run is None and not a.default_params:
+        ap.error("--detect-run이 필요하다 — 진단 모형은 risk_scores를 만든 탐지 실행(run_meta.params)과 같아야 한다(#51). "
+                 "DEFAULT_PARAMS로 시험하려면 --default-params를 명시한다")
+    if a.detect_run is not None and a.default_params:
+        ap.error("--detect-run과 --default-params는 함께 쓸 수 없다")
     out = a.out or (config.REPO_ROOT / "outputs" / "models" / f"diagnosis_{a.primary}")
     run(a.master, out, online_path=a.online, primary=a.primary, origin=a.origin, max_stores=a.max_stores,
         qa_path=a.qa, background_manifest=a.background_manifest, random_background=a.random_background,

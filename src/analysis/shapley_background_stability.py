@@ -121,11 +121,13 @@ def _idx_sha(df: pd.DataFrame, idx) -> str:
 
 def serving_params(run_meta_path: Path | None = None) -> tuple[dict, str]:
     """배경 실험에 쓰는 모형 파라미터 = 서빙 모형의 파라미터. run_meta.json의 params를 읽고,
-    파일이 없거나 params가 없으면 detect.ADOPTED_PARAMS를 쓴다. (파라미터, params_name) 반환."""
+    파일이 없거나 params가 없으면 detect.ADOPTED_PARAMS를 쓴다. (파라미터, params_name) 반환.
+    #51 이전 run_meta에는 params_name이 없다 — 이름을 숨기지 않고 값으로 구분한다:
+    DEFAULT_PARAMS와 같으면 "run_meta:legacy_default", 아니면 "run_meta:legacy_unnamed"."""
     if run_meta_path is not None and Path(run_meta_path).exists():
         meta = json.loads(Path(run_meta_path).read_text(encoding="utf-8"))
         if meta.get("params"):
-            return dict(meta["params"]), f"run_meta:{meta.get('params_name', 'unknown')}"
+            return dict(meta["params"]), f"run_meta:{train_detect.run_meta_params_name(meta)}"
     return dict(detect.ADOPTED_PARAMS), "adopted"
 
 

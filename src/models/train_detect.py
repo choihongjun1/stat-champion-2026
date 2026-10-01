@@ -75,6 +75,17 @@ def config_params(params_name: str = "adopted") -> dict[str, dict]:
 
 
 CONFIG_PARAMS = config_params("default")  # 하위 호환(이전 이름). run()은 config_params(params_name)을 쓴다
+
+
+def run_meta_params_name(run_meta: dict) -> str:
+    """run_meta.json이 어떤 설정으로 학습됐는지 — 진단·배경 실험·서빙이 provenance에 옮겨 적는다.
+    #51 이전 run_meta에는 params_name이 없다: 이름을 지어내지 않고 값으로 구분한다
+    (DEFAULT_PARAMS와 같으면 "legacy_default", 다르면 "legacy_unnamed")."""
+    if run_meta.get("params_name"):
+        return str(run_meta["params_name"])
+    return "legacy_default" if dict(run_meta.get("params") or {}) == dict(detect.DEFAULT_PARAMS) else "legacy_unnamed"
+
+
 # 보정 3구간(#32 리뷰 M2): fit(보정기 학습) 4개 origin, select(적용 여부 선택) 4개 origin, test(최종 보고,
 # TEST_SIZE개) — 서로 겹치지 않게 순서대로 이어 붙인다. 선택과 최종 평가를 같은 구간에서 하면 선택 편향이
 # 생긴다(choihongjun1 리뷰). 오늘 데이터(2021Q1~2025Q2, 18개 origin)에서는 fit=2023Q1–Q4, select=2024Q1–Q4,

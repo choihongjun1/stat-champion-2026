@@ -243,3 +243,26 @@ def test_serving_params_prefers_run_meta(tmp_path):
     assert params["max_iter"] == 7 and name == "run_meta:adopted"
     assert sbs.serving_params(tmp_path / "missing.json")[1] == "adopted"
 
+
+def test_serving_params_marks_legacy_run_meta_without_params_name(tmp_path):
+    """#51 이전 run_meta(params_name 없음)는 unknown으로 숨기지 않고 legacy 여부·DEFAULT 여부를 구분해 기록한다."""
+    legacy = tmp_path / "legacy.json"
+    legacy.write_text(json.dumps({"params": detect.DEFAULT_PARAMS}), encoding="utf-8")
+    params, name = sbs.serving_params(legacy)
+    assert params == detect.DEFAULT_PARAMS and name == "run_meta:legacy_default"
+    other = tmp_path / "other.json"
+    other.write_text(json.dumps({"params": {**detect.DEFAULT_PARAMS, "max_iter": 7}}), encoding="utf-8")
+    assert sbs.serving_params(other)[1] == "run_meta:legacy_unnamed"
+    named = tmp_path / "named.json"
+    named.write_text(json.dumps({"params": detect.DEFAULT_PARAMS, "params_name": "default"}), encoding="utf-8")
+    assert sbs.serving_params(named)[1] == "run_meta:default"
+
+
+def test_cli_has_run_meta_and_no_background_dir(monkeypatch, tmp_path):
+    """#53이 지운 --background-dir(운영 배경 선택)는 되살리지 않고 --run-meta만 run()에 넘긴다."""
+    seen = {}
+    monkeypatch.setattr(sbs, "run", lambda *a, **k: seen.update(args=a, kw=k))
+    sbs.main(["--run-meta", str(tmp_path / "rm.json")])
+    assert seen["args"][-1] == tmp_path / "rm.json"
+    with pytest.raises(SystemExit):
+        sbs.main(["--background-dir", str(tmp_path)])

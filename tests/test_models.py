@@ -277,6 +277,12 @@ def test_run_with_default_params_name_reproduces_the_previous_setting(tmp_path, 
     assert meta["model_class"] == detect.MODEL_CLASS
 
 
+def test_run_meta_params_name_distinguishes_legacy_runs():
+    assert train_detect.run_meta_params_name({"params": detect.ADOPTED_PARAMS, "params_name": "adopted"}) == "adopted"
+    assert train_detect.run_meta_params_name({"params": detect.DEFAULT_PARAMS}) == "legacy_default"
+    assert train_detect.run_meta_params_name({"params": detect.ADOPTED_PARAMS}) == "legacy_unnamed"
+
+
 def test_model_class_path_is_the_class_actually_used(panel):
     import importlib
 
