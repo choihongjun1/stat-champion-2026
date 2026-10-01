@@ -87,6 +87,45 @@ def sha256(path: Path) -> str:
 # ---------------------------------------------------------------------------
 # 입력
 # ---------------------------------------------------------------------------
+def attach_online(df: pd.DataFrame, path: Path) -> pd.DataFrame:
+    """온라인 Enriched 테이블을 (store_id, origin) m:1로 붙인다. 행 수 불변.
+
+    시점 계약 (2026-10-01, `src/data/online_features.py` docstring "시점 메타"):
+    - 게시월이 origin_end를 넘지 않는다는 **내용 검사**는 표를 만들 때 `online_features.assert_no_future_posts`가
+      월별 원천으로 다시 집계해 한다(CLI가 쓰기 전에 항상 실행). 이 함수는 원천 없이 표만 받으므로 그 검사를
+      반복할 수 없다.
+    - 여기서는 표가 같은 origin 정의로 만들어졌는지(`online_feature_asof == origin_end`)와, 새 형식 표
+      (`online_collected_at` 열이 있음)의 `online_available_at`(창에 들어갈 수 있는 마지막 게시월 말일) ≤ origin_end를
+      확인한다. 어긋나면 멈춘다.
+    - `online_collected_at`(실제 수집 시각)은 검사하지 않는다 — 과거 origin은 모두 수집 시각보다 앞선 회고적 재구성이다.
+    - 이전 형식 표(`online_collected_at` 없음, 2026-09-29 버전은 `online_available_at`에 수집 시각이 들어 있음)는
+      available_at 검사를 건너뛰고 재생성을 권하는 경고만 낸다 — 이미 만든 하위 산출물(#34·#36)이 깨지지 않게."""
+    on = pd.read_parquet(path)
+    cols = ["store_id", "origin"] + [c for c in features.ONLINE_PREDICTORS if c in on.columns]
+    new_format = "online_collected_at" in on.columns
+    meta = [c for c in ("online_feature_asof", "online_available_at") if c in on.columns and (new_format or
+                                                                                              c == "online_feature_asof")]
+    if on.duplicated(["store_id", "origin"]).any():
+        raise ValueError("온라인 테이블 (store_id, origin) 중복")
+    out = df.merge(on[cols + meta], on=["store_id", "origin"], how="left", validate="1:1")
+    if len(out) != len(df):
+        raise ValueError("온라인 조인 후 행 수가 바뀌었다")
+    end = pd.to_datetime(out["origin_end"])
+    if "online_feature_asof" in out.columns:
+        asof = pd.to_datetime(out["online_feature_asof"])
+        diff = asof.notna() & (asof.dt.normalize() != end.dt.normalize())
+        if diff.any():
+            raise ValueError(f"online_feature_asof ≠ origin_end {int(diff.sum())}건 — 다른 origin 정의로 만든 온라인 표")
+    if "online_available_at" in out.columns:
+        late = (pd.to_datetime(out["online_available_at"]) > end).sum()
+        if late:
+            raise ValueError(f"online_available_at > origin_end {late}건 — origin 이후 게시월이 창에 들어갈 수 있다")
+    if not new_format:
+        log(f"경고: 이전 형식 온라인 표({path}) — online_collected_at이 없어 available_at 검사를 건너뛴다. "
+            "`python -m src.data.online_features`로 다시 만들면 시점 검사가 모두 적용된다")
+    return out.drop(columns=meta)
+
+
 def load_master(path: Path) -> pd.DataFrame:
     df = pd.read_parquet(path)
     need = {"store_id", "origin", "event_12m"}
@@ -326,16 +365,25 @@ def permutation_importance(df, X, y, origins: list[str], *, n_sample: int = 3000
 
 # ---------------------------------------------------------------------------
 def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
-        with_split_comparison: bool) -> None:
+        with_split_comparison: bool, online_path: Path | None = None, primary: str = "base") -> None:
+    """primary: 보정·등급·부트스트랩·risk_scores를 만들 feature set (기본 base, 온라인 반영 시 enriched)."""
     t0 = time.time()
     out_dir.mkdir(parents=True, exist_ok=True)
     df = load_master(master_path)
+    if online_path is not None:
+        df = attach_online(df, online_path)
+        log(f"온라인 Enriched 테이블 결합: {online_path}")
+    elif "enriched" in feature_sets:
+        log("온라인 테이블이 없어 enriched feature set을 건너뛴다")
+        feature_sets = [f for f in feature_sets if f != "enriched"]
     y = df["event_12m"].to_numpy().astype(int)
     origins = splits.sorted_origins(df)
     test_origins = origins[-TEST_SIZE:]
     log(f"master {len(df):,}행 / 점포 {df['store_id'].nunique():,} / origin {origins[0]}~{origins[-1]}")
 
-    meta = {"master": str(master_path), "master_sha256": sha256(master_path), "embargo": EMBARGO,
+    meta = {"primary_feature_set": primary, "master": str(master_path), "master_sha256": sha256(master_path),
+            "online": str(online_path) if online_path else None,
+            "online_sha256": sha256(online_path) if online_path else None, "embargo": EMBARGO,
             "min_train_origins": MIN_TRAIN_ORIGINS, "eval_from": EVAL_FROM, "test_origins": test_origins,
             "n_boot": n_boot, "params": detect.DEFAULT_PARAMS,  # 서빙(#36 model_params)이 읽는 키 — 현 설정
             # OOF·분할 비교·보정 비교의 config 이름 → 실제로 학습에 넘긴 최종 모형 설정 (둘 다 DEFAULT 전체 포함)
@@ -353,7 +401,7 @@ def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
         summary.append({"feature_set": fs, "n_features": len(cols), **summarize(bo, oof)})
         log(f"[{fs}] AUC 평균 {bo['auc'].mean():.4f} / AP 평균 {bo['ap'].mean():.4f} "
             f"/ {EVAL_FROM}~ AUC {bo.loc[bo['origin'] >= EVAL_FROM, 'auc'].mean():.4f}")
-        if fs == "base":
+        if fs == primary:
             oof_base, X_base = oof, X
             features.missing_by_origin(df, cols).to_csv(out_dir / "missing_by_origin.csv")
 
@@ -366,7 +414,7 @@ def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
     summ.to_csv(out_dir / "sensitivity_summary.csv", index=False)
 
     if oof_base is None:
-        log("base feature set이 없어 보정·등급·risk_scores를 건너뛴다")
+        log(f"주 feature set({primary})이 없어 보정·등급·risk_scores를 건너뛴다")
         return
 
     if with_split_comparison:
@@ -484,7 +532,7 @@ def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
     rows["ci_high"] = np.fmax(ci_hi, p_te)
     rows["band"] = band_te
     rows = peer_stats(rows)
-    rows["model"] = MODEL_NAME
+    rows["model"] = MODEL_NAME if primary == "base" else f"{MODEL_NAME}_{primary}"
     rows["calibrated"] = chosen != "raw"
     rows["event_12m"] = te_oof["y"].to_numpy()  # 검증용. 화면 스키마에는 넣지 않는다
     rows.to_parquet(out_dir / "risk_scores.parquet", index=False)
@@ -507,14 +555,20 @@ def main(argv=None) -> None:
     ap.add_argument("--master", type=Path, default=config.MASTER_BASE_PATH)
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--tag", default="", help="출력 폴더 접미사 (예: t2)")
+    ap.add_argument("--online", type=Path, default=None,
+                    help="온라인 Enriched 테이블 (src.data.online_features 산출물). 주면 enriched feature set 평가")
     ap.add_argument("--feature-sets", default=",".join(features.FEATURE_SETS))
     ap.add_argument("--n-boot", type=int, default=20)
     ap.add_argument("--no-split-comparison", action="store_true")
+    ap.add_argument("--primary", default="base", help="risk_scores를 만들 feature set (예: enriched)")
     ap.add_argument("--quick", action="store_true", help="base만, 부트스트랩 5회, 분할 비교 생략")
     a = ap.parse_args(argv)
-    fsets = ["base"] if a.quick else [s.strip() for s in a.feature_sets.split(",") if s.strip()]
+    fsets = [a.primary] if a.quick else [s.strip() for s in a.feature_sets.split(",") if s.strip()]
+    if a.primary not in fsets:
+        fsets.append(a.primary)
     out = a.out or (config.REPO_ROOT / "outputs" / "models" / (MODEL_NAME + (f"_{a.tag}" if a.tag else "")))
-    run(a.master, out, fsets, 5 if a.quick else a.n_boot, not (a.quick or a.no_split_comparison))
+    run(a.master, out, fsets, 5 if a.quick else a.n_boot, not (a.quick or a.no_split_comparison), a.online,
+        a.primary)
 
 
 if __name__ == "__main__":

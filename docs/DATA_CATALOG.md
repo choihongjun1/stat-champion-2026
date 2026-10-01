@@ -373,6 +373,10 @@ B-3가 아래 산출물로 파생한다. 소진공 소멸은 주 폐업 라벨�
 - **temporal 메타데이터는 `src/data/export_online_features.py`가 `outputs/online/*.parquet`으로 내보낼 때 부여한다** (이슈 #23, 수집 스크립트는 부여하지 않는다).
   - 축A(`online_presence.parquet`): `feature_asof` = `available_at` = **수집 시각**(KST 기준 tz-naive). 수집 시점의 현재값이라 모든 origin보다 늦고, 따라서 master 조인의 as-of 규칙에서 **과거 origin에서는 자동으로 NA**가 된다 — "현재 진단 표시용" 결정이 규칙으로 강제된다.
   - 축B(`online_mentions_monthly.parquet`): `feature_asof` = `available_at` = **해당 게시월의 말일**.
+  - 축B origin 단위 feature 표(`online_features.parquet`, PR #33 `src/data/online_features.py`, 2026-10-01): `online_feature_asof` =
+    origin_end, `online_available_at` = 창에 들어갈 수 있는 **마지막 게시월의 말일**(위 축B 정의를 origin 단위로 옮긴 것, ≤ origin_end),
+    `online_collected_at` = QA `collected_at`(실제 수집 시각)을 **KST tz-naive**로 바꾼 값(provenance 전용, 시점 검사에 쓰지 않음).
+    만들 때 `assert_no_future_posts`가 월별 원천으로 다시 집계해 origin_end 이후 게시월이 섞이지 않았는지 대조한다.
   - as-of 컷오프(`available_at > origin_end` → NA)는 이 스크립트가 아니라 **W2-0 master 조인의 기존 규칙**(`src/data/master.py`)이 적용한다.
   - `source_snapshot`은 날짜값이 아니라 원천 식별자다 — 축A는 원천 CSV 식별자. (`label_schema.py` 관례)
     축B는 `blog_items.jsonl.gz@sha256:<64자>#run:<collection_run_id>#git:<git SHA 12자>`:

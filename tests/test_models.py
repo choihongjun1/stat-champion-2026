@@ -252,6 +252,80 @@ def test_tuned_fit_is_deterministic():
     np.testing.assert_array_equal(a, b)
 
 
+# ---------------------------------------------------------------- Enriched (온라인)
+def _online_table(panel, seed=1):
+    rng = np.random.default_rng(seed)
+    t = panel[["store_id", "origin", "origin_end"]].copy()
+    y = panel["event_12m"].to_numpy()
+    has = (rng.random(len(t)) < np.where(y == 1, 0.3, 0.6)).astype(float)
+    for c in features.ONLINE_PREDICTORS:
+        t[c] = rng.poisson(3, len(t)).astype(float)
+    t["online_blog_has_12m"] = has
+    t.loc[rng.random(len(t)) < 0.1, list(features.ONLINE_PREDICTORS)] = np.nan
+    t["online_feature_asof"] = t["origin_end"]
+    return t.drop(columns="origin_end")
+
+
+def test_enriched_feature_set_requires_online(panel):
+    with pytest.raises(ValueError):
+        features.select_features(panel.columns, "enriched")
+    cols = features.select_features(list(panel.columns) + list(features.ONLINE_PREDICTORS), "enriched")
+    assert set(features.ONLINE_PREDICTORS) <= set(cols)
+    assert not set(features.ONLINE_PREDICTORS) & set(features.select_features(
+        list(panel.columns) + list(features.ONLINE_PREDICTORS), "base"))
+
+
+def test_end_to_end_with_online(tmp_path, panel):
+    mp, op = tmp_path / "master.parquet", tmp_path / "online.parquet"
+    panel.to_parquet(mp, index=False)
+    _online_table(panel).to_parquet(op, index=False)
+    out = tmp_path / "out"
+    train_detect.run(mp, out, ["base", "enriched"], n_boot=0, with_split_comparison=False,
+                     online_path=op, primary="enriched")
+    summ = pd.read_csv(out / "sensitivity_summary.csv").set_index("feature_set")
+    assert summ.loc["enriched", "n_features"] == summ.loc["base", "n_features"] + len(features.ONLINE_PREDICTORS)
+    assert summ.loc["enriched", "all_auc_mean"] > summ.loc["base", "all_auc_mean"]  # 심어 둔 신호를 쓴다
+    imp = pd.read_csv(out / "feature_importance.csv")
+    assert "[group] online" in set(imp["feature"])
+    assert set(pd.read_parquet(out / "risk_scores.parquet")["model"]) == {"detect_v0_enriched"}
+
+
+def test_online_table_built_for_other_origin_definition_is_rejected(tmp_path, panel):
+    t = _online_table(panel)
+    t["online_feature_asof"] = t["online_feature_asof"] + pd.Timedelta(days=1)
+    op = tmp_path / "online.parquet"
+    t.to_parquet(op, index=False)
+    with pytest.raises(ValueError, match="다른 origin 정의"):
+        train_detect.attach_online(panel, op)
+
+
+def test_attach_online_new_format_checks_available_at(tmp_path, panel):
+    """새 형식(online_collected_at 있음): available_at(마지막 게시월 말일) > origin_end면 멈춘다.
+    collected_at(수집 시각, 항상 origin 뒤)은 검사하지 않는다 — 회고적 재구성이라 누수가 아니다."""
+    t = _online_table(panel).merge(panel[["store_id", "origin", "origin_end"]], on=["store_id", "origin"])
+    t["online_available_at"] = t["origin_end"]
+    t["online_collected_at"] = pd.Timestamp("2026-09-23 23:39:46")
+    op = tmp_path / "online.parquet"
+    t.drop(columns="origin_end").to_parquet(op, index=False)
+    out = train_detect.attach_online(panel, op)
+    assert not {"online_feature_asof", "online_available_at", "online_collected_at"} & set(out.columns)
+    t["online_available_at"] = t["origin_end"] + pd.offsets.MonthEnd(1)  # 다음 달 게시물까지 들어갈 수 있는 창
+    t.drop(columns="origin_end").to_parquet(op, index=False)
+    with pytest.raises(ValueError, match="available_at > origin_end"):
+        train_detect.attach_online(panel, op)
+
+
+def test_attach_online_old_format_still_loads(tmp_path, panel, capsys):
+    """이전 형식(2026-09-29: available_at에 수집 시각, collected_at 열 없음)도 하위 산출물을 위해 읽되 경고한다."""
+    t = _online_table(panel)
+    t["online_available_at"] = pd.Timestamp("2026-09-23")
+    op = tmp_path / "online.parquet"
+    t.to_parquet(op, index=False)
+    out = train_detect.attach_online(panel, op)
+    assert len(out) == len(panel) and "online_available_at" not in out.columns
+    assert "이전 형식 온라인 표" in capsys.readouterr().out
+
+
 # ---------------------------------------------------------------- #32 리뷰: 보정 3구간 · Platt · 분할 비교
 def test_platt_calibrator_recovers_known_slope():
     rng = np.random.default_rng(0)
