@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 from src.analysis import shapley_background_stability as sbs
-from src.models import background
+from src.models import background, detect
 from tests.test_models import _online_table, synthetic_master
 
 
@@ -217,3 +217,52 @@ def test_run_checkpoints_resume_and_does_not_write_operational_background(small_
         sbs.run(mp, op, out)
     design = json.loads((out / "design.json").read_text(encoding="utf-8"))
     assert design["eval_n"] == 12 and design["ref_n"] == 16
+
+
+def test_background_experiment_uses_serving_params(small_design, tmp_path):
+    """S13: 배경 실험의 모형 파라미터가 서빙(채택) 파라미터와 같고, 설계 기록에 params_name이 남는다."""
+    mp, op = small_design
+    params, name = sbs.serving_params(None)
+    assert params == detect.ADOPTED_PARAMS and name == "adopted"
+    s = sbs.setup(mp, op, params=params)
+    assert s["model"].params == detect.ADOPTED_PARAMS
+    # run_meta를 주면 그 params·params_name이 설계 기록에 남는다 (#53 criterion 구조는 그대로)
+    rm = tmp_path / "run_meta.json"
+    rm.write_text(json.dumps({"params": detect.ADOPTED_PARAMS, "params_name": "adopted"}), encoding="utf-8")
+    out = tmp_path / "exp"
+    sbs.run(mp, op, out, run_meta_path=rm)
+    design = json.loads((out / "design.json").read_text(encoding="utf-8"))
+    assert design["params"] == detect.ADOPTED_PARAMS and design["params_name"] == "run_meta:adopted"
+    assert "criterion" in design and "rule" not in design
+
+
+def test_serving_params_prefers_run_meta(tmp_path):
+    meta = tmp_path / "run_meta.json"
+    meta.write_text(json.dumps({"params": {**detect.ADOPTED_PARAMS, "max_iter": 7}, "params_name": "adopted"}), encoding="utf-8")
+    params, name = sbs.serving_params(meta)
+    assert params["max_iter"] == 7 and name == "run_meta:adopted"
+    assert sbs.serving_params(tmp_path / "missing.json")[1] == "adopted"
+
+
+def test_serving_params_marks_legacy_run_meta_without_params_name(tmp_path):
+    """#51 이전 run_meta(params_name 없음)는 unknown으로 숨기지 않고 legacy 여부·DEFAULT 여부를 구분해 기록한다."""
+    legacy = tmp_path / "legacy.json"
+    legacy.write_text(json.dumps({"params": detect.DEFAULT_PARAMS}), encoding="utf-8")
+    params, name = sbs.serving_params(legacy)
+    assert params == detect.DEFAULT_PARAMS and name == "run_meta:legacy_default"
+    other = tmp_path / "other.json"
+    other.write_text(json.dumps({"params": {**detect.DEFAULT_PARAMS, "max_iter": 7}}), encoding="utf-8")
+    assert sbs.serving_params(other)[1] == "run_meta:legacy_unnamed"
+    named = tmp_path / "named.json"
+    named.write_text(json.dumps({"params": detect.DEFAULT_PARAMS, "params_name": "default"}), encoding="utf-8")
+    assert sbs.serving_params(named)[1] == "run_meta:default"
+
+
+def test_cli_has_run_meta_and_no_background_dir(monkeypatch, tmp_path):
+    """#53이 지운 --background-dir(운영 배경 선택)는 되살리지 않고 --run-meta만 run()에 넘긴다."""
+    seen = {}
+    monkeypatch.setattr(sbs, "run", lambda *a, **k: seen.update(args=a, kw=k))
+    sbs.main(["--run-meta", str(tmp_path / "rm.json")])
+    assert seen["args"][-1] == tmp_path / "rm.json"
+    with pytest.raises(SystemExit):
+        sbs.main(["--background-dir", str(tmp_path)])

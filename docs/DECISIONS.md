@@ -639,6 +639,11 @@ W2-4 이벤트 스터디(마지막 언급일-폐업일 갭)와 함께 설계한�
 바꾸지 않는다 — 튜닝 설정(`learning_rate=0.03, max_leaf_nodes=15`, feat/w2-2-benchmark HPO) 채택은 Issue #45
 결정 대기다. 아래 비교는 두 설정 모두로 냈다.
 
+> **2026-10-01 갱신(#51, Issue #49 S13):** 위 "결정 대기"는 끝났다 — #45에서 (0.03, 31)을 채택했고(튜닝 (0.03, 15)는 불채택),
+> 학습·서빙 경로의 기본이 `detect.ADOPTED_PARAMS`로 바뀌었다(아래 "2026-10-01 — #51" 항목). **이 절의 수치에서 "현 설정"은
+> 당시의 `DEFAULT_PARAMS` (0.06, 31)이다.** 재생성 후의 `train_detect` 산출물에서 "현 설정"은 `run_meta.params_name`이 가리키는
+> 설정(기본 adopted)이다.
+
 - **분할 비교표(`split_comparison.csv`)에 평가 모집단을 명시한다.** `random_split`·점포 홀드아웃은 전체 18개
   origin에서 무작위로 뽑은 **약 20%**(`splits.random_split_baseline`/`store_holdout_split`의 `test_frac=0.2`)를
   평가한 값이라 "2025Q2 검증 결과"가 아니다 — `test_scope` 열에 이를 적는다. 네 분할 모두 최신 origin(오늘
@@ -1001,6 +1006,8 @@ PR에서 다루지 않는다(요청대로 범위 밖).
 진단 모형은 탐지 실행과 같은 설정이어야 한다(`--detect-run` → run_meta.params). 지정하지 않으면 `detect.DEFAULT_PARAMS`이고
 `diagnose_meta.model_params_source`에 그렇게 남는다. **최종 재생성에서는 #51(채택 (0.03, 31))의 detect run을 반드시 넘긴다** —
 이 PR은 DEFAULT_PARAMS를 바꾸거나 #51 코드를 가져오지 않는다.
+- **2026-10-01 갱신(#51):** `diagnose` CLI는 `--detect-run`이 없으면 멈춘다. DEFAULT_PARAMS로 돌리려면 `--default-params`를
+  명시해야 한다(비교·시험용). 함수 수준(`diagnose.run(detect_run=None)`)의 DEFAULT fallback은 시험용으로 남고 출처에 적힌다.
 
 ### 6. #44 A안과의 관계
 #44는 A안(정규화 상호 ≤ 2자 점포의 온라인 feature를 전 origin NA)으로 결정됐다. NA 처리는 온라인 표 재생성의 몫이고, 진단은
@@ -1013,3 +1020,37 @@ PR에서 다루지 않는다(요청대로 범위 밖).
 바뀐다 — #40 산출 표는 재생성 때 갱신). 라벨 표기는 진단 "1~3년", #40·#38 "1–3년"으로 다르다(값 문자열, 경계와 무관).
 - **후속(TODO)**: #47 `benchmark.age_band`(업력 기준 모형 `tenure_only`의 내부 구간)는 아직 `(lo, hi]`다. 바꾸면 #47 기록 수치가
   달라지므로 이 PR에서 고치지 않는다 — 재생성 때 함께 맞출지 결정.
+
+## 2026-10-01 — #51 채택 파라미터 (0.03, 31)를 학습·서빙 경로에 연결 (Issue #49 S13)
+근거: Issue #45 결정(서빙 구간 선택값 (0.03, 31) 채택, 사후 선택인 튜닝 (0.03, 15) 불채택), Issue #49 S13. 학습·재생성은
+이 PR에서 실행하지 않았다(코드 경로와 run_meta 계약만).
+
+- **채택 설정:** `detect.ADOPTED_PARAMS = {**DEFAULT_PARAMS, learning_rate=0.03, max_leaf_nodes=31}`. DEFAULT_PARAMS의
+  나머지 키(max_iter·min_samples_leaf·l2·early_stopping=False·random_state)는 그대로 상속한다. DEFAULT의 max_leaf_nodes가
+  이미 31이라 실제로 바뀌는 값은 learning_rate 0.06 → 0.03 하나다.
+- **`train_detect` 기본 = adopted.** `run(params_name="adopted")`, CLI `--params {adopted,default}`(기본 adopted). 선택한 설정이
+  OOF·보정·컷오프·risk_scores·부트스트랩·permutation·분할 비교의 주 행에 똑같이 쓰인다. `--params default`는 이전 (0.06, 31)
+  동작을 재현한다(비교·재현용).
+- **DEFAULT_PARAMS는 바꾸지 않는다** — `benchmark`(#32/#47)의 "현 설정" 비교 기준·HPO 기저이고, 바꾸면 #45 근거 수치를 다시
+  만들 수 없다. `benchmark.SERVING_WINDOW_PARAMS`는 값을 복제하지 않고 `ADOPTED_PARAMS`를 참조한다. `TUNED_PARAMS` (0.03, 15)는
+  불채택 비교용으로만 남는다.
+- **run_meta 계약:** `params`(학습에 쓴 전체 설정), `params_name`("adopted"/"default"), `model_class`
+  (`sklearn.ensemble.HistGradientBoostingClassifier`)를 기록한다. #51 이전 run_meta에는 `params_name`이 없다 — 읽는 쪽은
+  `train_detect.run_meta_params_name`으로 `legacy_default`(params가 DEFAULT와 같음) / `legacy_unnamed`로 구분해 적고, 이름을
+  지어내지 않는다.
+- **진단·서빙은 같은 run_meta.params를 쓴다.** 최종 재생성 순서: `train_detect`(adopted) → 그 run 폴더를 `diagnose --detect-run`,
+  `shapley_background_stability --run-meta`, 서빙(#36 `serve.model_params`)에 같은 경로로 넘긴다. `diagnose` CLI는
+  `--detect-run` 없이 멈추고 DEFAULT는 `--default-params`로 명시할 때만 쓴다. 배경 안정성 실험의 설계 기록(`design.json`)에도
+  `params`·`params_name`을 남긴다(운영 배경은 여전히 #53 S8 규칙이며 이 실험은 배경을 고르지 않는다).
+- **"현 설정"이라는 이름의 뜻은 문맥마다 다르다** (산출물 스키마를 바꾸지 않으려고 이름은 유지한다):
+
+  | 위치 | "현 설정"이 가리키는 설정 |
+  |---|---|
+  | `benchmark` 산출물·#32/#47 기록 수치 | `DEFAULT_PARAMS` (0.06, 31) |
+  | 2026-10-01 이전 `train_detect` 산출물·이 문서의 그때 수치(#32 보정 비교, #33 민감도 등) | `DEFAULT_PARAMS` (0.06, 31) |
+  | `online_truncation_sensitivity`의 "현 설정" 행 | `DEFAULT_PARAMS` (params=None, 과거 근거 분석) |
+  | #51 이후 `train_detect` 산출물(`model_params_by_config`·`oof_predictions.config`·`calibration_*`·`split_comparison`) | `run_meta.params_name`의 설정 (기본 adopted (0.03, 31)) |
+
+  수치를 인용할 때는 "현 설정" 대신 `params_name` 또는 (learning_rate, max_leaf_nodes)를 함께 적는다.
+- **후속(#36):** `serve_meta`에 run_meta의 `params_name`·`model_class`를 옮겨 적고, legacy run_meta로 서빙하지 않도록 막는 일은
+  #36에서 한다. 이 PR은 학습 경로와 run_meta 계약까지만 책임진다.
