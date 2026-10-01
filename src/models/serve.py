@@ -9,7 +9,16 @@
   보정이 적용되면 요인 기여도(보정 전 척도)의 합은 화면 확률과 달라진다 — serve_meta에 기록.
   현재 실데이터 실행(base·enriched)은 보정 미적용이다.
 - 검증 구간의 학습에 한 번도 값이 없던 feature(land_price)는 score origin이 뒤로 가도 넣지 않는다.
-- 진단은 `diagnose.explain` — W2-3과 같은 요인 매핑·Shapley·peer 비교·표시 보류 규칙.
+- 모형 설정(#51): 탐지 실행 run_meta의 `params`·`params_name`·`model_class`가 모두 있어야 하고 `params_name="adopted"`
+  (= `detect.ADOPTED_PARAMS`, (0.03, 31))여야 한다. 아니면 멈춘다 — 다른 설정은 `--allow-non-adopted-params`로만
+  (개발·과거 재현용, 운영 출력 아님). DEFAULT_PARAMS로 대체하지 않는다.
+- 같은 탐지 실행(#51): run_meta의 master·온라인 해시가 서빙 입력과 같아야 하고, run_meta의 band_cutoffs가
+  band_cutoffs.csv와 같아야 한다. `--diagnose-meta`를 주면 그 진단이 같은 run_meta(파일 해시)·같은 params·같은
+  master로 만들어졌는지 확인한다. 다르면 멈춘다.
+- 진단은 `diagnose`(#53) 그대로 — 요인 매핑·Shapley·peer 비교·표시 보류(hold_reason/missing_reason)·절단 점포
+  온라인 보류·driver_code·S8 두 배경(`background_rows_s8`·`explain_s8`, "해석 민감")·배경 manifest 검증. serve는
+  탐지 결과 로드 → 진단 호출 → 서빙 레코드 조립 → serve_meta 기록만 한다.
+- 경쟁지표(comp_*)는 이번 서빙에 넣지 않는다(#43, feature set에 없음 — 들어오면 멈춘다).
 
 입력
 - `--master`: 라벨 있는 master_base (학습용)
@@ -21,12 +30,16 @@
 
 출력 (`outputs/serve/<origin>_<feature set>/`)
 - `risk_scores.parquet`, `diagnosis.parquet`, `diagnosis_by_category.parquet`
-- `reports.jsonl` — 점포당 1줄, W2-5 결과 스키마의 risk + factors 블록
-- `serve_meta.json` — 입력 sha256, 학습 구간, 컷오프, 소요 시간
+- `reports.jsonl` — 점포당 1줄, W2-5 결과 스키마의 risk + factors 블록. S8 `interpretation_sensitive`는
+  #41 factor 스키마(additionalProperties=false)가 받기 전까지 넣지 않는다(`--expose-sensitivity`로만) —
+  diagnosis.parquet에는 항상 있다.
+- `serve_meta.json` — 입력 sha256, 학습 구간, 모형 설정(params_name), 같은 run 검사, S8 배경, 컷오프, 소요 시간
 
 실행:
     python -m src.models.serve --score outputs/master/master_score.parquet --primary enriched \\
-        --online outputs/online/online_features.parquet --online-score outputs/online/online_features_score.parquet
+        --online outputs/online/online_features.parquet --online-score outputs/online/online_features_score.parquet \\
+        --detect-dir outputs/models/detect_v0_enriched --qa <online_blog_monthly_qa.csv> \\
+        --diagnose-meta outputs/models/diagnosis_enriched/diagnose_meta.json
 """
 from __future__ import annotations
 
@@ -118,26 +131,107 @@ def read_detect_run(detect_dir: Path) -> tuple[dict, dict, object | None]:
     return meta, cut, iso
 
 
-def model_params(run_meta: dict) -> tuple[dict, str]:
-    """#45: 탐지 실행(run_meta.json)의 모형 설정(하이퍼파라미터)을 그대로 읽어 서빙 모형·부트스트랩에 쓴다.
-    run_meta에 params가 없는 옛 실행이면 기본값이고 출처에 그렇게 적는다."""
+SERVING_PARAMS_NAME = "adopted"  # #51: 최종 서빙은 detect.ADOPTED_PARAMS (0.03, 31)
+BAND_CUTOFF_KEYS = ("cut_mid", "cut_high", "base_rate")  # serve_meta.band_cutoffs (#41 serve_band_cutoffs)
+
+
+def model_params(run_meta: dict, *, allow_non_adopted: bool = False) -> dict:
+    """#45/#51: 탐지 실행(run_meta.json)의 모형 설정을 그대로 읽어 서빙 모형·부트스트랩·진단에 쓴다.
+
+    기본 경로는 params·params_name·model_class가 모두 있고 params_name="adopted"이며 params가
+    detect.ADOPTED_PARAMS와 같아야 한다. params_name이 없는 #51 이전 run_meta는 legacy_default/legacy_unnamed
+    (`train_detect.run_meta_params_name`)로 읽혀 거부된다. allow_non_adopted=True(개발·과거 재현용)이면 이름·값
+    검사만 풀고 그 사실을 contract에 남긴다. params가 없거나 model_class가 다른 클래스면 언제나 멈춘다
+    (DEFAULT_PARAMS로 대체하지 않는다). 반환: {params, params_name, model_class, source, contract}."""
     params = run_meta.get("params")
-    if isinstance(params, dict) and params:
-        return dict(params), "detect run_meta.params"
-    return dict(detect.DEFAULT_PARAMS), "detect.DEFAULT_PARAMS (run_meta에 params 없음)"
+    if not isinstance(params, dict) or not params:
+        raise ValueError("탐지 실행 run_meta에 params가 없다 — #51 이후 train_detect로 다시 만든다 "
+                         "(DEFAULT_PARAMS로 대체하지 않는다)")
+    name = train_detect.run_meta_params_name(run_meta)
+    cls = run_meta.get("model_class")
+    if cls is not None and cls != detect.MODEL_CLASS:
+        raise ValueError(f"탐지 실행 model_class({cls})가 서빙 모형({detect.MODEL_CLASS})과 다르다")
+    problems = []
+    if cls is None:
+        problems.append("model_class 없음")
+    if name != SERVING_PARAMS_NAME:
+        problems.append(f"params_name={name}")
+    elif dict(params) != dict(detect.ADOPTED_PARAMS):
+        problems.append("params_name=adopted인데 params가 detect.ADOPTED_PARAMS와 다르다")
+    if problems and not allow_non_adopted:
+        raise ValueError(f"서빙은 채택 설정(params_name={SERVING_PARAMS_NAME}, detect.ADOPTED_PARAMS)만 쓴다: "
+                         f"{'; '.join(problems)} — train_detect --params adopted로 다시 만든다 "
+                         "(개발·과거 재현만 --allow-non-adopted-params)")
+    return {"params": dict(params), "params_name": name, "model_class": cls or detect.MODEL_CLASS,
+            "source": "detect run_meta.params",
+            "contract": SERVING_PARAMS_NAME if not problems else "override (비운영): " + "; ".join(problems)}
+
+
+def check_same_run(run_meta: dict, cut: dict, master_path: Path, online_path: Path | None) -> None:
+    """#51 같은 탐지 실행: 컷오프·모형 설정을 가져온 run이 서빙 입력과 같은 master·온라인 표로 만들어졌는지,
+    run_meta의 band_cutoffs가 band_cutoffs.csv와 같은지. 다르면 멈춘다."""
+    want = run_meta.get("master_sha256")
+    if want is None or want != train_detect.sha256(master_path):
+        raise ValueError(f"탐지 실행의 master 해시({want})가 서빙 master({master_path})와 다르다 — 같은 run이 아니다")
+    want_on = run_meta.get("online_sha256")
+    got_on = train_detect.sha256(online_path) if online_path is not None else None
+    if want_on != got_on:
+        raise ValueError(f"탐지 실행의 온라인 표 해시({want_on})가 서빙 온라인 표({got_on})와 다르다 — 같은 run이 아니다")
+    rc = run_meta.get("band_cutoffs") or {}
+    for k in ("cut_mid", "cut_high"):
+        if k not in rc or abs(float(rc[k]) - float(cut[k])) > 1e-12:
+            raise ValueError(f"run_meta.band_cutoffs.{k}({rc.get(k)})가 band_cutoffs.csv({cut[k]})와 다르다")
+    bp = run_meta.get("band_provenance") or {}
+    for k in ("cut_mid", "cut_high"):
+        if k in bp and abs(float(bp[k]) - float(cut[k])) > 1e-12:
+            raise ValueError(f"run_meta.band_provenance.{k}({bp[k]})가 band_cutoffs.csv({cut[k]})와 다르다")
+
+
+def check_diagnose_meta(diagnose_meta_path: Path, run_meta_sha256: str, params: dict, master_path: Path,
+                        primary: str) -> dict:
+    """`python -m src.models.diagnose --detect-run <같은 run>`의 diagnose_meta.json이 이 서빙과 같은 탐지 실행
+    (run_meta 파일 해시)·같은 params·같은 master·같은 feature set으로 만들어졌는지. 다르면 멈춘다."""
+    dm = json.loads(Path(diagnose_meta_path).read_text(encoding="utf-8"))
+    errs = []
+    if dm.get("detect_run_meta_sha256") != run_meta_sha256:
+        errs.append(f"run_meta 해시 {dm.get('detect_run_meta_sha256')} ≠ {run_meta_sha256}")
+    if dm.get("model_params") != params:
+        errs.append("model_params가 다르다")
+    if dm.get("master_sha256") != train_detect.sha256(master_path):
+        errs.append("master 해시가 다르다")
+    if dm.get("primary_feature_set") != primary:
+        errs.append(f"feature set {dm.get('primary_feature_set')} ≠ {primary}")
+    if errs:
+        raise ValueError(f"진단 실행({diagnose_meta_path})이 서빙과 같은 탐지 실행이 아니다: {'; '.join(errs)}")
+    return {"path": str(diagnose_meta_path), "sha256": train_detect.sha256(Path(diagnose_meta_path)),
+            "detect_run_meta_sha256": dm["detect_run_meta_sha256"], "model_params_source": dm.get("model_params_source")}
 
 
 def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *, primary: str,
         online_path: Path | None = None, online_score_path: Path | None = None,
         licenses_path: Path | None = None, qa_path: Path | None = None, background_manifest: Path | None = None,
-        n_boot: int = 20, n_background: int = 16, seed: int = 20260925) -> pd.DataFrame:
+        random_background: int | None = None, diagnose_meta: Path | None = None,
+        allow_non_adopted_params: bool = False, expose_sensitivity: bool = False,
+        n_boot: int = 20, seed: int = 20260925) -> pd.DataFrame:
+    """background_manifest: S8 manifest(기본 `background.DEFAULT_MANIFEST`, 없으면 멈춤) — 두 배경으로 진단(#53).
+    random_background: 정수를 주면 manifest 대신 학습 구간 무작위 그 개수 하나로만(시험용, 해석 민감 없음, 비운영).
+    diagnose_meta: 별도로 돌린 diagnose의 diagnose_meta.json — 같은 탐지 실행인지 확인(다르면 멈춤).
+    expose_sensitivity: reports.jsonl factor에 interpretation_sensitive를 넣는다(#41 스키마 갱신 후)."""
     t0 = time.time()
     out_dir.mkdir(parents=True, exist_ok=True)
     if licenses_path is not None and not Path(licenses_path).exists():
         raise FileNotFoundError(f"인허가 테이블이 없다: {licenses_path}")
+    if random_background is None and background_manifest is None:
+        background_manifest = background.DEFAULT_MANIFEST
     run_meta, cut, iso = read_detect_run(detect_dir)
     if run_meta.get("primary_feature_set", "base") != primary:
         raise ValueError(f"탐지 실행의 feature set({run_meta.get('primary_feature_set')})과 서빙({primary})이 다르다")
+    mp = model_params(run_meta, allow_non_adopted=allow_non_adopted_params)
+    params = mp["params"]
+    check_same_run(run_meta, cut, master_path, online_path)
+    run_meta_sha = train_detect.sha256(Path(detect_dir) / "run_meta.json")
+    diag_check = (check_diagnose_meta(diagnose_meta, run_meta_sha, params, master_path, primary)
+                  if diagnose_meta is not None else None)
 
     lab = train_detect.load_master(master_path)
     sc = load_score_panel(score_path)
@@ -152,6 +246,9 @@ def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *,
     if missing:
         raise ValueError(f"예측용 패널에 학습 feature가 없다: {missing}")
     diagnose.check_mapping(cols)
+    comp = [c for c in cols if c.startswith("comp_")]
+    if comp:
+        raise ValueError(f"경쟁지표는 이번 서빙에 넣지 않는다(#43): {comp}")
     last_test = (run_meta.get("test_origins") or [sorted(lab["origin"].astype(str).unique())[-1]])[-1]
     excluded = unvalidated_features(lab, cols, last_test)
     cols = [c for c in cols if c not in excluded]
@@ -169,8 +266,7 @@ def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *,
     train_detect.log(f"score {s} · {len(sc):,}점포 · 학습 {train_origins[0]}~{train_origins[-1]} "
                      f"({int(tr.sum()):,}행) · feature set {primary}")
 
-    params, params_source = model_params(run_meta)
-    train_detect.log(f"모형 설정({params_source}): {params}")
+    train_detect.log(f"모형 설정({mp['source']}, params_name={mp['params_name']}, {mp['contract']}): {params}")
     model = detect.DetectModel(params=params).fit(Xtr, ytr)
     p_raw = model.predict_proba(Xs)
     p = iso.predict(p_raw) if iso is not None else p_raw
@@ -198,17 +294,33 @@ def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *,
     if online_score_path is not None and qa_path is not None:
         truncated_stores = diagnose.load_truncated_stores(qa_path)
         train_detect.log(f"절단 점포 {len(truncated_stores):,}곳 (QA {qa_path})")
-    # 배경: manifest(#34 확정)가 있으면 그대로 재현, 없으면(테스트·명시적 --random-background) 학습 구간 무작위
-    bg, bg_fp = diagnose.background_rows(background_manifest, lab, tr, rng, n_background)
-    Xb = features.build_X(lab.iloc[bg], cols, categories=cats)
+    # 진단 = #53 diagnose 그대로. 위험 확률을 만든 같은 모형 객체를 분해한다(진단 모형 설정 = run_meta.params).
     meta = sc[["store_id", "origin", "biz_type", "gu", "age_months"]]
-    res = diagnose.explain(model, Xs, Xb, meta, sc, truncated_stores=truncated_stores)
+    if random_background is not None:
+        bg, info = diagnose.background_rows(None, lab, tr, rng, random_background)
+        res = diagnose.explain(model, Xs, features.build_X(lab.iloc[bg], cols, categories=cats), meta, sc,
+                               truncated_stores=truncated_stores)
+        bg_prov, s8 = {"backgrounds": {"primary": info}, "rule_ref": None, "operational": False}, None
+    else:
+        idx, bg_prov = diagnose.background_rows_s8(background_manifest, lab, tr)
+        res = diagnose.explain_s8(model, Xs, features.build_X(lab.iloc[idx["primary"]], cols, categories=cats),
+                                  features.build_X(lab.iloc[idx["sensitivity"]], cols, categories=cats), meta, sc,
+                                  truncated_stores=truncated_stores)
+        s8 = res["s8_summary"]
+        bg_prov = {**bg_prov, "operational": all(b["operational"] for b in bg_prov["backgrounds"].values())}
+        train_detect.log(f"S8 해석 민감: {s8['n_interpretation_sensitive']:,} / {s8['n_store_factor']:,} 점포×요인")
     long = res["long"]
     long.to_parquet(out_dir / "diagnosis.parquet", index=False)
     res["by_category"].to_parquet(out_dir / "diagnosis_by_category.parquet", index=False)
     # 요인 기여도는 보정 전 확률 척도에서 정확히 합산된다 (W2-3). 보정이 적용되면 화면 확률과 합이 달라진다.
-    if np.abs(res["meta"]["probability_12m"].to_numpy() - p_raw).max() > 1e-12:
+    # 배경(S8)은 설명만 바꾼다 — 진단 확률·그 확률로 정한 등급이 위험도와 다르면 멈춘다.
+    p_diag = res["meta"]["probability_12m"].to_numpy()
+    if np.abs(p_diag - p_raw).max() > 1e-12:
         raise RuntimeError("진단 확률과 모형 확률이 다르다")
+    p_diag_cal = iso.predict(p_diag) if iso is not None else p_diag
+    if not np.array_equal(bands.assign_bands_absolute(p_diag_cal, cut_mid=cut["cut_mid"], cut_high=cut["cut_high"]),
+                          risk["band"].to_numpy()):
+        raise RuntimeError("진단 확률로 정한 등급이 위험도 등급과 다르다")
 
     unavailable = [c for c in diagnose.CATEGORIES if not any(f["category"] == c for f in res["active"])]
     as_of = str(pd.Period(s, freq="Q").end_time.date())
@@ -229,7 +341,8 @@ def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *,
                          "peer_group": r.peer_group, "peer_median": round(float(r.peer_median), 4),
                          "model": r.model, "calibrated": bool(r.calibrated)},
                 "factors": diagnose.factors_json(by_store[r.store_id], r.store_id, r.origin,
-                                                 res["values"](r.store_id, r.origin)),
+                                                 res["values"](r.store_id, r.origin),
+                                                 with_sensitivity=expose_sensitivity),
                 "unavailable_categories": unavailable,
                 "disclaimer": DISCLAIMER,
             }
@@ -238,13 +351,29 @@ def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *,
     serve_meta = {
         "score_origin": s, "as_of": as_of, "n_stores": int(len(sc)), "primary_feature_set": primary,
         "train_origins": [train_origins[0], train_origins[-1]], "n_train_rows": int(tr.sum()),
-        "model_params": params, "model_params_source": params_source,
+        # #51: params_name이 정본. model_params_is_default는 이전 소비자용 보조 필드(뜻이 겹치는 bool)
+        "params_name": mp["params_name"], "model_params": params, "model_class": mp["model_class"],
+        "model_params_source": mp["source"], "params_contract": mp["contract"],
         "model_params_is_default": params == dict(detect.DEFAULT_PARAMS),
+        "detect_run_provenance": {"path": str(detect_dir), "run_meta_sha256": run_meta_sha,
+                                  "params_name": mp["params_name"], "master_sha256": run_meta.get("master_sha256"),
+                                  "online_sha256": run_meta.get("online_sha256"),
+                                  "same_run_checks": ["master_sha256", "online_sha256", "band_cutoffs"]
+                                  + (["diagnose_meta"] if diag_check else [])},
+        "diagnosis": {"model_params_source": "serve 위험도 모형과 같은 객체 (detect run_meta.params)",
+                      "same_model_as_risk": True, "diagnose_meta_check": diag_check,
+                      "sensitivity_exposed_in_reports": expose_sensitivity,
+                      "sensitivity_note": None if expose_sensitivity else
+                      "interpretation_sensitive는 diagnosis.parquet에만 — #41 factor 스키마 갱신 후 reports에 노출"},
+        "s8_rule": {k: bg_prov.get(k) for k in ("rule_ref", "rule_version", "method", "n_background", "comparison")},
+        "s8_summary": s8,
         "band_definition": run_meta.get("band_definition"),
         "cutoff_provenance": {**(run_meta.get("band_provenance") or {}),
                               "high_share_served": float((risk["band"] == "high").mean())},
-        "band_cutoffs": cut, "n_boot": n_boot, "n_background": n_background,
-        "background": bg_fp,
+        # #41 serve_band_cutoffs 계약(additionalProperties=false) = {cut_mid, cut_high, base_rate}. #45 이후
+        # band_cutoffs.csv에 있는 fallback 여부는 cutoff_provenance(high_fallback·mid_fallback)에 이미 있다.
+        "band_cutoffs": {k: cut[k] for k in BAND_CUTOFF_KEYS if k in cut}, "n_boot": n_boot,
+        "background": bg_prov,
         "qa": str(qa_path) if qa_path else None, "n_truncated_stores": len(truncated_stores) if truncated_stores else 0,
         "detect_run": str(detect_dir), "detect_master_sha256": run_meta.get("master_sha256"),
         "master": str(master_path), "master_sha256": train_detect.sha256(master_path),
@@ -282,13 +411,19 @@ def main(argv=None) -> None:
     ap.add_argument("--licenses", type=Path, default=None,
                     help=f"인허가 표준화 테이블 (기본: {DEFAULT_LICENSES.relative_to(config.REPO_ROOT)}가 있으면 사용)")
     ap.add_argument("--n-boot", type=int, default=20)
-    ap.add_argument("--n-background", type=int, default=16)
     ap.add_argument("--qa", type=Path, default=None,
                     help="온라인 QA csv — 있으면 절단 점포를 온라인 요인 data_missing으로 보류 (#34)")
     ap.add_argument("--background-manifest", type=Path, default=background.DEFAULT_MANIFEST,
-                    help="#34에서 확정한 Shapley 배경 manifest (기본 outputs/diagnosis/background/background_manifest.json, 없으면 오류)")
-    ap.add_argument("--random-background", action="store_true",
-                    help="manifest 대신 학습 구간 무작위 --n-background개 (재현 안 됨 — 비교·시험용)")
+                    help="S8 배경 manifest (기본 outputs/diagnosis/background/background_manifest.json, 없으면 오류 — "
+                         "`python -m src.models.background create`로 만든다)")
+    ap.add_argument("--random-background", type=int, default=None, metavar="N",
+                    help="manifest 대신 학습 구간 무작위 N개 하나로 (비교·시험용, 비운영, 해석 민감 없음)")
+    ap.add_argument("--diagnose-meta", type=Path, default=None,
+                    help="같은 --detect-run으로 돌린 diagnose의 diagnose_meta.json — 같은 탐지 실행인지 확인")
+    ap.add_argument("--allow-non-adopted-params", action="store_true",
+                    help="params_name≠adopted·legacy run_meta도 허용 (개발·과거 재현용, 운영 출력 아님)")
+    ap.add_argument("--expose-sensitivity", action="store_true",
+                    help="reports.jsonl factor에 interpretation_sensitive 포함 (#41 스키마 갱신 후)")
     ap.add_argument("--out", type=Path, default=None)
     a = ap.parse_args(argv)
     licenses = a.licenses
@@ -303,8 +438,10 @@ def main(argv=None) -> None:
     out = a.out or (config.REPO_ROOT / "outputs" / "serve" / f"{origin}_{a.primary}")
     run(a.master, a.score, detect_dir, out, primary=a.primary, online_path=a.online,
         online_score_path=a.online_score, licenses_path=licenses, qa_path=a.qa,
-        background_manifest=None if a.random_background else a.background_manifest,
-        n_boot=a.n_boot, n_background=a.n_background)
+        background_manifest=None if a.random_background is not None else a.background_manifest,
+        random_background=a.random_background, diagnose_meta=a.diagnose_meta,
+        allow_non_adopted_params=a.allow_non_adopted_params, expose_sensitivity=a.expose_sensitivity,
+        n_boot=a.n_boot)
 
 
 if __name__ == "__main__":

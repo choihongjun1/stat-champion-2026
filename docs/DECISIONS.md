@@ -1124,3 +1124,34 @@ PR에서 다루지 않는다(요청대로 범위 밖).
   수치를 인용할 때는 "현 설정" 대신 `params_name` 또는 (learning_rate, max_leaf_nodes)를 함께 적는다.
 - **후속(#36):** `serve_meta`에 run_meta의 `params_name`·`model_class`를 옮겨 적고, legacy run_meta로 서빙하지 않도록 막는 일은
   #36에서 한다. 이 PR은 학습 경로와 run_meta 계약까지만 책임진다.
+
+## 2026-10-01 — #36 서빙: main 진단(#53)·채택 설정(#51) 계약으로 정리
+근거: #53(S8·진단 로직 일원화), #51(Issue #49 S13 채택 설정·run_meta 계약), #41 serve 입력 계약(`serve_record_v0_2`,
+`serve_band_cutoffs`). 실데이터 재생성은 하지 않았다(합성 데이터 테스트·E2E만). 구현 `src/models/serve.py`.
+
+- **역할:** serve는 탐지 결과 로드 → 진단 호출 → 서빙 레코드 조립 → serve_meta 기록만 한다. 진단 규칙(요인 매핑·Shapley·
+  hold_reason/missing_reason·절단 점포 온라인 보류·driver_code·S8 두 배경·manifest 검증)은 `diagnose`(#53)를 그대로 부른다
+  (`background_rows_s8`·`explain_s8`). 위험도 모형과 진단은 **같은 모형 객체**다.
+- **채택 설정 강제(#51):** run_meta에 `params`·`params_name`·`model_class`가 모두 있고 `params_name="adopted"`, `params ==
+  detect.ADOPTED_PARAMS`, `model_class == detect.MODEL_CLASS`여야 한다. params 없음·params_name 없음(`legacy_default`/
+  `legacy_unnamed`)·`default` 등은 멈춘다. 개발·과거 재현만 `--allow-non-adopted-params`(이름·값 검사만 풀고
+  `serve_meta.params_contract`에 "override (비운영)"으로 남김). params가 없거나 model_class가 다른 클래스면 플래그로도 안 된다.
+  DEFAULT_PARAMS fallback은 없앴다. `serve_meta.params_name`이 정본이고 `model_params_is_default`는 보조 필드다.
+- **같은 탐지 실행:** run_meta의 master·온라인 표 sha256이 서빙 입력과 같아야 하고, run_meta.band_cutoffs·band_provenance의
+  cut_mid/cut_high가 band_cutoffs.csv와 같아야 한다. `--diagnose-meta`(같은 `--detect-run`으로 돌린 diagnose의
+  diagnose_meta.json)를 주면 run_meta **파일 해시**·params·master·feature set이 같은지 확인한다(diagnose_meta에
+  `detect_run_meta`·`detect_run_meta_sha256`을 기록하도록 했다). 다르면 멈춘다.
+- **S8:** 기본은 S8 manifest(없으면 멈춤). 무작위 배경은 `--random-background N`(비운영, 해석 민감 없음). diagnosis.parquet에
+  주 배경 값과 민감도 배경 값(`*_sens`)·`interpretation_sensitive`를 모두 남긴다. 진단 확률이 위험도 확률과 다르거나 그 확률로
+  정한 등급이 위험도 등급과 다르면 멈춘다(배경은 설명만 바꾼다). **#41 factor 스키마가 `interpretation_sensitive`를 받기
+  전까지 reports.jsonl에는 넣지 않는다**(`--expose-sensitivity`로만) — #41 후속.
+- **serve_meta.band_cutoffs = {cut_mid, cut_high, base_rate}** (#41 `serve_band_cutoffs`, additionalProperties=false).
+  #45 이후 band_cutoffs.csv에 생긴 high_fallback·mid_fallback은 `cutoff_provenance`에만 둔다(합성 E2E에서 #41
+  `build_db.validate_serve_input`이 이 키 때문에 거부하는 것을 확인하고 고쳤다).
+- **#44 A안**(정규화 상호 ≤ 2자 → 온라인 feature 전 origin NA)은 upstream 온라인 표 재생성의 몫이고 serve는 새로 구현하지
+  않는다. 온라인 feature가 전부 NA인 점포는 `data_missing`/`online_unobservable`로 보류된다(테스트). main의
+  `online_features`에는 아직 A안이 들어 있지 않다 — 재생성 전에 upstream 반영이 필요하다.
+- **driver_code**는 `diagnose`가 만든 값을 그대로 쓴다. `sample_reports`의 온라인 경우 판정도 문구 단어 매칭을 버리고
+  driver_code(코드가 없는 이전 레코드만 `diagnose.classify_online_driver`)로 바꿨다 — 이전 단어 매칭은 "마지막 블로그 언급
+  이후 2개월"(presence)을 감소로 잘못 골랐다.
+- **경쟁지표(comp_*)는 이번 서빙에 넣지 않는다**(#43). feature set에 없고, 들어오면 멈춘다.

@@ -10,8 +10,10 @@
 - near_cut_high                            : high 컷오프 바로 위 (경계 표시 확인)
 - wide_interval                            : 불확실성 구간이 가장 넓은 점포
 - online_hold                              : 온라인 요인 표시 보류 (오탐 검토 대기, data_missing=false)
-- online_decline                           : 온라인 요인이 위험을 올리고 근거가 "언급 줄어듦/마지막 언급 이후 N개월"
-- online_absent                            : 온라인 요인이 위험을 올리고 근거가 "언급 이력 없음"
+- online_decline                           : 온라인 요인이 위험을 올리고 driver_code가 decline·lapse (언급 줄어듦·끊김)
+- online_absent                            : 온라인 요인이 위험을 올리고 driver_code가 absent (언급 없음)
+  (driver_code는 `diagnose`가 만든 값을 그대로 쓴다. 코드가 없는 이전 레코드만 `diagnose.classify_online_driver`로
+  같은 분류를 얻는다 — 여기서 문구를 따로 분류하지 않는다.)
 - missing_outside_trdar                    : 상권 경계 밖 — 상권 요인 4개 모두 데이터 없음
 - missing_sales_only                       : 상권 안인데 매출 요인만 데이터 없음
 - missing_online                           : 온라인 관측 불가
@@ -37,10 +39,12 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.models import diagnose
+
 TRDAR_FACTORS = ("trdar_population", "trdar_vitality", "peer_competition", "peer_sales")
 SMALL = 0.01          # no_standout: 가장 큰 위험(+) 기여가 이보다 작으면
 PEER_TOP_MIN = 95     # peer_top: 동종 대비 상위 5% 이내
-DECLINE_WORDS = ("줄어듦", "이후")
+DECLINE_CODES = ("decline", "lapse")  # #41 ONLINE_DRIVER_LINKABLE 중 "줄어듦·끊김"
 # 경우 판정 목록 (등급·최고 위험·경계·구간 대표 외). 순서 = 샘플 선택·README 표 순서
 CASES = ("online_hold", "online_decline", "online_absent", "missing_outside_trdar", "missing_sales_only",
          "missing_online", "peer_top", "no_standout")
@@ -65,12 +69,11 @@ def case_flags(rec: dict) -> dict[str, bool]:
     tr = [_factor(rec, k) for k in TRDAR_FACTORS]
     sales = _factor(rec, "peer_sales")
     on_up = bool(on and on["display"] and not _missing(on) and on["contribution"] > 0)
-    drv = (on or {}).get("driver") or ""
+    code = (on or {}).get("driver_code") or diagnose.classify_online_driver((on or {}).get("driver"))
     return {
         "online_hold": bool(on and not on["display"] and not _missing(on)),
-        "online_decline": on_up and any(w in drv for w in DECLINE_WORDS),
-        # "없음" 중 "변화 없음"(최근 1년 언급 수 변화 없음)은 이력 없음이 아니다
-        "online_absent": on_up and "없음" in drv and "변화 없음" not in drv,
+        "online_decline": on_up and code in DECLINE_CODES,
+        "online_absent": on_up and code == "absent",
         "missing_outside_trdar": all(_missing(f) for f in tr if f is not None) and any(f is not None for f in tr),
         "missing_sales_only": _missing(sales) and not _missing(_factor(rec, "trdar_vitality")),
         "missing_online": _missing(on),

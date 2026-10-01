@@ -115,6 +115,20 @@ def test_no_standout_and_peer_top_thresholds():
     assert not sr.case_flags(drift)["online_absent"]
 
 
+def test_online_cases_follow_diagnose_driver_code():
+    """#36: 온라인 경우 판정은 diagnose가 만든 driver_code를 그대로 쓴다(문구를 따로 분류하지 않는다)."""
+    rec = _rec(4, 0.3, "high", "decline")
+    on = next(f for f in rec["factors"] if f["factor_id"] == "online_attention")
+    on["driver"], on["driver_code"] = "마지막 블로그 언급 이후 2개월", "presence"  # 3개월 이하 = presence (#41)
+    assert not sr.case_flags(rec)["online_decline"]
+    on["driver"], on["driver_code"] = "마지막 블로그 언급 이후 7개월", "lapse"
+    assert sr.case_flags(rec)["online_decline"] and not sr.case_flags(rec)["online_absent"]
+    on["driver_code"] = None  # 코드가 없는 이전 레코드: diagnose.classify_online_driver로 같은 분류
+    assert sr.case_flags(rec)["online_decline"]
+    on["driver"], on["driver_code"] = "관측 불가(검색 결과 상한)", "unobservable"
+    assert not sr.case_flags(rec)["online_absent"] and not sr.case_flags(rec)["online_decline"]
+
+
 def test_licenses_attach_name_and_keep_existing(tmp_path):
     recs = [_rec(i, 0.3 - i * 0.01, "high" if i < 5 else "low", "plain") for i in range(12)]
     recs[0]["store"]["name"] = "서빙에서 붙인 이름"

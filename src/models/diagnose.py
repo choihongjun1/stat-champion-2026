@@ -628,6 +628,12 @@ def explain_s8(model: detect.DetectModel, Xt: pd.DataFrame, Xb_primary: pd.DataF
     return res
 
 
+def detect_run_meta_path(detect_run: Path) -> Path:
+    """탐지 실행 폴더 또는 run_meta.json 경로 → run_meta.json 경로."""
+    p = Path(detect_run)
+    return p if p.suffix == ".json" else p / "run_meta.json"
+
+
 def model_params_from_detect_run(detect_run: Path | None) -> tuple[dict, str]:
     """진단 모형 설정 = 탐지 실행(`train_detect` run_meta.json의 `params`, #51 이후 채택 (0.03, 31))과 같아야 한다 —
     진단이 risk_scores와 같은 모형을 분해하도록. 지정하지 않으면 detect.DEFAULT_PARAMS이고 출처에 그렇게 적는다
@@ -635,8 +641,7 @@ def model_params_from_detect_run(detect_run: Path | None) -> tuple[dict, str]:
     params_name이 없는 #51 이전 run_meta는 legacy_default / legacy_unnamed로 적는다(`train_detect.run_meta_params_name`)."""
     if detect_run is None:
         return dict(detect.DEFAULT_PARAMS), "detect.DEFAULT_PARAMS (detect run 미지정 — 비교·시험용 fallback, 운영 출력 아님)"
-    p = Path(detect_run)
-    meta_path = p if p.suffix == ".json" else p / "run_meta.json"
+    meta_path = detect_run_meta_path(detect_run)
     rm = json.loads(meta_path.read_text(encoding="utf-8"))
     params = rm.get("params")
     if not isinstance(params, dict) or not params:
@@ -703,6 +708,10 @@ def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: 
     run_meta = {"origin": origin, "n_stores": int(len(te_idx)), "primary_feature_set": primary,
                 "model_params": params, "model_params_source": params_source,
                 "model_class": "sklearn.ensemble.HistGradientBoostingClassifier",
+                # 같은 탐지 실행 검사용(#36 serve --diagnose-meta): run_meta.json 경로와 파일 해시
+                "detect_run_meta": str(detect_run_meta_path(detect_run)) if detect_run is not None else None,
+                "detect_run_meta_sha256": (train_detect.sha256(detect_run_meta_path(detect_run))
+                                           if detect_run is not None else None),
                 "base_value": float(base), "train_origins": f"{origins[0]}~{origins[t - train_detect.EMBARGO - 1]}",
                 "background": bg_prov, "s8_summary": s8,
                 "master_sha256": train_detect.sha256(Path(master_path)),
