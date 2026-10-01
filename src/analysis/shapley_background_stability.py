@@ -1,18 +1,22 @@
 # -*- coding: utf-8 -*-
-"""이슈 #34 리뷰 ① — 요인 Shapley 배경 표본 크기·구성의 안정성과 서빙 배경 확정.
+"""이슈 #34 리뷰 ① — 요인 Shapley 배경 표본 크기·구성의 안정성 **평가** (운영 배경을 고르지 않는다).
 
 `diagnose.factor_shapley`의 가치함수는 배경 표본 평균이다. 배경이 작으면(기존 16개) 기여값·1순위 요인·온라인 부호가
-표본에 따라 흔들린다. 결과를 보기 전에 고정한 설계(2026-09-30):
+표본에 따라 흔들린다. 실험 설계(2026-09-30):
 
 - 평가 점포: 2025Q2 점포에서 seed 20260930으로 1,500곳
-- 기준(정답) 배경: 학습 구간 무작위 1,024개 (seed 20261024)
+- 기준(정답) 배경: 학습 구간 무작위 1,024개 (seed 20261024) — 기준 자체의 시드 간 안정성(천장)은 재지 않았다
 - 후보(각 시드 5개 20260931–35): 무작위 16/64/128/256, 층화(업종×자치구) 64/128/256, k-means 대표 64/128
 - 지표: 기준 대비 1순위 요인 일치율, 온라인 요인 기여 부호 일치율, 기준값(base value) 범위, 1,000점포당 계산 시간
-- 채택 규칙: 5개 시드 중앙값이 1순위 ≥ 90%, 온라인 부호 ≥ 95%인 설정 중 계산 시간(중앙값)이 가장 짧은 것.
-  없으면 두 일치율 중앙값의 최솟값이 가장 높은 설정 + 한계로 기록. 채택 설정의 배경은 첫 번째 시드(20260931)의 것.
+- 사전 기준: 5개 시드 중앙값이 1순위 ≥ 90%, 온라인 부호 ≥ 95% (`meets_criterion`으로 표에만 표시)
+
+**이 모듈은 운영 배경을 고르지 않는다 (2026-10-01).** 실데이터에서 어느 설정도 사전 기준을 충족하지 못했고, 이전 버전이
+결과를 본 뒤 만든 대체 규칙(두 중앙값의 최솟값 최대화)과 "첫 시드" 규칙으로 층화 256·시드 20260931(온라인 부호 일치 83.7%,
+그 설정의 5시드 중 최저)을 운영 배경으로 저장했었다. 운영 배경은 Issue #49 S8(`src.models.background.S8_RULE`: 층화 256
+두 개 seed 20260931·20261001, 방향·표시가 다르면 "해석 민감")로 정하고, 이 실험은 그 한계를 기록하는 근거로만 쓴다.
 
 설정마다 결과를 바로 저장(체크포인트)한다 — 다시 실행하면 끝난 설정은 건너뛴다. 설계가 바뀌면(평가 점포 해시가
-다르면) 멈춘다. 끝나면 채택 배경을 `src.models.background.save_background`로 저장한다.
+다르면) 멈춘다.
 
 실행:
     python -m src.analysis.shapley_background_stability --online outputs/online/online_features.parquet
@@ -47,22 +51,8 @@ def sample_random(pool_idx: np.ndarray, n: int, seed: int) -> np.ndarray:
 
 
 def sample_stratified(pool_idx: np.ndarray, strata: pd.Series, n: int, seed: int) -> np.ndarray:
-    """업종×자치구 층화 추출 — 각 층에서 크기 비례로 뽑고(최소 1), 남는/부족한 만큼 무작위로 맞춘다."""
-    rng = np.random.default_rng(seed)
-    s = strata.loc[pool_idx]
-    counts = s.value_counts()
-    quota = np.maximum(1, np.round(counts / counts.sum() * n)).astype(int)
-    picked = []
-    for key, q in quota.items():
-        cand = np.asarray(pool_idx)[(s.values == key)]
-        picked.append(rng.choice(cand, min(q, len(cand)), replace=False))
-    out = np.unique(np.concatenate(picked))
-    if len(out) > n:
-        out = rng.choice(out, n, replace=False)
-    elif len(out) < n:
-        rest = np.setdiff1d(pool_idx, out)
-        out = np.concatenate([out, rng.choice(rest, n - len(out), replace=False)])
-    return out
+    """업종×자치구 층화 추출 — 운영 배경(S8)과 같은 알고리즘이라 `background.sample_stratified`를 그대로 쓴다."""
+    return background.sample_stratified(pool_idx, strata, n, seed)
 
 
 def sample_kmeans(X_pool: pd.DataFrame, pool_idx: np.ndarray, n: int, seed: int) -> np.ndarray:
@@ -103,23 +93,17 @@ def sign_agreement(phi_on: np.ndarray, ref_on: np.ndarray) -> float:
     return float((np.sign(phi_on) == np.sign(ref_on)).mean())
 
 
-def recommend(table: pd.DataFrame, *, min_top1: float = MIN_TOP1, min_sign: float = MIN_SIGN) -> dict:
-    """설정별 5시드 중앙값으로 채택 규칙을 적용한다. table: 시드별 행(method, n_background, top1, sign, seconds_per_1000, base_value)."""
+def summarize_candidates(table: pd.DataFrame, *, min_top1: float = MIN_TOP1, min_sign: float = MIN_SIGN) -> pd.DataFrame:
+    """설정별 5시드 요약(중앙값·최솟값)과 사전 기준 충족 여부. **하나를 고르지 않는다** — 운영 배경은 고정 규칙
+    (Issue #49 S8, `background.S8_RULE`)이다. table: 시드별 행(method, n_background, seed, top1, sign, seconds_per_1000, base_value)."""
     agg = table.groupby(["method", "n_background"]).agg(
         n_seeds=("seed", "count"),
         top1_median=("top1", "median"), top1_min=("top1", "min"),
         sign_median=("sign", "median"), sign_min=("sign", "min"),
         base_min=("base_value", "min"), base_max=("base_value", "max"),
         sec_per_1000_median=("seconds_per_1000", "median")).reset_index()
-    agg["meets_rule"] = (agg["top1_median"] >= min_top1) & (agg["sign_median"] >= min_sign)
-    ok = agg[agg["meets_rule"]].sort_values("sec_per_1000_median")
-    if len(ok):
-        chosen, met = ok.iloc[0], True
-    else:
-        chosen = agg.assign(_s=agg[["top1_median", "sign_median"]].min(axis=1)).sort_values("_s", ascending=False).iloc[0]
-        met = False
-    return {"table": agg, "chosen": {k: (v.item() if hasattr(v, "item") else v) for k, v in chosen.items()
-                                     if not str(k).startswith("_")}, "met_rule": met}
+    agg["meets_criterion"] = (agg["top1_median"] >= min_top1) & (agg["sign_median"] >= min_sign)
+    return agg
 
 
 def _rel(p: Path) -> str:
@@ -164,13 +148,13 @@ def _shapley(s, bg_idx) -> tuple[np.ndarray, float, float]:
     return phi, base, time.time() - t0
 
 
-def run(master_path: Path, online_path: Path | None, out_dir: Path, bg_dir: Path = background.DEFAULT_DIR) -> dict:
+def run(master_path: Path, online_path: Path | None, out_dir: Path) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     s = setup(master_path, online_path)
     design = {"origin": ORIGIN, "eval_n": int(len(s["eval_idx"])), "eval_seed": EVAL_SEED,
               "eval_idx_sha256": _idx_sha(s["df"], s["eval_idx"]), "ref_n": REF_N, "ref_seed": REF_SEED,
               "seeds": list(SEEDS), "candidates": [f"{m}:{n}" for m, n in CANDIDATES],
-              "rule": f"median top1 >= {MIN_TOP1} and median online sign >= {MIN_SIGN}; fastest; background = first seed",
+              "criterion": f"median top1 >= {MIN_TOP1} and median online sign >= {MIN_SIGN} (evaluation only, no selection)",
               "factor_ids": s["factor_ids"], "params": detect.DEFAULT_PARAMS}
     dpath = out_dir / "design.json"
     if dpath.exists():
@@ -213,27 +197,20 @@ def run(master_path: Path, online_path: Path | None, out_dir: Path, bg_dir: Path
                              f"base {base:.4f} {row['seconds_per_1000']:.0f}s/1000")
 
     table = pd.DataFrame(map(json.loads, res_path.read_text(encoding="utf-8").splitlines()))
-    rec = recommend(table)
-    rec["table"].to_csv(out_dir / "summary.csv", index=False)
-    c = rec["chosen"]
-    bg = np.load(out_dir / f"bg_{c['method']}_{int(c['n_background'])}_{SEEDS[0]}.npy")
-    manifest = background.save_background(s["df"], bg, bg_dir, meta={
-        "method": c["method"], "n_background": int(c["n_background"]), "seed": SEEDS[0], "met_rule": rec["met_rule"],
-        "selected_on": f"{ORIGIN} eval {design['eval_n']} stores vs random {REF_N} reference",
-        "top1_median": c["top1_median"], "sign_median": c["sign_median"],
-        "experiment_summary": _rel(out_dir / "summary.csv")})
-    train_detect.log(f"채택: {c['method']} {int(c['n_background'])} (규칙 충족 {rec['met_rule']}) → {bg_dir}")
-    return {"summary": rec["table"], "chosen": c, "met_rule": rec["met_rule"], "manifest": manifest}
+    summary = summarize_candidates(table)
+    summary.to_csv(out_dir / "summary.csv", index=False)
+    train_detect.log(f"요약 → {out_dir / 'summary.csv'} (사전 기준 충족 {int(summary['meets_criterion'].sum())}개 설정) — "
+                     "운영 배경은 이 결과로 고르지 않는다 (`python -m src.models.background`)")
+    return {"summary": summary}
 
 
 def main(argv=None) -> None:
-    ap = argparse.ArgumentParser(description="#34 Shapley 배경 안정성 실험 + 서빙 배경 확정")
+    ap = argparse.ArgumentParser(description="#34 Shapley 배경 안정성 평가 (운영 배경은 고르지 않음)")
     ap.add_argument("--master", type=Path, default=config.MASTER_BASE_PATH)
     ap.add_argument("--online", type=Path, default=None)
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
-    ap.add_argument("--background-dir", type=Path, default=background.DEFAULT_DIR)
     a = ap.parse_args(argv)
-    run(a.master, a.online, a.out, a.background_dir)
+    run(a.master, a.online, a.out)
 
 
 if __name__ == "__main__":
