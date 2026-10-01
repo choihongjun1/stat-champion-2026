@@ -16,3 +16,5 @@ shapely==2.1.2
 lifelines==0.30.3
 # online presence collection HTTP calls (src/data/collect_online_presence.py, collect_blog_monthly.py)
 requests==2.33.1
+# W3-6 DML e-commerce vs operating margin (src/prescribe/dml_ecommerce.py)
+doubleml==0.11.4
