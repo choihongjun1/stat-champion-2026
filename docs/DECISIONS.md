@@ -575,6 +575,36 @@ W2-4 이벤트 스터디(마지막 언급일-폐업일 갭)와 함께 설계한�
 - **팀 확인 필요**: (1) 온라인 언급을 입지·수요에 둘지 별도 유형으로 둘지 (2) 현재 owner 요인은 온라인 언급뿐이고
   policy 요인(공시지가)은 기여가 0이라, W2-7 정책 매칭이 연결할 요인이 사실상 온라인 하나다.
 
+## 2026-09-25 — W2-2/W2-3 서빙(현재 시점 점포) 규칙
+구현: `src/models/serve.py`. 실행: `python -m src.models.serve --score <예측용 master> --primary enriched ...`
+
+- **서빙 모형의 학습 구간은 검증과 같은 embargo 규칙을 따른다**: score origin s → 라벨 origin ≤ s−5분기.
+  검증 구간 마지막 origin을 라벨 없이 넣으면 `train_detect` risk_scores의 확률·등급·백분위가 정확히 같다(테스트).
+- **보정기·등급 컷오프는 `train_detect` 실행 결과를 그대로 쓴다** (`run_meta.json`, `calibrator.pkl`,
+  `band_cutoffs.csv`). 서빙에서 다시 정하지 않는다. feature set이 다르면 멈춘다.
+- **검증 구간의 학습에 한 번도 값이 없던 feature는 서빙에서도 뺀다** (검증 마지막 origin의 학습 구간 기준).
+  score origin이 뒤로 가면 학습 구간에 land_price 값이 생기지만, 검증되지 않았으므로 넣지 않는다
+  (2026-09-25 W2-2 항목의 "서빙 모형은 검증과 같은 feature set" 규칙의 구현).
+- **진단은 `diagnose.explain`을 공유한다** — 요인 매핑·Shapley·peer 비교·온라인 표시 보류 규칙이 W2-3과 같다.
+  요인 기여도는 보정 전 확률 척도에서 합산된다. 보정이 적용된 실행이면 화면 확률과 합이 달라지며
+  `serve_meta.json`의 `diagnosis_scale`에 기록한다 (현재 실데이터 실행은 보정 미적용이라 같다).
+- 출력 `reports.jsonl`은 W2-5 결과 스키마의 risk·factors 블록(점포당 1줄)이다. 처방(W2-4)·정책(W2-7) 블록은 붙이지 않는다.
+- **데이터 없음 표시 보류 (W2-3·서빙 공통).** 요인에 속한 feature가 그 점포에서 전부 결측이면(상권 경계 밖 점포의 상권 요인, 상권 안이지만 해당
+  업종 자료·매출 공개가 없는 점포의 경쟁 요인(2025Q2: peer_sales 514곳, peer_competition 21곳), 온라인 관측 불가) `data_missing=True, display=False`로 두고 진단문은
+  "이 점포는 ○○ 데이터가 없어(상권 경계 밖) 이 요인은 진단하지 않습니다."로 바꾼다. 이때 기여는 값이 아니라
+  결측 자체(= 상권 밖 위치라는 정보)에서 나오므로 "동종 업종 경쟁이 위험을 낮췄다"는 문장은 사실과 다르다.
+  기여값과 가법성은 그대로 둔다 (실데이터 2025Q2: 상권 밖 6,563점포, 요인의 38%가 |기여| ≥ 0.5%p, 최대 2.9%p).
+  이유 문구는 점포별로 다르다(`missing_reason`, `trdar_cd`로 판정): 상권 밖 → "상권 경계 밖", 상권 안 → "해당 상권에 이 업종 (매출 공개) 자료 없음", 온라인 → "관측 불가", `trdar_cd`를 알 수 없으면 "상권 데이터 없음".
+- 점포를 식별할 수 있는 모형 출력(상호·주소·store_id와 위험도·진단이 함께 있는 것)은 공개 저장소에
+  올리지 않는다. 저장소에는 가린 샘플만 두고, 실명 결과는 outputs/(gitignore)와 팀 드라이브로만 공유한다.
+  GitHub 이슈·PR·코멘트에도 가게명·store_id를 위험도와 함께 쓰지 않는다.
+- **출력 스키마 0.2 (PR #36 리뷰 반영, 2026-09-26).** 레코드에 `score_origin`(예측 기준 분기)을 넣고, `factors[]`에 코드값
+  `hold_reason`(display=false 이유: `online_review` 검토 대기 / `data_missing` 데이터 없음, `HOLD_REASONS`로 확장)과
+  `missing_reason`(데이터 없음 세부 사유: `out_of_trdar` / `sales_unpublished` / `industry_unpublished` /
+  `trdar_quarter_unavailable` / `online_unobservable` / `trdar_unknown` / `unknown` — 사유 문구와 1:1)을 넣는다.
+  화면은 설명문을 파싱하지 않고 이 코드로 분기한다. `direction`은 기여 절댓값 < 0.001이면 "영향 미미"(설명문의
+  "거의 영향을 주지 않았습니다"와 같은 기준, 기여 원값은 그대로). store.`dong`은 인허가 데이터의 **법정동**이다.
+
 ## 2026-09-26 — W2-0 예측용 master_score (Issue #35)
 근거: Issue #35, 2026Q2 모집단 실측, 2025Q2 역검증(master_base와 동일). 구현 `src/data/master_score.py`,
 명세 `docs/MASTER_SPEC.md` 메모, 산출물 `outputs/master/master_score.parquet`·`score_meta.json`·`qa_report_score.md`(커밋하지 않음).
@@ -890,6 +920,46 @@ PR에서 다루지 않는다(요청대로 범위 밖).
 - "최고 위험 3개 점포" = 검토 대기(`hold_reason=online_review`) 점포 중 `probability_12m` 상위 3곳, 동률은 store_id
   오름차순(#39 priority와 같은 기준, `name_match_review.select_targets`).
 
+## 2026-09-30 — #34 ① Shapley 서빙 배경 확정 (실험 완료) · 절단/업력대 재집계
+> **대체됨(2026-10-01):** 아래 단일 배경 채택(층화 256·첫 시드)과 `serve`의 단일 manifest 재현은 Issue #49 S8(두 배경 "해석 민감",
+> 아래 "#34 Shapley 배경 = Issue #49 S8" 항목)로 대체됐다. 실험 수치는 S8 항목의 기존 근거로 남긴다.
+설계(결과 보기 전 고정): 2025Q2 1,500점포(seed 20260930), 기준 = 학습 구간 무작위 1,024개(seed 20261024), 후보 × 시드 5개.
+채택 규칙: 5시드 중앙값 1순위 일치 ≥ 90%·온라인 부호 일치 ≥ 95% 중 최단 시간, 없으면 두 중앙값의 최솟값이 가장 높은 설정.
+
+| 배경 | 1순위 중앙값(최소) | 온라인 부호 중앙값(최소) | 기준값 범위 | 초/1,000점포 |
+|---|---|---|---|---|
+| 무작위 16 (기존) | 0.802 (0.580) | 0.816 (0.637) | 0.100–0.141 | 15 |
+| 무작위 64 | 0.889 (0.840) | 0.894 (0.822) | 0.107–0.122 | 56 |
+| 무작위 128 | 0.923 (0.861) | 0.923 (0.854) | 0.110–0.130 | 112 |
+| 무작위 256 | 0.930 (0.903) | 0.939 (0.861) | 0.108–0.118 | 227 |
+| 층화 64 | 0.899 (0.829) | 0.915 (0.841) | 0.108–0.136 | 52 |
+| 층화 128 | 0.921 (0.906) | 0.917 (0.789) | 0.109–0.121 | 101 |
+| **층화 256** | **0.935 (0.921)** | **0.932 (0.837)** | 0.111–0.117 | 204 |
+| k-means 64 | 0.859 (0.825) | 0.934 (0.869) | 0.106–0.121 | 51 |
+| k-means 128 | 0.869 (0.849) | 0.950 (0.905) | 0.107–0.114 | 103 |
+- **규칙을 모두 충족한 설정은 없다**(온라인 부호 95%가 병목 — k-means 128만 0.950이지만 1순위 0.869). 대체 규칙으로
+  **층화(업종×자치구) 256, 첫 시드(20260931)** 채택. 한계: 온라인 부호가 기준(1,024)과 약 7% 점포에서 다르다 — 온라인 기여가
+  0 근처인 점포가 대부분일 것으로 보이며, 표시 보류(online_review)가 부호에 걸려 있으므로 전체 재생성 때 보류 수 변화를 본다.
+  서빙 비용은 1,000점포당 약 200초(29,101점포 약 1.7시간, 무작위 16 대비 약 14배).
+- 배경은 `outputs/diagnosis/background/`(gitignore)에 행 키 `sha256(store_id|origin)[:32]` 목록 + manifest(파일 sha256 `ffedb33b…`).
+  `serve` CLI는 기본으로 이 manifest를 읽어 같은 배경을 재현하고(파일 없음·해시 불일치·행 누락·학습 구간 밖이면 오류),
+  serve_meta.background에 방법·행 수·해시를 남긴다. 무작위는 `--random-background`로만(시험용).
+- 보완(저장된 결과만 사용, 새 Shapley 계산 없음): 실험은 후보 설정의 점포별 기여를 저장하지 않고(배경 행 인덱스와 일치율만)
+  기준(1,024) 기여만 저장했다. 그래서 ⓐ 화면 기준(|온라인 기여| ≥ 0.001) 점포만의 부호 일치율, 층화 256에서 화면 표시·
+  online_review 판정이 바뀌는 점포 비율, ⓑ 서로 다른 시드의 무작위 1,024 두 개끼리의 일치율(천장)은 **계산 안 함**.
+  저장된 기준 기여로 알 수 있는 것: 1,500점포 중 |온라인 기여| ≥ 0.001인 점포 1,350곳(90.0%; 증가 533 · 감소 817) —
+  위 "0 근처인 점포가 대부분" 추정은 **틀렸다**. 채택 배경(층화 256·시드 20260931, manifest `ffedb33b…`)으로 같은 1,500점포
+  기여를 다시 계산해 기준과 비교(`outputs/diagnosis/background/adopted_contrib.parquet`, 같은 모형): 온라인 요인 화면 표시가
+  달라지는 점포 388곳(25.9%) — 기준 "영향 미미"→"위험 증가" 143, 기준 "위험 감소"→"영향 미미" 183, 위험 감소→증가로
+  뒤집힘 62곳(4.1%; 증가→감소는 0). 채택 배경은 온라인 기여를 기준보다 위험 쪽으로 옮긴다. online_review 표시 보류가
+  달라지는 점포 8곳(0.5%; 채택 35 vs 기준 27). 1순위 요인 일치 92.3% — 이 시드의 실험 값(0.923)과 같고, 표의 93.5%는
+  5시드 중앙값이다(원시 온라인 부호 일치 83.7%도 실험 값과 같음).
+- 대체 규칙의 구체적 형태(두 지표 중 작은 값 최대화)는 결과를 보기 전에 명시하지 못했음.
+  다른 합리적 해석에서도 층화 256 또는 무작위 256이 선택되며 차이는 1%p 안팎.
+- 재집계(저장된 feature 표, 새 학습 없음, 2025Q2 29,101점포): 절단 점포 온라인 요인 보류 — 전부 결측 272 · 일부 결측 229
+  (2026Q2: 46 · 203). months_since_last NA 13,712 = 이력 없음 13,419 · 관측 불가 293 (2026Q2: 12,406 · 59).
+  업력대 `(lo,hi]`→`[lo,hi)`로 구간이 바뀐 점포 = 업력이 정확히 12·36·60·120개월인 점포: 2025Q2 721곳, 2026Q2 756곳.
+
 ## 2026-10-01 — PR #33 재검증 반영: 절단 경로 재측정·clean 실험·온라인 시점 계약
 근거: `src/analysis/online_truncation_sensitivity.py`, `src/data/online_features.py`(`assert_no_future_posts`),
 `src/models/train_detect.py`(`attach_online`), 실데이터 rolling OOF 10개 origin(2023Q1–2025Q2), 점포 클러스터 부트스트랩 1,000회.
@@ -1054,3 +1124,34 @@ PR에서 다루지 않는다(요청대로 범위 밖).
   수치를 인용할 때는 "현 설정" 대신 `params_name` 또는 (learning_rate, max_leaf_nodes)를 함께 적는다.
 - **후속(#36):** `serve_meta`에 run_meta의 `params_name`·`model_class`를 옮겨 적고, legacy run_meta로 서빙하지 않도록 막는 일은
   #36에서 한다. 이 PR은 학습 경로와 run_meta 계약까지만 책임진다.
+
+## 2026-10-01 — #36 서빙: main 진단(#53)·채택 설정(#51) 계약으로 정리
+근거: #53(S8·진단 로직 일원화), #51(Issue #49 S13 채택 설정·run_meta 계약), #41 serve 입력 계약(`serve_record_v0_2`,
+`serve_band_cutoffs`). 실데이터 재생성은 하지 않았다(합성 데이터 테스트·E2E만). 구현 `src/models/serve.py`.
+
+- **역할:** serve는 탐지 결과 로드 → 진단 호출 → 서빙 레코드 조립 → serve_meta 기록만 한다. 진단 규칙(요인 매핑·Shapley·
+  hold_reason/missing_reason·절단 점포 온라인 보류·driver_code·S8 두 배경·manifest 검증)은 `diagnose`(#53)를 그대로 부른다
+  (`background_rows_s8`·`explain_s8`). 위험도 모형과 진단은 **같은 모형 객체**다.
+- **채택 설정 강제(#51):** run_meta에 `params`·`params_name`·`model_class`가 모두 있고 `params_name="adopted"`, `params ==
+  detect.ADOPTED_PARAMS`, `model_class == detect.MODEL_CLASS`여야 한다. params 없음·params_name 없음(`legacy_default`/
+  `legacy_unnamed`)·`default` 등은 멈춘다. 개발·과거 재현만 `--allow-non-adopted-params`(이름·값 검사만 풀고
+  `serve_meta.params_contract`에 "override (비운영)"으로 남김). params가 없거나 model_class가 다른 클래스면 플래그로도 안 된다.
+  DEFAULT_PARAMS fallback은 없앴다. `serve_meta.params_name`이 정본이고 `model_params_is_default`는 보조 필드다.
+- **같은 탐지 실행:** run_meta의 master·온라인 표 sha256이 서빙 입력과 같아야 하고, run_meta.band_cutoffs·band_provenance의
+  cut_mid/cut_high가 band_cutoffs.csv와 같아야 한다. `--diagnose-meta`(같은 `--detect-run`으로 돌린 diagnose의
+  diagnose_meta.json)를 주면 run_meta **파일 해시**·params·master·feature set이 같은지 확인한다(diagnose_meta에
+  `detect_run_meta`·`detect_run_meta_sha256`을 기록하도록 했다). 다르면 멈춘다.
+- **S8:** 기본은 S8 manifest(없으면 멈춤). 무작위 배경은 `--random-background N`(비운영, 해석 민감 없음). diagnosis.parquet에
+  주 배경 값과 민감도 배경 값(`*_sens`)·`interpretation_sensitive`를 모두 남긴다. 진단 확률이 위험도 확률과 다르거나 그 확률로
+  정한 등급이 위험도 등급과 다르면 멈춘다(배경은 설명만 바꾼다). **#41 factor 스키마가 `interpretation_sensitive`를 받기
+  전까지 reports.jsonl에는 넣지 않는다**(`--expose-sensitivity`로만) — #41 후속.
+- **serve_meta.band_cutoffs = {cut_mid, cut_high, base_rate}** (#41 `serve_band_cutoffs`, additionalProperties=false).
+  #45 이후 band_cutoffs.csv에 생긴 high_fallback·mid_fallback은 `cutoff_provenance`에만 둔다(합성 E2E에서 #41
+  `build_db.validate_serve_input`이 이 키 때문에 거부하는 것을 확인하고 고쳤다).
+- **#44 A안**(정규화 상호 ≤ 2자 → 온라인 feature 전 origin NA)은 upstream 온라인 표 재생성의 몫이고 serve는 새로 구현하지
+  않는다. 온라인 feature가 전부 NA인 점포는 `data_missing`/`online_unobservable`로 보류된다(테스트). main의
+  `online_features`에는 아직 A안이 들어 있지 않다 — 재생성 전에 upstream 반영이 필요하다.
+- **driver_code**는 `diagnose`가 만든 값을 그대로 쓴다. `sample_reports`의 온라인 경우 판정도 문구 단어 매칭을 버리고
+  driver_code(코드가 없는 이전 레코드만 `diagnose.classify_online_driver`)로 바꿨다 — 이전 단어 매칭은 "마지막 블로그 언급
+  이후 2개월"(presence)을 감소로 잘못 골랐다.
+- **경쟁지표(comp_*)는 이번 서빙에 넣지 않는다**(#43). feature set에 없고, 들어오면 멈춘다.

@@ -42,6 +42,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import pickle
 import time
 from pathlib import Path
 
@@ -570,6 +571,10 @@ def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
     meta["calibration_applied"] = chosen != "raw"  # 이름 유지 — feat/w2-serve의 read_detect_run이 이 키를 읽는다
     meta["calibration_candidate"] = chosen
     meta["calibration_windows"] = analysis["windows"]
+    # 서빙(`serve.py`)이 같은 보정기를 쓰도록 저장한다. cal_current는 채택된 후보(raw면 None) — raw일 때도
+    # 파일은 만들어 기록으로 남기지만(그때는 None), read_detect_run은 calibration_applied가 True일 때만 연다.
+    with open(out_dir / "calibrator.pkl", "wb") as f:
+        pickle.dump(cal_current, f)
     meta["band_cutoffs"] = cut
     meta["oof_predictions_sha256"] = sha256(oof_path)
     meta["oof_predictions_rows"] = len(oof_out)
