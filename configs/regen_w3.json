@@ -1,0 +1,102 @@
+{
+  "status": "draft — 10/2 리허설 전 박안석 승인 필요",
+  "_note": "초안이며 실행하지 않았다. 값은 코드에서 읽거나 TBD. 코드에서 읽은 값은 _source에 파일:줄(origin/main 9ca507d 기준). 결정 근거: Issue #49, docs/DECISIONS_W3.md",
+  "detect": {
+    "model_class": "sklearn.ensemble.HistGradientBoostingClassifier",
+    "model_class_source": "src/models/detect.py:19,48",
+    "params_adopted": {
+      "loss": "log_loss",
+      "learning_rate": 0.03,
+      "max_iter": 400,
+      "max_leaf_nodes": 31,
+      "min_samples_leaf": 200,
+      "l2_regularization": 1.0,
+      "early_stopping": false,
+      "random_state": 20260922
+    },
+    "params_adopted_source": "learning_rate·max_leaf_nodes = #45 채택값(S13), src/models/benchmark.py:1032 SERVING_WINDOW_PARAMS. 나머지 키는 src/models/detect.py:21-30 DEFAULT_PARAMS에서 읽음",
+    "params_currently_wired": {
+      "loss": "log_loss",
+      "learning_rate": 0.06,
+      "max_iter": 400,
+      "max_leaf_nodes": 31,
+      "min_samples_leaf": 200,
+      "l2_regularization": 1.0,
+      "early_stopping": false,
+      "random_state": 20260922
+    },
+    "params_currently_wired_source": "src/models/detect.py:21-30 DEFAULT_PARAMS. 학습·서빙 경로: src/models/train_detect.py:388 run_meta params = detect.DEFAULT_PARAMS (비교용 TUNED_PARAMS = (0.03, 15)는 train_detect.py:63-64, 서빙 산출물에 쓰이지 않음)",
+    "wiring_status": "채택값 (0.03, 31)은 학습·서빙에 연결되지 않음 — S13 연결 PR(10/1 작성, F3 이후 병합) 필요",
+    "feature_set": "enriched",
+    "feature_set_source": "src/models/features.py:46,56-72 select_features(columns, 'enriched') = master_schema predictor 열 + ONLINE_PREDICTORS",
+    "online_predictors": [
+      "online_blog_cnt_3m",
+      "online_blog_cnt_12m",
+      "online_blog_has_12m",
+      "online_blog_trend_6m",
+      "online_blog_has_ever",
+      "online_blog_months_since_last"
+    ],
+    "online_predictors_source": "src/models/features.py:25-28",
+    "n_features": "TBD (재생성 직전 확인). 참고: 현재 master_base 기준 25개 = base 19 + online 6 (로컬 산출물 outputs/models/benchmark/run_meta.json의 enriched_cols 길이, 코드 상수 아님)",
+    "schema_version": "TBD (serve.py가 main에 없음 — #36 병합 후 확인)",
+    "short_name_policy": "na (#44 A안: 상호 2자 이하 점포의 온라인 지표를 모든 origin에서 NA)",
+    "origins_eval": "2023Q1~2025Q2 (10)",
+    "origins_eval_source": "src/models/train_detect.py:54-55 (MIN_TRAIN_ORIGINS 4 + EMBARGO 4) — 데이터 origin 2021Q1부터이므로 첫 평가 origin 2023Q1 (파생값)",
+    "embargo_quarters": 4,
+    "embargo_quarters_source": "src/models/train_detect.py:54",
+    "serve_asof": "2026Q2"
+  },
+  "bands": {
+    "rule": "S10 — 코드값 그대로 (docs/DECISIONS_W3.md 3절)",
+    "calibration_window": "fixed: test 직전 select 4개 앞의 fit 4개 origin (현 데이터 2023Q1–Q4); select 4개, test 2개 origin",
+    "calibration_window_source": "src/models/train_detect.py:57,70-71,218-226,464-467",
+    "calibration_candidates": ["raw", "isotonic", "platt"],
+    "calibration_candidates_source": "src/models/train_detect.py:72,247-280 (select Brier 최소, raw 대비 부트스트랩 95% CI가 0을 포함하면 raw 유지, seed 20260928)",
+    "binning": "absolute 3 bands low/mid/high: p >= cut_mid -> mid, p >= cut_high -> high",
+    "binning_source": "src/models/bands.py:24,43-53",
+    "cut_high": "예측 확률 50~99.5 백분위 200등분 격자를 낮은 쪽부터 훑어 {p >= c}가 200곳 이상이고 관측 폐업률이 기준율의 2.0배 이상인 첫 c, 없으면 95백분위",
+    "cut_high_params": {"target_lift": 2.0, "grid_quantiles": [0.5, 0.995, 200], "fallback_quantile": 0.95},
+    "cut_high_source": "src/models/bands.py:27,29-31,91-103",
+    "cut_mid": "기준율 x 1.2 (cut_mid >= cut_high이면 기준율)",
+    "cut_mid_params": {"target_lift": 1.2},
+    "cut_mid_source": "src/models/bands.py:28,109-113",
+    "min_n": 200,
+    "min_n_source": "src/models/bands.py:30,96-97 (HIGH_MIN_GROUP); 학습 최소 origin 4: src/models/train_detect.py:55",
+    "ties": "부등호 >=: 컷오프와 같은 확률은 높은 등급. 격자는 np.unique로 중복 제거 후 첫 일치에서 멈춤",
+    "ties_source": "src/models/bands.py:51-52,91,98-100",
+    "high_lift_ci": {"unit": "store_id cluster bootstrap", "percentiles": [2.5, 97.5], "seed": 20260927, "n_boot": "TBD (train_detect.run의 calib_boot 인자 — 재생성 때 고정)"},
+    "high_lift_ci_source": "src/models/bands.py:32-33,119-135",
+    "label_phrase_condition": "'약 2배' 문구는 독립 검증 구간 lift 95% CI 하한 >= 1.5일 때만 (S10)"
+  },
+  "diagnosis": {
+    "backgrounds": [
+      {"seed": 20260931, "size": 256, "method": "stratified"},
+      {"seed": 20261001, "size": 256, "method": "stratified"}
+    ],
+    "stability_check": {"n_stores": 200, "seed": 20261002, "reference_background": 1024, "allocation": "위험 등급별 균등(low 66, mid 66, high 68), 부족분은 다음 등급으로 (S8)"},
+    "driver_code_version": "TBD (diagnose.py·driver_code 분류표가 main에 없음 — #34 병합 후 확인)"
+  },
+  "dml": {
+    "data": "MDIS 소상공인실태조사 2023, 산업중분류 47·56·96, N=5042",
+    "model": "IRM",
+    "score": "ATE",
+    "n_folds": 5,
+    "n_rep": 3,
+    "trimming_rule": "truncate",
+    "trimming_threshold": 0.05,
+    "weights_main": null,
+    "weights_sensitivity": "사업체수가중값",
+    "outcome": "profit_margin winsorized 1/99 (unweighted, analysis sample)",
+    "treatment": "treat_binary",
+    "covariates": ["산업중분류코드", "행정구역시도코드", "tenure_months", "tenure_invalid_flag", "일반_창업형태코드"],
+    "excluded_covariates": ["일반_합계종사자수", "경영_영업비용_임차료", "경영_판매처별매출_소비자비율", "경영_부채여부"],
+    "learner_main": "HistGradientBoosting (Regressor/Classifier): learning_rate 0.05, max_leaf_nodes 15, min_samples_leaf 50, max_iter 300, l2_regularization 1.0, random_state 20261001",
+    "learner_check": "LassoCV(cv=5) / LogisticRegression(C=1.0, max_iter=2000); 범주형 원-핫, 연속형 표준화",
+    "sensitivity": ["가중(사업체수가중값)", "음식점(56)만", "성향점수 [0.05,0.95] 밖 행 제외"],
+    "doubleml_version": "TBD (로컬·클라우드 환경 미설치 — 설치 후 기록)"
+  },
+  "demo": {"seed": 20261004, "rule": "TBD (T5, 10/2 고정)"},
+  "inputs": {"asof": "TBD", "sha256": "TBD (재생성 직전 기록)"},
+  "env": {"python": "3.13.x", "lockfile": "TBD (재생성 직전 pip freeze 전체)"}
+}
