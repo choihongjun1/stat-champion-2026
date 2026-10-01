@@ -24,6 +24,27 @@ def test_na_flag_column_marks_any_na_row():
     assert list(flag) == [1.0, 0.0, 1.0, 0.0, 1.0, 0.0]
 
 
+def test_truncation_na_flag_marks_only_truncated_store_na():
+    """절단 전용 플래그: NA이면서 절단 점포인 행만 1 — 언급 없음·미수집 NA는 0."""
+    t = _online_table()  # S0·S2·S4가 NA
+    flag = ots.truncation_na_flag(t, {"S0", "S1"})
+    assert list(flag) == [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # S1은 절단 점포지만 NA가 없다, S2·S4는 절단 점포가 아니다
+
+
+def test_any_na_composition_separates_never_mentioned_from_truncation():
+    from src.data import online_features as of
+    stores = ["N", "T", "Q"]  # N: 언급 없음, T: 절단 점포, Q: QA 미수집
+    panel = pd.DataFrame({"store_id": stores, "origin": "2024Q1", "origin_end": pd.Timestamp("2024-03-31")})
+    monthly = pd.DataFrame({"store_id": ["T"], "month": [pd.Period("2024-02", "M")], "mention_count": [5]})
+    qa = pd.DataFrame({"store_id": ["N", "T"], "ok": [True, True], "truncated": [False, True],
+                       "trunc_month": [pd.NaT, pd.Period("2023-12", "M")]})
+    t = of.build_online_features(panel, monthly, qa)
+    comp = ots.any_na_composition(t, {"T"})
+    assert comp["any_na_rows"] == 3
+    assert (comp["never_mentioned"], comp["truncated_store"], comp["all_na_qa_missing_or_error"]) == (1, 1, 1)
+    assert list(ots.truncation_na_flag(t, {"T"})) == [0.0, 1.0, 0.0]  # 옛 any-NA 플래그라면 셋 다 1
+
+
 def test_truncated_store_ids_needs_ok_and_truncated():
     qa = pd.DataFrame({"store_id": ["A", "B", "C"], "ok": [True, True, False], "truncated": [True, False, True]})
     assert ots.truncated_store_ids(qa) == {"A"}
@@ -111,16 +132,49 @@ def test_sensitivity_report_end_to_end_synthetic():
     online_na = of.build_online_features(panel, monthly, qa, "test#na", "na")
     online_lb = of.build_online_features(panel, monthly, qa, "test#lb", "lower_bound")
 
-    variants = ots.build_feature_variants(df, online_na, online_lb)
+    trunc_stores = ots.truncated_store_ids(qa)
+    variants = ots.build_feature_variants(df, online_na, online_lb, trunc_stores)
     assert set(variants) == {"base", "flag", "i", "iii"}
-    assert "online_any_na" in variants["flag"][1]
+    assert ots.TRUNC_FLAG in variants["flag"][1] and "online_any_na" not in variants["flag"][1]
+    d_flag = variants["flag"][0]
+    assert (d_flag.loc[~d_flag["store_id"].isin(trunc_stores), ots.TRUNC_FLAG] == 0).all()  # 비절단 점포는 항상 0
 
     y = df["event_12m"].to_numpy()
-    trunc_stores = ots.truncated_store_ids(qa)
     r = ots.sensitivity_report(variants, y, trunc_stores, n_boot=20)
 
-    for k in ("base", "base_ex_trunc", "flag", "i", "ii", "iii"):
+    for k in ots.SCENARIOS:
         assert k in r["mean_auc"] and k in r["pooled_auc"]
     assert len(r["oof"]["ii"]) < len(r["oof"]["i"])  # 절단 점포가 빠져 행 수가 줄어야 한다
-    for key in ("ci_i_vs_iii", "ci_flag_vs_base"):
-        assert {"diff", "ci_low", "ci_high", "significant"} <= set(r[key])
+    # clean: 절단 점포가 학습·평가 어디에도 없다 (평가 행에 없고, 행 수가 ii와 같다)
+    clean_stores = set(df["store_id"].to_numpy()[r["oof"]["i_clean"]["idx"].to_numpy()])
+    assert not clean_stores & trunc_stores and len(r["oof"]["i_clean"]) == len(r["oof"]["ii"])
+    assert set(r["by_origin"]["scenario"]) == set(ots.SCENARIOS)
+    for key in ("i_vs_iii", "flag_vs_base", "i_vs_base", "clean_i_vs_base"):
+        assert {"diff", "ci_low", "ci_high", "significant"} <= set(r["ci"][key])
+
+
+def test_clean_scenario_trains_without_truncated_stores(monkeypatch):
+    """clean 시나리오의 학습 행에 절단 점포가 한 번도 들어가지 않는다 (평가만 빼는 ii와 다르다)."""
+    from src.models import train_detect
+    seen = []
+    real = train_detect.rolling_oof
+
+    def spy(d, X, y, params=None):
+        seen.append(set(d["store_id"]))
+        return real(d, X, y, params=params)
+
+    monkeypatch.setattr(train_detect, "rolling_oof", spy)
+    origins = [str(p) for p in pd.period_range("2021Q1", "2023Q4", freq="Q")]
+    stores = [f"S{i}" for i in range(40)]
+    rng = np.random.default_rng(3)
+    df = pd.concat([pd.DataFrame({"store_id": stores, "origin": o, "origin_end": pd.Period(o, "Q").end_time.normalize(),
+                                  "event_12m": (rng.random(40) < 0.15).astype(int), "age_months": rng.integers(1, 200, 40),
+                                  "biz_type": "A", "area": 30.0, "has_coord": 1, "gu": "G1"}) for o in origins],
+                   ignore_index=True)
+    on = df[["store_id", "origin"]].copy()
+    for c in FEATURES:
+        on[c] = rng.integers(0, 3, len(on)).astype(float)
+    trunc = {"S0", "S1", "S2"}
+    variants = ots.build_feature_variants(df, on, on, trunc)
+    ots.sensitivity_report(variants, df["event_12m"].to_numpy(), trunc, n_boot=10)
+    assert len(seen) == 6 and all(not (s & trunc) for s in seen[-2:]) and all(s & trunc for s in seen[:4])

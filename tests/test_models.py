@@ -290,13 +290,40 @@ def test_end_to_end_with_online(tmp_path, panel):
     assert set(pd.read_parquet(out / "risk_scores.parquet")["model"]) == {"detect_v0_enriched"}
 
 
-def test_online_time_leak_is_rejected(tmp_path, panel):
+def test_online_table_built_for_other_origin_definition_is_rejected(tmp_path, panel):
     t = _online_table(panel)
     t["online_feature_asof"] = t["online_feature_asof"] + pd.Timedelta(days=1)
     op = tmp_path / "online.parquet"
     t.to_parquet(op, index=False)
-    with pytest.raises(ValueError, match="시점 누수"):
+    with pytest.raises(ValueError, match="다른 origin 정의"):
         train_detect.attach_online(panel, op)
+
+
+def test_attach_online_new_format_checks_available_at(tmp_path, panel):
+    """새 형식(online_collected_at 있음): available_at(마지막 게시월 말일) > origin_end면 멈춘다.
+    collected_at(수집 시각, 항상 origin 뒤)은 검사하지 않는다 — 회고적 재구성이라 누수가 아니다."""
+    t = _online_table(panel).merge(panel[["store_id", "origin", "origin_end"]], on=["store_id", "origin"])
+    t["online_available_at"] = t["origin_end"]
+    t["online_collected_at"] = pd.Timestamp("2026-09-23 23:39:46")
+    op = tmp_path / "online.parquet"
+    t.drop(columns="origin_end").to_parquet(op, index=False)
+    out = train_detect.attach_online(panel, op)
+    assert not {"online_feature_asof", "online_available_at", "online_collected_at"} & set(out.columns)
+    t["online_available_at"] = t["origin_end"] + pd.offsets.MonthEnd(1)  # 다음 달 게시물까지 들어갈 수 있는 창
+    t.drop(columns="origin_end").to_parquet(op, index=False)
+    with pytest.raises(ValueError, match="available_at > origin_end"):
+        train_detect.attach_online(panel, op)
+
+
+def test_attach_online_old_format_still_loads(tmp_path, panel, capsys):
+    """이전 형식(2026-09-29: available_at에 수집 시각, collected_at 열 없음)도 하위 산출물을 위해 읽되 경고한다."""
+    t = _online_table(panel)
+    t["online_available_at"] = pd.Timestamp("2026-09-23")
+    op = tmp_path / "online.parquet"
+    t.to_parquet(op, index=False)
+    out = train_detect.attach_online(panel, op)
+    assert len(out) == len(panel) and "online_available_at" not in out.columns
+    assert "이전 형식 온라인 표" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------- #32 리뷰: 보정 3구간 · Platt · 분할 비교

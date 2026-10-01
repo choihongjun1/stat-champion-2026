@@ -88,28 +88,42 @@ def sha256(path: Path) -> str:
 # 입력
 # ---------------------------------------------------------------------------
 def attach_online(df: pd.DataFrame, path: Path) -> pd.DataFrame:
-    """온라인 Enriched 테이블을 (store_id, origin) m:1로 붙인다. 행 수 불변, **게시물 내용 시점**이
-    origin_end를 넘지 않는지(`online_feature_asof`)를 확인한다.
+    """온라인 Enriched 테이블을 (store_id, origin) m:1로 붙인다. 행 수 불변.
 
-    #33 리뷰: `online_available_at`(실제 수집일, ≈2026-09)은 검증하지 않는다 — 과거 origin은 항상
-    수집일보다 앞서므로 `online_available_at > origin_end`가 항상 성립하는데, 이건 시점 누수가 아니라
-    회고적 재구성(수집은 한 번, 이후 게시월로 필터링)이라는 뜻이다. `online_data/online_features.py`
-    docstring "시점 메타 두 가지"에 이 구분과, 이 함수가 보장하는 것/보장하지 않는 것을 적어 뒀다."""
+    시점 계약 (2026-10-01, `src/data/online_features.py` docstring "시점 메타"):
+    - 게시월이 origin_end를 넘지 않는다는 **내용 검사**는 표를 만들 때 `online_features.assert_no_future_posts`가
+      월별 원천으로 다시 집계해 한다(CLI가 쓰기 전에 항상 실행). 이 함수는 원천 없이 표만 받으므로 그 검사를
+      반복할 수 없다.
+    - 여기서는 표가 같은 origin 정의로 만들어졌는지(`online_feature_asof == origin_end`)와, 새 형식 표
+      (`online_collected_at` 열이 있음)의 `online_available_at`(창에 들어갈 수 있는 마지막 게시월 말일) ≤ origin_end를
+      확인한다. 어긋나면 멈춘다.
+    - `online_collected_at`(실제 수집 시각)은 검사하지 않는다 — 과거 origin은 모두 수집 시각보다 앞선 회고적 재구성이다.
+    - 이전 형식 표(`online_collected_at` 없음, 2026-09-29 버전은 `online_available_at`에 수집 시각이 들어 있음)는
+      available_at 검사를 건너뛰고 재생성을 권하는 경고만 낸다 — 이미 만든 하위 산출물(#34·#36)이 깨지지 않게."""
     on = pd.read_parquet(path)
     cols = ["store_id", "origin"] + [c for c in features.ONLINE_PREDICTORS if c in on.columns]
-    if "online_feature_asof" in on.columns:
-        cols.append("online_feature_asof")
+    new_format = "online_collected_at" in on.columns
+    meta = [c for c in ("online_feature_asof", "online_available_at") if c in on.columns and (new_format or
+                                                                                              c == "online_feature_asof")]
     if on.duplicated(["store_id", "origin"]).any():
         raise ValueError("온라인 테이블 (store_id, origin) 중복")
-    out = df.merge(on[cols], on=["store_id", "origin"], how="left", validate="1:1")
+    out = df.merge(on[cols + meta], on=["store_id", "origin"], how="left", validate="1:1")
     if len(out) != len(df):
         raise ValueError("온라인 조인 후 행 수가 바뀌었다")
+    end = pd.to_datetime(out["origin_end"])
     if "online_feature_asof" in out.columns:
-        late = (pd.to_datetime(out["online_feature_asof"]) > pd.to_datetime(out["origin_end"])).sum()
+        asof = pd.to_datetime(out["online_feature_asof"])
+        diff = asof.notna() & (asof.dt.normalize() != end.dt.normalize())
+        if diff.any():
+            raise ValueError(f"online_feature_asof ≠ origin_end {int(diff.sum())}건 — 다른 origin 정의로 만든 온라인 표")
+    if "online_available_at" in out.columns:
+        late = (pd.to_datetime(out["online_available_at"]) > end).sum()
         if late:
-            raise ValueError(f"online_feature_asof > origin_end {late}건 — 게시물 내용 시점 누수")
-        out = out.drop(columns="online_feature_asof")
-    return out
+            raise ValueError(f"online_available_at > origin_end {late}건 — origin 이후 게시월이 창에 들어갈 수 있다")
+    if not new_format:
+        log(f"경고: 이전 형식 온라인 표({path}) — online_collected_at이 없어 available_at 검사를 건너뛴다. "
+            "`python -m src.data.online_features`로 다시 만들면 시점 검사가 모두 적용된다")
+    return out.drop(columns=meta)
 
 
 def load_master(path: Path) -> pd.DataFrame:
