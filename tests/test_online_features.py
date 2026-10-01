@@ -79,33 +79,98 @@ def test_truncated_store_masks_unobserved_windows():
     assert get(t, "T", "2025Q1", "online_blog_cnt_12m") == 1          # 2024-04~2025-03
 
 
-def test_available_at_uses_collected_at_not_origin_end():
-    """#33 리뷰: online_available_at은 origin_end가 아니라 QA의 실제 수집 시점이어야 한다."""
+def test_available_at_is_last_post_month_end_and_collected_at_is_separate():
+    """2026-10-01: online_available_at = 창에 들어갈 수 있는 마지막 게시월의 말일(축B available_at = 게시월 말일),
+    실제 수집 시각은 online_collected_at으로 따로 둔다 (수집 시각을 available_at에 넣지 않는다)."""
     p = panel_for(["A"])
     m = _prep(pd.DataFrame([("A", "2022-01", 2)], columns=["store_id", "year_month", "mention_count"]))
     q = qa([("A", True, False, None)])
-    q["collected_at"] = pd.Timestamp("2026-09-23")
+    q["collected_at"] = pd.Timestamp("2026-09-23 23:39:46")
     t = of.build_online_features(p, m, q)
-    assert (t["online_available_at"] == pd.Timestamp("2026-09-23")).all()
-    assert (t["online_available_at"] > pd.to_datetime(t["online_feature_asof"])).all()  # 항상 미래 — 회고적 재구성
+    assert list(of.META) == ["online_feature_asof", "online_available_at", "online_collected_at", "online_source_snapshot"]
+    month_end = pd.PeriodIndex(p["origin_end"], freq="M").to_timestamp(how="end").normalize()
+    assert (t["online_available_at"].to_numpy() == month_end.to_numpy()).all()
+    assert (pd.to_datetime(t["online_available_at"]) <= p["origin_end"]).all()  # 불변식
+    assert (t["online_collected_at"] == pd.Timestamp("2026-09-23 23:39:46")).all()
+    assert (t["online_collected_at"] > t["online_available_at"]).all()  # 과거 origin은 모두 회고적 재구성
 
 
-def test_available_at_is_nat_without_collected_at():
-    """QA에 collected_at이 없으면(합성 테스트 등) NaT — origin_end로 되돌리지 않는다."""
+def test_collected_at_is_nat_without_qa_column():
+    """QA에 collected_at이 없으면(합성 테스트 등) online_collected_at만 NaT — available_at은 게시월 기준 그대로."""
     p = panel_for(["A"])
     m = _prep(pd.DataFrame([("A", "2022-01", 2)], columns=["store_id", "year_month", "mention_count"]))
     t = of.build_online_features(p, m, qa([("A", True, False, None)]))
-    assert t["online_available_at"].isna().all()
+    assert t["online_collected_at"].isna().all() and t["online_available_at"].notna().all()
 
 
-def test_load_qa_parses_collected_at(tmp_path):
+def test_load_qa_parses_collected_at_as_kst_naive(tmp_path):
+    """수집 스크립트의 UTC ISO8601 → KST tz-naive (#21 export_online_features._to_naive_kst와 같은 처리)."""
     csv = tmp_path / "qa.csv"
     csv.write_text(
         "store_id,error,first_date_truncated,oldest_raw_postdate,collected_at\n"
         "A,,False,,2026-09-23T14:39:46.383173+00:00\n",
         encoding="utf-8")
     q = of.load_qa(csv)
-    assert q["collected_at"].iloc[0] == pd.Timestamp("2026-09-23 14:39:46.383173")
+    assert q["collected_at"].iloc[0] == pd.Timestamp("2026-09-23 23:39:46.383173")  # UTC+9
+    assert q["collected_at"].dt.tz is None
+
+
+@pytest.mark.parametrize("policy", ["na", "lower_bound"])
+def test_assert_no_future_posts_passes_on_built_table(policy):
+    p = panel_for(["A", "T", "Z"])  # Z: 월별 행 없음
+    m = _prep(pd.DataFrame([("A", "2021-04", 5), ("A", "2022-03", 1), ("T", "2023-11", 2), ("T", "2024-05", 3)],
+                           columns=["store_id", "year_month", "mention_count"]))
+    q = qa([("A", True, False, None), ("T", True, True, "2023-10"), ("Z", True, False, None)])
+    t = of.build_online_features(p, m, q, truncated_policy=policy)
+    r = of.assert_no_future_posts(t, p, m)
+    assert r["rows"] == len(p) and r["cells_checked"] > 0
+
+
+def test_assert_no_future_posts_fails_when_window_includes_future_month():
+    """창이 한 달이라도 미래로 밀리면(= origin_end 이후 게시월 포함) 멈춘다 — 표가 스스로 만든 값끼리 비교하는
+    자명한 검사가 아니라, 월별 원천에서 다시 집계한 값과 대조한다."""
+    p = panel_for(["A"])
+    m = _prep(pd.DataFrame([("A", "2021-04", 5), ("A", "2022-04", 2)], columns=["store_id", "year_month", "mention_count"]))
+    q = qa([("A", True, False, None)])
+    shifted = p.assign(origin_end=p["origin_end"] + pd.offsets.MonthEnd(1))  # 창 끝을 origin 다음 달로
+    leaky = of.build_online_features(shifted, m, q)
+    leaky["online_available_at"] = of.build_online_features(p, m, q)["online_available_at"]  # 메타는 정상인 척
+    with pytest.raises(ValueError, match="미래 게시월"):
+        of.assert_no_future_posts(leaky, p, m)
+    tampered = of.build_online_features(p, m, q)
+    tampered.loc[tampered["origin"] == "2021Q1", "online_blog_cnt_3m"] = 5.0  # 2021-04 글이 2021Q1에 섞임
+    with pytest.raises(ValueError, match="미래 게시월"):
+        of.assert_no_future_posts(tampered, p, m)
+
+
+def test_assert_no_future_posts_checks_available_at_invariant():
+    p = panel_for(["A"])
+    m = _prep(pd.DataFrame([("A", "2022-01", 2)], columns=["store_id", "year_month", "mention_count"]))
+    t = of.build_online_features(p, m, qa([("A", True, False, None)]))
+    t["online_available_at"] = pd.Timestamp("2026-09-23")  # 2026-09-29 버전처럼 수집 시각을 넣으면
+    with pytest.raises(ValueError, match="available_at > origin_end"):
+        of.assert_no_future_posts(t, p, m)
+
+
+def test_cli_runs_future_post_check_before_writing(tmp_path, monkeypatch):
+    """CLI는 표를 쓰기 전에 assert_no_future_posts를 실행한다 — 실패하면 파일을 만들지 않는다."""
+    p = panel_for(["A"])
+    pp, mp, qp, op = tmp_path / "panel.parquet", tmp_path / "m.parquet", tmp_path / "qa.csv", tmp_path / "o.parquet"
+    p.to_parquet(pp, index=False)
+    pd.DataFrame([("A", "2022-01", 2)], columns=["store_id", "year_month", "mention_count"]).to_parquet(mp, index=False)
+    qp.write_text("store_id,error,first_date_truncated,oldest_raw_postdate,collected_at\n"
+                  "A,,False,,2026-09-23T14:39:46+00:00\n", encoding="utf-8")
+    of.main(["--panel", str(pp), "--monthly", str(mp), "--qa", str(qp), "--out", str(op)])
+    assert op.exists()
+
+    def boom(*a, **k):
+        raise ValueError("미래 게시월 (테스트)")
+
+    monkeypatch.setattr(of, "assert_no_future_posts", boom)
+    op2 = tmp_path / "o2.parquet"
+    with pytest.raises(ValueError):
+        of.main(["--panel", str(pp), "--monthly", str(mp), "--qa", str(qp), "--out", str(op2)])
+    assert not op2.exists()
 
 
 def test_mask_origins():
