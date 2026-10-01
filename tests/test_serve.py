@@ -358,3 +358,66 @@ def test_e2e_train_detect_diagnose_serve_use_the_same_adopted_run(detect_run, tm
     ddir = _copy_run(detect_run, tmp_path, lambda rm: rm.update(seconds=-1))
     with pytest.raises(ValueError, match="같은 탐지 실행이 아니다"):
         _serve(detect_run, tmp_path / "serve2", ddir=ddir, diagnose_meta=dm_path)
+
+
+# ---------------------------------------------------------------- #44 A안 소비 (upstream online_features가 정본)
+def test_short_name_masked_online_tables_flow_through_detect_diagnose_serve(tmp_path):
+    """online_features.apply_short_name_policy(≤2자 → 온라인 predictor 전 origin NA)를 거친 학습용·예측용 표를
+    train_detect → diagnose → serve가 그대로 소비한다: 짧은 상호 점포는 탐지 대상에 남고 온라인 요인은
+    data_missing/online_unobservable(display=false), ≥3자 점포는 온라인 값·기여 경로가 그대로다. serve/diagnose는
+    정책을 다시 구현하지 않는다."""
+    from src.data import online_features as of
+
+    panel = synthetic_master(n_stores=200)
+    ids = sorted(panel["store_id"].unique())
+    short_ids = set(ids[:20])
+    lic = pd.DataFrame({"store_id": ids, "name_raw": ["가나" if s in short_ids else "가나다" for s in ids]})
+    raw_online = _online_table(panel)
+    online, rep = of.apply_short_name_policy(raw_online, lic, "na")
+    assert rep["short_name_masked_store_count"] == 20 and len(online) == len(raw_online)
+    mp, op = tmp_path / "master.parquet", tmp_path / "online.parquet"
+    panel.to_parquet(mp, index=False)
+    online.to_parquet(op, index=False)
+    ddir = tmp_path / "detect"
+    train_detect.run(mp, ddir, ["enriched"], n_boot=0, with_split_comparison=False, online_path=op, primary="enriched")
+    origins = sorted(panel["origin"].unique())
+    last = origins[-1]
+    sp, osp = tmp_path / "score.parquet", tmp_path / "online_score.parquet"
+    panel[panel["origin"] == last].drop(columns="event_12m").to_parquet(sp, index=False)
+    online.query("origin == @last").to_parquet(osp, index=False)
+    pool = np.flatnonzero((panel["origin"] < origins[-5]).to_numpy())
+    background.save_s8(panel, {"primary": pool[:6], "sensitivity": pool[6:12]}, tmp_path / "bg")
+    man = tmp_path / "bg" / "background_manifest.json"
+
+    # 탐지: 짧은 상호 점포도 risk_scores에 남는다(모집단에서 빠지지 않음)
+    risk_ref = pd.read_parquet(ddir / "risk_scores.parquet")
+    assert short_ids <= set(risk_ref.loc[risk_ref["origin"] == last, "store_id"])
+
+    # 진단(#53) — 같은 run
+    long = diagnose.run(mp, tmp_path / "diag", online_path=op, primary="enriched", origin=None, max_stores=None,
+                        background_manifest=man, detect_run=ddir)
+    on = long[long["factor_id"] == "online_attention"].set_index("store_id")
+    s = on.loc[sorted(short_ids)]
+    assert (s["hold_reason"] == "data_missing").all() and (~s["display"]).all()
+    assert (s["missing_reason_code"] == "online_unobservable").all()
+
+    # 서빙(#36)
+    out = tmp_path / "serve"
+    risk = serve.run(mp, sp, ddir, out, primary="enriched", online_path=op, online_score_path=osp, n_boot=0,
+                     background_manifest=man, diagnose_meta=tmp_path / "diag" / "diagnose_meta.json")
+    assert short_ids <= set(risk["store_id"]) and len(risk) == len(pd.read_parquet(sp))
+    recs = {r["store_id"]: r for r in map(json.loads, (out / "reports.jsonl").read_text(encoding="utf-8").splitlines())}
+    for sid in short_ids:
+        f = next(f for f in recs[sid]["factors"] if f["factor_id"] == "online_attention")
+        assert f["display"] is False and f["data_missing"] is True and f["hold_reason"] == "data_missing"
+        assert f["missing_reason"] == "online_unobservable"
+    # ≥3자: 온라인 값은 마스크 전과 같고, 값이 있는 점포는 데이터 없음으로 보류되지 않는다
+    long_ids = [s for s in ids if s not in short_ids]
+    a = raw_online.query("origin == @last").set_index("store_id").loc[long_ids, of.FEATURES]
+    b = online.query("origin == @last").set_index("store_id").loc[long_ids, of.FEATURES]
+    pd.testing.assert_frame_equal(a, b)
+    has_val = b.notna().all(axis=1)
+    assert has_val.any()
+    for sid in b.index[has_val]:
+        f = next(f for f in recs[sid]["factors"] if f["factor_id"] == "online_attention")
+        assert f["data_missing"] is False and f["missing_reason"] is None

@@ -1083,6 +1083,12 @@ PR에서 다루지 않는다(요청대로 범위 밖).
 #44는 A안(정규화 상호 ≤ 2자 점포의 온라인 feature를 전 origin NA)으로 결정됐다. NA 처리는 온라인 표 재생성의 몫이고, 진단은
 기존 경로대로 온라인 요인이 전부 결측이면 `data_missing`(missing_reason `online_unobservable`, 문구 "관측 불가")으로 보류한다.
 #44 코멘트의 "'온라인 관측 불가' 문구·코드 이름은 재생성 때 확인"은 그대로 남는다(이 PR에서 코드 이름을 바꾸지 않음).
+- **구현 완료(2026-10-01, `fix/w3-short-name-online-na`):** `src/data/online_features.py` `apply_short_name_policy` — 정규화 상호
+  (PR #21 `collect_online_presence.normalize_name`) 길이 ≤ 2자 점포의 온라인 predictor(`FEATURES` = `features.ONLINE_PREDICTORS`
+  6개)를 모든 origin에서 NA, ≥ 3자는 그대로. 집계가 끝난 표에 쓰기 직전 점포 단위로 적용하고(원문·매칭 산출물은 그대로,
+  점포·행 삭제 없음, 식별자·시점 메타 불변), 학습용·예측용 표가 같은 CLI(`--short-name-policy na`, 기본)를 지난다. 상호는
+  `--licenses`(인허가 표준화 표 `name_raw`)에서 읽고, 적용 결과는 `<out>.short_name_qa.json`에 남긴다. 진단·서빙은 정책을
+  다시 구현하지 않고 이 NA를 소비한다. **기존 `online_features*.parquet`는 #44 이전 표이므로 재생성이 필요하다.**
 
 ### 7. 업력 경계 통일 `[lo, hi)`
 12·36·60·120개월 **미만**이 아래 구간, 정확히 12·36·60·120개월이면 다음 구간 — #34 `diagnose.AGE_BANDS`, #38
@@ -1149,8 +1155,8 @@ PR에서 다루지 않는다(요청대로 범위 밖).
   #45 이후 band_cutoffs.csv에 생긴 high_fallback·mid_fallback은 `cutoff_provenance`에만 둔다(합성 E2E에서 #41
   `build_db.validate_serve_input`이 이 키 때문에 거부하는 것을 확인하고 고쳤다).
 - **#44 A안**(정규화 상호 ≤ 2자 → 온라인 feature 전 origin NA)은 upstream 온라인 표 재생성의 몫이고 serve는 새로 구현하지
-  않는다. 온라인 feature가 전부 NA인 점포는 `data_missing`/`online_unobservable`로 보류된다(테스트). main의
-  `online_features`에는 아직 A안이 들어 있지 않다 — 재생성 전에 upstream 반영이 필요하다.
+  않는다. 온라인 feature가 전부 NA인 점포는 `data_missing`/`online_unobservable`로 보류된다(테스트). upstream 반영은
+  위 "#44 A안과의 관계" 항목의 구현 완료 기록 참고(재생성 필요).
 - **driver_code**는 `diagnose`가 만든 값을 그대로 쓴다. `sample_reports`의 온라인 경우 판정도 문구 단어 매칭을 버리고
   driver_code(코드가 없는 이전 레코드만 `diagnose.classify_online_driver`)로 바꿨다 — 이전 단어 매칭은 "마지막 블로그 언급
   이후 2개월"(presence)을 감소로 잘못 골랐다.
