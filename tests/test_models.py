@@ -208,8 +208,10 @@ def test_end_to_end(tmp_path, panel):
     assert not oof.duplicated(["store_id", "origin", "config"]).any()
 
     meta = json.loads((out / "run_meta.json").read_text(encoding="utf-8"))
-    assert meta["model_params_by_config"] == {"현 설정": detect.DEFAULT_PARAMS, "튜닝": train_detect.TUNED_PARAMS}
-    assert meta["params"] == detect.DEFAULT_PARAMS  # 서빙이 읽는 키는 현 설정 그대로
+    # S13: 서빙 경로의 기본 설정은 #45 채택 (0.03, 31). "현 설정" config 이름은 서빙에 쓰는 설정을 가리킨다.
+    assert meta["model_params_by_config"] == {"현 설정": detect.ADOPTED_PARAMS, "튜닝": train_detect.TUNED_PARAMS}
+    assert meta["params"] == detect.ADOPTED_PARAMS and meta["params_name"] == "adopted"  # 서빙이 읽는 키
+    assert meta["model_class"] == detect.MODEL_CLASS  # F10: 클래스명이 산출물에 남는다
     assert meta["oof_predictions_sha256"] == train_detect.sha256(out / "oof_predictions.parquet")
     assert meta["oof_predictions_rows"] == len(oof)
     assert meta["calibration_candidate"] in ("raw", "isotonic", "platt")
@@ -237,6 +239,59 @@ def test_tuned_params_keep_every_default_except_the_two_tuned_values():
     assert {k for k in default if tuned[k] != default[k]} == {"learning_rate", "max_leaf_nodes"}
     assert (tuned["learning_rate"], tuned["max_leaf_nodes"]) == (0.03, 15)
     assert tuned["early_stopping"] is False and tuned["random_state"] == default["random_state"]
+
+
+def test_adopted_params_are_default_with_only_the_two_adopted_values_changed():
+    a, d = detect.ADOPTED_PARAMS, detect.DEFAULT_PARAMS
+    # 채택값 (0.03, 31)은 DEFAULT (0.06, 31)와 learning_rate만 다르다(max_leaf_nodes는 둘 다 31). 나머지 키는 전부 같다.
+    assert set(a) == set(d) and {k for k in d if a[k] != d[k]} == {"learning_rate"}
+    assert (a["learning_rate"], a["max_leaf_nodes"]) == (0.03, 31)
+    assert (d["learning_rate"], d["max_leaf_nodes"]) == (0.06, 31)  # DEFAULT는 그대로 — 벤치마크 "현 설정" 비교 기준
+    assert a["early_stopping"] is False and a["random_state"] == d["random_state"]
+    t = train_detect.TUNED_PARAMS  # 불채택 비교용 (0.03, 15)는 그대로, 채택값과 다르다
+    assert (t["learning_rate"], t["max_leaf_nodes"]) == (0.03, 15) and t != a
+
+
+def test_serving_path_defaults_to_adopted_params():
+    import inspect
+
+    assert inspect.signature(train_detect.run).parameters["params_name"].default == "adopted"
+    assert train_detect.build_parser().parse_args([]).params == "adopted"
+    assert train_detect.build_parser().parse_args(["--params", "default"]).params == "default"
+    assert train_detect.config_params()["현 설정"] == detect.ADOPTED_PARAMS
+    assert train_detect.config_params("default")["현 설정"] == detect.DEFAULT_PARAMS
+    with pytest.raises(ValueError):
+        train_detect.config_params("nope")
+    with pytest.raises(SystemExit):
+        train_detect.build_parser().parse_args(["--params", "nope"])
+
+
+def test_run_with_default_params_name_reproduces_the_previous_setting(tmp_path, panel):
+    path = tmp_path / "master.parquet"
+    panel.to_parquet(path, index=False)
+    out = tmp_path / "out"
+    train_detect.run(path, out, ["base"], n_boot=2, with_split_comparison=False, params_name="default")
+    meta = json.loads((out / "run_meta.json").read_text(encoding="utf-8"))
+    assert meta["params"] == detect.DEFAULT_PARAMS and meta["params_name"] == "default"
+    assert meta["model_params_by_config"]["현 설정"] == detect.DEFAULT_PARAMS
+    assert meta["model_class"] == detect.MODEL_CLASS
+
+
+def test_run_meta_params_name_distinguishes_legacy_runs():
+    assert train_detect.run_meta_params_name({"params": detect.ADOPTED_PARAMS, "params_name": "adopted"}) == "adopted"
+    assert train_detect.run_meta_params_name({"params": detect.DEFAULT_PARAMS}) == "legacy_default"
+    assert train_detect.run_meta_params_name({"params": detect.ADOPTED_PARAMS}) == "legacy_unnamed"
+
+
+def test_model_class_path_is_the_class_actually_used(panel):
+    import importlib
+
+    mod, _, name = detect.MODEL_CLASS.rpartition(".")
+    cls = getattr(importlib.import_module(mod), name)
+    cols = features.select_features(panel.columns, "base")
+    sub = panel[panel["origin"] < "2022Q1"]
+    m = detect.DetectModel().fit(features.build_X(sub, cols), sub["event_12m"].to_numpy())
+    assert type(m.model_) is cls
 
 
 def test_tuned_fit_is_deterministic():

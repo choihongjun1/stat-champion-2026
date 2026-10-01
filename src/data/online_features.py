@@ -21,6 +21,13 @@
 `online_truncation_sensitivity.py`(#33)가 절단 전용 플래그와 절단 점포 제외(clean) 실험으로 잰다.
 `lower_bound` 정책도 절단 점포의 과거 창을 과소 집계하므로 수집 시점 절단의 영향이 값에 남는다(차단이 아니다).
 
+**짧은 상호 정책 (#44 A안, 2026-10-01 결정)**: 정규화 상호(PR #21 `collect_online_presence.normalize_name` — 블로그
+매칭에 쓴 정규화, 한글·영문·숫자 외 제거 후 소문자) 길이가 2자 이하인 점포는 **모든 origin**에서 온라인 predictor
+(`FEATURES`, = `features.ONLINE_PREDICTORS`) 전부를 NA로 둔다. 3자 이상은 그대로다. 점포·행을 지우지 않고, 식별자·시점
+메타(asof·available_at·collected_at)는 건드리지 않는다. 원문·매칭 산출물은 다시 정의하지 않고 집계 결과만 점포 단위로
+가린다(`apply_short_name_policy`). 학습용·예측용 표는 같은 CLI로 만들므로 같은 규칙이 적용된다. 적용 결과는
+`<out>.short_name_qa.json`에 남긴다. 상호는 인허가 표준화 표(`--licenses`)의 `name_raw`에서 읽는다.
+
 **시점 메타 (2026-10-01, main DECISIONS·DATA_CATALOG §6의 축B 정의와 맞춤)**:
 - `online_feature_asof` = origin_end — feature 창의 기준일.
 - `online_available_at` = 창에 들어갈 수 있는 **마지막 게시월의 말일**(= origin_end가 속한 달의 말일, 분기말 origin에서는
@@ -34,18 +41,21 @@
   (2026-09-29 버전은 수집 시각을 `online_available_at`에 넣었다 — 축B 정의와 충돌해 분리했다.)
 
 실행:
-    python -m src.data.online_features --monthly <월별 parquet> --qa <QA csv>
+    python -m src.data.online_features --monthly <월별 parquet> --qa <QA csv>            # 학습용 (라벨 패널)
+    python -m src.data.online_features --panel <master_score parquet> --out <online_features_score parquet>  # 예측용
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 from src.data import config
+from src.data.collect_online_presence import normalize_name as match_name_norm  # PR #21 블로그 매칭 정규화
 
 FEATURES = [
     "online_blog_cnt_3m",        # origin 직전 3개월 언급 수
@@ -60,6 +70,10 @@ META = ["online_feature_asof", "online_available_at", "online_collected_at", "on
 DEFAULT_MONTHLY = config.REPO_ROOT / "outputs" / "online" / "online_mentions_monthly.parquet"
 DEFAULT_QA = config.REPO_ROOT / "data" / "interim" / "online_blog_monthly_qa.csv"
 DEFAULT_OUT = config.REPO_ROOT / "outputs" / "online" / "online_features.parquet"
+DEFAULT_LICENSES = config.OUTPUT_DIR / "licenses_3gu.parquet"
+
+SHORT_NAME_MAX = 2  # #44 A안: 정규화 상호 길이 ≤ 2자
+SHORT_NAME_POLICIES = ("na", "keep")  # na = #44 기본, keep = #44 이전 표 재현용(명시할 때만)
 
 
 def _sha12(path: Path) -> str:
@@ -248,6 +262,52 @@ def assert_no_future_posts(table: pd.DataFrame, panel: pd.DataFrame, monthly: pd
     return {"rows": len(t), "cells_checked": checked}
 
 
+def short_name_store_ids(licenses: pd.DataFrame) -> set:
+    """정규화 상호 길이 ≤ SHORT_NAME_MAX인 점포. 상호가 결측이거나 정규화 후 비면 길이 0 → 포함된다
+    (#47 `benchmark.short_name_store_ids`와 같은 판정 — 매칭에 쓸 상호가 없는 점포다)."""
+    names = licenses["name_raw"].astype("string").fillna("")
+    return set(licenses.loc[names.map(lambda v: len(match_name_norm(v)) <= SHORT_NAME_MAX).to_numpy(), "store_id"])
+
+
+def apply_short_name_policy(table: pd.DataFrame, licenses: pd.DataFrame, policy: str = "na"
+                            ) -> tuple[pd.DataFrame, dict]:
+    """#44 A안: 정규화 상호 ≤ 2자 점포의 온라인 predictor(FEATURES) 전부를 모든 origin에서 NA로 둔다.
+
+    행·점포를 지우지 않고 FEATURES 외 열(store_id·origin·시점 메타)은 바꾸지 않는다. licenses: store_id, name_raw
+    (인허가 표준화 표). 표의 점포가 licenses에 없거나 licenses store_id가 중복이면 멈춘다(상호를 모르면 판정 불가).
+    반환: (표, QA 요약)."""
+    if policy not in SHORT_NAME_POLICIES:
+        raise ValueError(f"short-name policy는 {SHORT_NAME_POLICIES} 중 하나: {policy}")
+    lic = licenses[["store_id", "name_raw"]]
+    if lic["store_id"].duplicated().any():
+        raise ValueError("인허가 표 store_id 중복 — 상호를 점포 단위로 정할 수 없다")
+    unknown = set(table["store_id"]) - set(lic["store_id"])
+    if unknown:
+        raise ValueError(f"온라인 표 점포 {len(unknown):,}곳이 인허가 표에 없다 — 상호 길이를 판정할 수 없다")
+    short = short_name_store_ids(lic[lic["store_id"].isin(set(table["store_id"]))])
+    is_short = table["store_id"].isin(short).to_numpy()
+    out = table.copy()
+    if policy == "na":
+        out.loc[is_short, FEATURES] = np.nan
+    stores = table["store_id"]
+    qa = {"policy": policy, "rule": "#44 A안: 정규화 상호 길이 ≤ 2자 → 온라인 predictor 전 origin NA, ≥ 3자 유지",
+          "short_name_max": SHORT_NAME_MAX,
+          "normalize": "src.data.collect_online_presence.normalize_name (PR #21 블로그 매칭 정규화)",
+          "masked_columns": list(FEATURES) if policy == "na" else [],
+          "rows": int(len(table)), "stores": int(stores.nunique()),
+          "short_name_store_count": int(stores[is_short].nunique()),
+          "short_name_row_count": int(is_short.sum()),
+          "short_name_masked_store_count": int(stores[is_short].nunique()) if policy == "na" else 0,
+          "short_name_masked_row_count": int(is_short.sum()) if policy == "na" else 0,
+          "short_name_masked_rows_by_origin": ({str(k): int(v) for k, v in
+                                                table.loc[is_short, "origin"].astype(str).value_counts().sort_index().items()}
+                                               if policy == "na" else {}),
+          "short_name_cells_with_value_before": int(table.loc[is_short, FEATURES].notna().to_numpy().sum()),
+          "unaffected_store_count": int(stores[~is_short].nunique()),
+          "unaffected_row_count": int((~is_short).sum())}
+    return out, qa
+
+
 def mask_origins(table: pd.DataFrame, origins) -> pd.DataFrame:
     """#26 진단에서 불통과한 origin의 온라인 feature를 전 점포 일괄 NA로 둔다."""
     out = table.copy()
@@ -263,6 +323,10 @@ def main(argv=None) -> None:
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
     ap.add_argument("--mask-origins", default="", help="쉼표 구분 origin (#26 불통과) — 전 점포 NA")
     ap.add_argument("--truncated-policy", choices=TRUNCATED_POLICIES, default="na")
+    ap.add_argument("--licenses", type=Path, default=DEFAULT_LICENSES,
+                    help="인허가 표준화 표 (store_id, name_raw) — #44 짧은 상호 판정용")
+    ap.add_argument("--short-name-policy", choices=SHORT_NAME_POLICIES, default="na",
+                    help="na = #44 A안(정규화 상호 ≤2자 온라인 predictor 전 origin NA, 기본), keep = #44 이전 표 재현용")
     a = ap.parse_args(argv)
 
     panel = pd.read_parquet(a.panel, columns=["store_id", "origin", "origin_end"])
@@ -273,8 +337,18 @@ def main(argv=None) -> None:
     print(f"시점 검사 통과: 값이 있는 칸 {chk['cells_checked']:,}개를 origin_end까지의 게시월로 다시 집계해 일치")
     if a.mask_origins.strip():
         table = mask_origins(table, [o.strip() for o in a.mask_origins.split(",") if o.strip()])
+    # #44 A안 — 집계가 끝난 표에 점포 단위로 적용(쓰기 직전). 학습용·예측용 모두 이 경로를 지난다.
+    lic = pd.read_parquet(a.licenses, columns=["store_id", "name_raw"])
+    table, sq = apply_short_name_policy(table, lic, a.short_name_policy)
+    table["online_source_snapshot"] = table["online_source_snapshot"] + f"#short_name={a.short_name_policy}"
+    sq.update({"licenses": str(a.licenses), "licenses_sha12": _sha12(a.licenses), "panel": str(a.panel),
+               "out": str(a.out)})
+    print(f"짧은 상호(≤{SHORT_NAME_MAX}자, {a.short_name_policy}): {sq['short_name_store_count']:,}점포 "
+          f"{sq['short_name_row_count']:,}행 · 영향 없음 {sq['unaffected_store_count']:,}점포")
     a.out.parent.mkdir(parents=True, exist_ok=True)
     table.to_parquet(a.out, index=False)
+    a.out.with_name(a.out.name + ".short_name_qa.json").write_text(json.dumps(sq, ensure_ascii=False, indent=2),
+                                                                   encoding="utf-8")
     print(f"{len(table):,}행 → {a.out}")
     print(table[FEATURES].isna().groupby(table["origin"]).mean().round(3).to_string())
 

@@ -32,11 +32,21 @@ def _synthetic(n_stores=1500, seed=0):
     return pd.DataFrame(rows), pd.DataFrame(mrows), pd.DataFrame(orows)
 
 
-@pytest.mark.parametrize("months,band", [(0, "1년 미만"), (12, "1년 미만"), (13, "1–3년"), (36, "1–3년"),
-                                         (37, "3–5년"), (60, "3–5년"), (61, "5–10년"), (120, "5–10년"),
-                                         (121, "10년 이상"), (400, "10년 이상")])
+@pytest.mark.parametrize("months,band", [(0, "1년 미만"), (11, "1년 미만"), (12, "1–3년"), (35, "1–3년"),
+                                         (36, "3–5년"), (59, "3–5년"), (60, "5–10년"), (119, "5–10년"),
+                                         (120, "10년 이상"), (400, "10년 이상")])
 def test_age_band_edges(months, band):
     assert ds.age_band(pd.Series([months])).iloc[0] == band
+
+
+def test_age_band_matches_diagnose_boundaries():
+    """#34 diagnose.AGE_BANDS·#38 문서와 같은 [lo, hi) 경계 — 라벨 표기(– vs ~)만 다르다."""
+    from src.models import diagnose
+
+    months = pd.Series(range(0, 401))
+    ours = ds.age_band(months).map({name: i for i, name in enumerate(ds.AGE_ORDER)})
+    theirs = diagnose.age_band(months).map({name: i for i, (_, _, name) in enumerate(diagnose.AGE_BANDS)})
+    assert (ours.to_numpy() == theirs.to_numpy()).all()
 
 
 def test_build_panel_trdar_and_online_flags():
