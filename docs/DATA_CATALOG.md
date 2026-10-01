@@ -377,6 +377,9 @@ B-3가 아래 산출물로 파생한다. 소진공 소멸은 주 폐업 라벨�
     origin_end, `online_available_at` = 창에 들어갈 수 있는 **마지막 게시월의 말일**(위 축B 정의를 origin 단위로 옮긴 것, ≤ origin_end),
     `online_collected_at` = QA `collected_at`(실제 수집 시각)을 **KST tz-naive**로 바꾼 값(provenance 전용, 시점 검사에 쓰지 않음).
     만들 때 `assert_no_future_posts`가 월별 원천으로 다시 집계해 origin_end 이후 게시월이 섞이지 않았는지 대조한다.
+    #44 A안(정규화 상호 ≤ 2자 → 온라인 predictor 전 origin NA)을 쓰기 직전에 적용하며, 상호는 `licenses_3gu.parquet`의
+    `name_raw`에서 읽는다. 적용 요약은 같은 폴더의 `<out>.short_name_qa.json`(점포·행 수, origin별 행 수, 영향 없는 점포 수),
+    정책 표시는 `online_source_snapshot` 끝의 `#short_name=na`.
   - as-of 컷오프(`available_at > origin_end` → NA)는 이 스크립트가 아니라 **W2-0 master 조인의 기존 규칙**(`src/data/master.py`)이 적용한다.
   - `source_snapshot`은 날짜값이 아니라 원천 식별자다 — 축A는 원천 CSV 식별자. (`label_schema.py` 관례)
     축B는 `blog_items.jsonl.gz@sha256:<64자>#run:<collection_run_id>#git:<git SHA 12자>`:
