@@ -275,16 +275,17 @@
         "n": 2,
         "name": "train_detect (adopted)",
         "module": "python -m src.models.train_detect",
-        "args": "--master outputs/master/master_base.parquet --online outputs/online/online_features.parquet --primary enriched --tag enriched --params adopted --n-boot 1000",
-        "required_args": "없음. --n-boot 기본값은 20(리허설 값)이므로 최종 재생성은 --n-boot 1000을 명시. --params 기본 adopted, --tag enriched면 출력 폴더 outputs/models/detect_v0_enriched",
+        "args": "--master outputs/master/master_base.parquet --online outputs/online/online_features.parquet --primary enriched --tag enriched --params adopted --n-boot 20",
+        "required_args": "없음. --n-boot 기본값 20을 그대로 쓴다(최종 재생성 = 리허설). --params 기본 adopted, --tag enriched면 출력 폴더 outputs/models/detect_v0_enriched",
         "_source": "src/models/train_detect.py:589-599",
         "n_boot": {
-          "final": 1000,
-          "rehearsal": 20,
-          "rehearsal_note": "20은 리허설(시간 단축)용이다. 코드 기본값도 20(train_detect.py:595)이라 최종 재생성에서는 1000을 명시해야 한다",
+          "final": 20,
+          "rehearsal_note": "최종 재생성도 리허설과 같은 20이다(코드 기본값 train_detect.py:595와 같아 명시해도 같다)",
           "controls": "risk_scores의 불확실성 구간(5–95 백분위 = 90% 구간, alpha=0.10)을 만드는 점포 단위 부트스트랩 재학습 횟수. test origin마다(현 데이터 2025Q1·2025Q2, 2개) n_boot번 모형을 다시 학습한다. 0이면 구간을 만들지 않는다",
           "does_not_control": "보정 선택 유의성 검정(Brier 차이 부트스트랩)과 high 등급 lift 95% CI는 이 인자와 별개로 calib_boot = 1000 (--quick처럼 n_boot <= 5일 때만 200). 즉 --n-boot 20으로 돌려도 lift CI는 1000회",
-          "_source": "src/models/train_detect.py:328-337 bootstrap_ci, :538-545 구간 계산, :461-463 calib_boot, :595 --n-boot 기본 20, :610 --quick이면 5"
+          "_source": "src/models/train_detect.py:328-337 bootstrap_ci, :538-545 구간 계산, :461-463 calib_boot, :595 --n-boot 기본 20, :610 --quick이면 5",
+          "rehearsal": 20,
+          "_note": "--n-boot는 risk_scores 개인 예측 구간(5–95 백분위)용 점포 부트스트랩 재학습 횟수(train_detect.py:328-337,538-545). T3에 따라 개인 구간은 화면·공개 번들에 표시하지 않으므로 내부용. 재학습 2,000회는 하룻밤 재생성 시간 위험(R4). 사전 등록 지표 CI(lift, 보정 검정)는 calib_boot 1000회(:463)로 이 인자와 무관."
         }
       },
       {
@@ -320,5 +321,8 @@
         "_source": "src/models/background.py:241-243"
       }
     ]
-  }
+  },
+  "open_items": [
+    "공개 번들에서 probability_12m·ci_low·ci_high·interval_note 제외 여부: W3-14에서 결정(최홍준)"
+  ]
 }
