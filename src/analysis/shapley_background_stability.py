@@ -39,6 +39,7 @@ CANDIDATES = ([("random", n) for n in (16, 64, 128, 256)] + [("stratified", n) f
               + [("kmeans", n) for n in (64, 128)])
 MIN_TOP1, MIN_SIGN = 0.90, 0.95
 ROWS_PER_CHUNK = 150_000  # factor_shapley 한 번에 만드는 (점포×배경) 행 수 상한 — 메모리 보호, 결과와 무관
+DEFAULT_RUN_META = config.REPO_ROOT / "outputs" / "models" / train_detect.MODEL_NAME / "run_meta.json"
 DEFAULT_OUT = config.REPO_ROOT / "outputs" / "diagnosis" / "background" / "experiment"
 
 
@@ -134,7 +135,17 @@ def _idx_sha(df: pd.DataFrame, idx) -> str:
     return hashlib.sha256("\n".join(keys).encode()).hexdigest()
 
 
-def setup(master_path: Path, online_path: Path | None, primary: str = "enriched"):
+def serving_params(run_meta_path: Path | None = None) -> tuple[dict, str]:
+    """배경 실험에 쓰는 모형 파라미터 = 서빙 모형의 파라미터. run_meta.json의 params를 읽고,
+    파일이 없거나 params가 없으면 detect.ADOPTED_PARAMS를 쓴다. (파라미터, params_name) 반환."""
+    if run_meta_path is not None and Path(run_meta_path).exists():
+        meta = json.loads(Path(run_meta_path).read_text(encoding="utf-8"))
+        if meta.get("params"):
+            return dict(meta["params"]), f"run_meta:{meta.get('params_name', 'unknown')}"
+    return dict(detect.ADOPTED_PARAMS), "adopted"
+
+
+def setup(master_path: Path, online_path: Path | None, primary: str = "enriched", params: dict | None = None):
     df = train_detect.load_master(master_path)
     if online_path is not None:
         df = train_detect.attach_online(df, online_path)
@@ -147,7 +158,7 @@ def setup(master_path: Path, online_path: Path | None, primary: str = "enriched"
     tr = df["origin"].isin(origins[: t - train_detect.EMBARGO]).to_numpy()
     te_all = np.flatnonzero((df["origin"] == ORIGIN).to_numpy())
     eval_idx = np.sort(np.random.default_rng(EVAL_SEED).choice(te_all, min(EVAL_N, len(te_all)), replace=False))
-    model = detect.DetectModel().fit(X[tr], y[tr])
+    model = detect.DetectModel(params=dict(params if params is not None else detect.ADOPTED_PARAMS)).fit(X[tr], y[tr])
     active = [f for f in diagnose.FACTORS if any(c in model.columns_ for c in f["features"])]
     factor_cols = [[c for c in f["features"] if c in model.columns_] for f in active]
     on = next(k for k, f in enumerate(active) if f["id"] == "online_attention")
@@ -164,14 +175,16 @@ def _shapley(s, bg_idx) -> tuple[np.ndarray, float, float]:
     return phi, base, time.time() - t0
 
 
-def run(master_path: Path, online_path: Path | None, out_dir: Path, bg_dir: Path = background.DEFAULT_DIR) -> dict:
+def run(master_path: Path, online_path: Path | None, out_dir: Path, bg_dir: Path = background.DEFAULT_DIR,
+        run_meta_path: Path | None = None) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
-    s = setup(master_path, online_path)
+    params, params_name = serving_params(run_meta_path)
+    s = setup(master_path, online_path, params=params)
     design = {"origin": ORIGIN, "eval_n": int(len(s["eval_idx"])), "eval_seed": EVAL_SEED,
               "eval_idx_sha256": _idx_sha(s["df"], s["eval_idx"]), "ref_n": REF_N, "ref_seed": REF_SEED,
               "seeds": list(SEEDS), "candidates": [f"{m}:{n}" for m, n in CANDIDATES],
               "rule": f"median top1 >= {MIN_TOP1} and median online sign >= {MIN_SIGN}; fastest; background = first seed",
-              "factor_ids": s["factor_ids"], "params": detect.DEFAULT_PARAMS}
+              "factor_ids": s["factor_ids"], "params": params, "params_name": params_name}
     dpath = out_dir / "design.json"
     if dpath.exists():
         old = json.loads(dpath.read_text(encoding="utf-8"))
@@ -231,9 +244,11 @@ def main(argv=None) -> None:
     ap.add_argument("--master", type=Path, default=config.MASTER_BASE_PATH)
     ap.add_argument("--online", type=Path, default=None)
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
+    ap.add_argument("--run-meta", type=Path, default=DEFAULT_RUN_META,
+                    help="서빙 모형의 run_meta.json (없으면 detect.ADOPTED_PARAMS)")
     ap.add_argument("--background-dir", type=Path, default=background.DEFAULT_DIR)
     a = ap.parse_args(argv)
-    run(a.master, a.online, a.out, a.background_dir)
+    run(a.master, a.online, a.out, a.background_dir, a.run_meta)
 
 
 if __name__ == "__main__":

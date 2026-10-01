@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 from src.analysis import shapley_background_stability as sbs
-from src.models import background
+from src.models import background, detect
 from tests.test_models import _online_table, synthetic_master
 
 
@@ -120,3 +120,24 @@ def test_run_checkpoints_resume_and_saves_background(small_design, tmp_path, mon
         sbs.run(mp, op, out, bg_dir)
     design = json.loads((out / "design.json").read_text(encoding="utf-8"))
     assert design["eval_n"] == 12 and design["ref_n"] == 16
+
+
+def test_background_experiment_uses_serving_params(small_design, tmp_path):
+    """S13: 배경 실험의 모형 파라미터가 서빙(채택) 파라미터와 같고, 설계 기록에 params_name이 남는다."""
+    mp, op = small_design
+    params, name = sbs.serving_params(None)
+    assert params == detect.ADOPTED_PARAMS and name == "adopted"
+    s = sbs.setup(mp, op, params=params)
+    assert s["model"].params == detect.ADOPTED_PARAMS
+    out = tmp_path / "exp"
+    sbs.run(mp, op, out, tmp_path / "bg")
+    design = json.loads((out / "design.json").read_text(encoding="utf-8"))
+    assert design["params"] == detect.ADOPTED_PARAMS and design["params_name"] == "adopted"
+
+
+def test_serving_params_prefers_run_meta(tmp_path):
+    meta = tmp_path / "run_meta.json"
+    meta.write_text(json.dumps({"params": {**detect.ADOPTED_PARAMS, "max_iter": 7}, "params_name": "adopted"}), encoding="utf-8")
+    params, name = sbs.serving_params(meta)
+    assert params["max_iter"] == 7 and name == "run_meta:adopted"
+    assert sbs.serving_params(tmp_path / "missing.json")[1] == "adopted"
