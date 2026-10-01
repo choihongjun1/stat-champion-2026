@@ -134,11 +134,9 @@
       ],
       "n_boot": 1000,
       "seed": 20260927,
-      "seed_requested": 20261003,
-      "seed_note": "요청 문서(10/1 18:20)의 seed 20261003은 코드값과 다르다. 현재 코드는 bands.LIFT_CI_SEED = 20260927. 20261003을 쓰려면 코드 변경이 필요하며 박안석 확인 전까지 코드값을 기록한다",
       "n_boot_note": "train_detect는 calib_boot = 200 if n_boot<=5 else 1000 (--quick이 아니면 1000)",
       "rule": "독립 검증 구간 lift 95% CI 하한 >= 1.5일 때만 '약 2배' 문구 (S10)",
-      "_source": "src/models/bands.py:32 LIFT_CI_SEED, :119 high_lift_cluster_ci(n_boot=1000); src/models/train_detect.py:463,515,531"
+      "_source": "src/models/bands.py:32 LIFT_CI_SEED = 20260927 (기존 lift 2.00 [1.89, 2.10] 산출 seed, 결과 확인 후 변경하지 않음); src/models/bands.py:119 high_lift_cluster_ci(n_boot=1000); src/models/train_detect.py:463,515,531"
     },
     "label_phrase_condition": "'약 2배' 문구는 독립 검증 구간 lift 95% CI 하한 >= 1.5일 때만 (S10)"
   },
@@ -277,9 +275,17 @@
         "n": 2,
         "name": "train_detect (adopted)",
         "module": "python -m src.models.train_detect",
-        "args": "--master outputs/master/master_base.parquet --online outputs/online/online_features.parquet --primary enriched --tag enriched --params adopted --n-boot 20",
-        "required_args": "없음. --params 기본 adopted, --tag enriched면 출력 폴더 outputs/models/detect_v0_enriched",
-        "_source": "src/models/train_detect.py:589-599"
+        "args": "--master outputs/master/master_base.parquet --online outputs/online/online_features.parquet --primary enriched --tag enriched --params adopted --n-boot 1000",
+        "required_args": "없음. --n-boot 기본값은 20(리허설 값)이므로 최종 재생성은 --n-boot 1000을 명시. --params 기본 adopted, --tag enriched면 출력 폴더 outputs/models/detect_v0_enriched",
+        "_source": "src/models/train_detect.py:589-599",
+        "n_boot": {
+          "final": 1000,
+          "rehearsal": 20,
+          "rehearsal_note": "20은 리허설(시간 단축)용이다. 코드 기본값도 20(train_detect.py:595)이라 최종 재생성에서는 1000을 명시해야 한다",
+          "controls": "risk_scores의 불확실성 구간(5–95 백분위 = 90% 구간, alpha=0.10)을 만드는 점포 단위 부트스트랩 재학습 횟수. test origin마다(현 데이터 2025Q1·2025Q2, 2개) n_boot번 모형을 다시 학습한다. 0이면 구간을 만들지 않는다",
+          "does_not_control": "보정 선택 유의성 검정(Brier 차이 부트스트랩)과 high 등급 lift 95% CI는 이 인자와 별개로 calib_boot = 1000 (--quick처럼 n_boot <= 5일 때만 200). 즉 --n-boot 20으로 돌려도 lift CI는 1000회",
+          "_source": "src/models/train_detect.py:328-337 bootstrap_ci, :538-545 구간 계산, :461-463 calib_boot, :595 --n-boot 기본 20, :610 --quick이면 5"
+        }
       },
       {
         "n": "2b",
