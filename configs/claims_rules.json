@@ -1,0 +1,187 @@
+[
+  {
+    "id": "CL-01",
+    "severity": "error",
+    "patterns": [
+      "효과\\s*확인(?!\\s*되지)"
+    ],
+    "reason": "T1 \"효과 확인\" 금지",
+    "mask": false
+  },
+  {
+    "id": "CL-02",
+    "severity": "error",
+    "patterns": [
+      "인과\\s*효과"
+    ],
+    "reason": "S5",
+    "mask": false
+  },
+  {
+    "id": "CL-03",
+    "severity": "error",
+    "patterns": [
+      "폐업\\s*확률"
+    ],
+    "reason": "T3 개인 확률 금지",
+    "mask": false
+  },
+  {
+    "id": "CL-04",
+    "severity": "error",
+    "patterns": [
+      "\\d+(\\.\\d+)?\\s*%\\s*(로|으로)\\s*예측"
+    ],
+    "reason": "CLAIMS 탐지: 개인 수치 예측 금지",
+    "mask": false
+  },
+  {
+    "id": "CL-05",
+    "severity": "error",
+    "patterns": [
+      "\\d+\\s*[~∼\\-–]\\s*\\d+\\s*%"
+    ],
+    "reason": "T3 개인 구간(예: 29~47%). 문서의 기술적 범위는 allowlist로 처리",
+    "mask": false
+  },
+  {
+    "id": "CL-06",
+    "severity": "error",
+    "patterns": [
+      "폐업률\\s*2\\s*배",
+      "AI가\\s*폐업을\\s*예측"
+    ],
+    "reason": "CLAIMS 탐지",
+    "mask": false
+  },
+  {
+    "id": "CL-07",
+    "severity": "error",
+    "patterns": [
+      "대기\\s*시간"
+    ],
+    "reason": "철회된 카드",
+    "mask": false
+  },
+  {
+    "id": "CL-08",
+    "severity": "error",
+    "patterns": [
+      "본인만\\s*볼\\s*수"
+    ],
+    "reason": "A3",
+    "mask": false
+  },
+  {
+    "id": "CL-09",
+    "severity": "error",
+    "patterns": [
+      "(?<![\\d.])3\\.3\\s*%",
+      "(?<![\\d.])8\\.8(?![\\d])",
+      "12\\.6\\s*%"
+    ],
+    "reason": "S12 철회 수치",
+    "mask": false
+  },
+  {
+    "id": "CL-10",
+    "severity": "error",
+    "patterns": [
+      "LightGBM"
+    ],
+    "reason": "F10: 탐지 모형은 HGB",
+    "mask": false
+  },
+  {
+    "id": "CL-11",
+    "severity": "error",
+    "patterns": [
+      "창업기업실태조사"
+    ],
+    "reason": "MDIS 조사명 오기",
+    "mask": false
+  },
+  {
+    "id": "CL-12",
+    "severity": "warn",
+    "patterns": [
+      "신청\\s*가능"
+    ],
+    "reason": "T4 상태 불명이면 금지, 문맥 확인 필요",
+    "mask": false
+  },
+  {
+    "id": "CL-13",
+    "severity": "warn",
+    "patterns": [
+      "후기",
+      "리뷰"
+    ],
+    "reason": "CLAIMS 온라인: 블로그 언급 수로 표기",
+    "mask": false
+  },
+  {
+    "id": "CL-14",
+    "severity": "warn",
+    "patterns": [
+      "받을\\s*수\\s*있는\\s*지원"
+    ],
+    "reason": "CLAIMS 지원사업",
+    "mask": false
+  },
+  {
+    "id": "CL-15",
+    "severity": "warn",
+    "patterns": [
+      "원인은",
+      "때문에\\s*위험"
+    ],
+    "reason": "CLAIMS 진단: 모형 기여를 원인으로 서술 금지",
+    "mask": false
+  },
+  {
+    "id": "CL-16",
+    "severity": "warn",
+    "patterns": [
+      "문을\\s*닫는\\s*경우가\\s*더\\s*많"
+    ],
+    "reason": "집단 폐업률 비교 미수행",
+    "mask": false
+  },
+  {
+    "id": "ID-01",
+    "severity": "error",
+    "patterns": [
+      "SR_\\d"
+    ],
+    "reason": "store_id 노출",
+    "mask": true
+  },
+  {
+    "id": "ID-02",
+    "severity": "error",
+    "patterns": [
+      "\\b\\d{3}-\\d{2}-\\d{5}\\b"
+    ],
+    "reason": "사업자번호 형식",
+    "mask": true
+  },
+  {
+    "id": "ID-03",
+    "severity": "error",
+    "patterns": [
+      "\\b0\\d{1,2}-\\d{3,4}-\\d{4}\\b"
+    ],
+    "reason": "전화번호 형식",
+    "mask": true
+  },
+  {
+    "id": "ID-04",
+    "severity": "warn",
+    "patterns": [
+      "\\b[0-9a-f]{32}\\b"
+    ],
+    "reason": "해시 row_key 가능성(커밋 SHA 40자와 구분). 문맥 확인",
+    "mask": true
+  }
+]
