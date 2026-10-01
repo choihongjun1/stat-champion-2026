@@ -267,3 +267,54 @@ def test_resolved_alias_into_root_data_is_rejected(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, 'resolve', resolve)
     monkeypatch.setattr(Path, 'read_bytes', lambda _: pytest.fail('target opened'))
     assert checker.main([str(alias)]) == 2
+
+
+@pytest.mark.parametrize('folder', ['outputs', 'node_modules', '.next', '.venv', '__pycache__', '.git'])
+def test_explicit_file_in_excluded_folder_is_scanned(tmp_path, capsys, folder):
+    target = tmp_path / folder / 'x.md'
+    target.parent.mkdir()
+    target.write_text('폐업 확률', encoding='utf-8')
+    assert checker.main([str(target), '--format', 'json']) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result['summary']['scanned_files'] == 1
+    assert result['findings'][0]['rule_id'] == 'CL-03'
+
+
+def test_explicit_outputs_directory_prunes_nested_exclusions(tmp_path, capsys):
+    output = tmp_path / 'outputs'
+    nested = output / 'node_modules'
+    nested.mkdir(parents=True)
+    (output / 'x.md').write_text('폐업 확률', encoding='utf-8')
+    (nested / 'hidden.md').write_text('폐업 확률', encoding='utf-8')
+    assert checker.main([str(output), '--format', 'json']) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result['summary']['scanned_files'] == 1
+    assert result['summary']['skipped']['excluded_or_linked'] == 1
+    assert len(result['findings']) == 1
+
+
+def test_recursive_outputs_still_pruned(tmp_path, capsys):
+    output = tmp_path / 'outputs'
+    output.mkdir()
+    (output / 'x.md').write_text('폐업 확률', encoding='utf-8')
+    (tmp_path / 'safe.md').write_text('상대 위험 수준', encoding='utf-8')
+    assert checker.main([str(tmp_path), '--format', 'json']) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result['summary']['scanned_files'] == 1
+    assert not result['findings']
+
+
+@pytest.mark.parametrize('output_format', ['text', 'json'])
+@pytest.mark.parametrize('kind', ['empty', 'binary', 'extension', 'decode', 'recursive_outputs'])
+def test_zero_scanned_files_exit_3(tmp_path, capsys, kind, output_format):
+    if kind == 'binary': (tmp_path / 'x.md').write_bytes(b'\0synthetic')
+    elif kind == 'extension': (tmp_path / 'x.png').write_bytes(b'synthetic')
+    elif kind == 'decode': (tmp_path / 'x.md').write_bytes(b'\xff')
+    elif kind == 'recursive_outputs':
+        (tmp_path / 'outputs').mkdir()
+        (tmp_path / 'outputs/x.md').write_text('synthetic', encoding='utf-8')
+    assert checker.main([str(tmp_path), '--format', output_format]) == 3
+    output = capsys.readouterr().out
+    assert '검사한 파일이 없습니다' in output
+    if output_format == 'json':
+        assert json.loads(output)['summary']['scanned_files'] == 0

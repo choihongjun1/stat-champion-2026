@@ -1,4 +1,4 @@
-"""Scan public text using JSON rules; never traverse excluded or linked directories."""
+"""Scan explicit public targets; recursive walks prune excluded/private directories."""
 from __future__ import annotations
 
 import argparse
@@ -94,7 +94,8 @@ def linked(path):
 
 
 def excluded(path, repo_root):
-    return forbidden_data(path, repo_root) or any(p.casefold() in EXCLUDED for p in path.absolute().parts)
+    # Used only for child directories encountered during recursive traversal.
+    return forbidden_data(path, repo_root) or path.name.casefold() in EXCLUDED
 
 
 def candidates(paths, skipped, repo_root):
@@ -107,7 +108,7 @@ def candidates(paths, skipped, repo_root):
             raise UsageError('scan target does not exist')
     seen = set()
     for root in roots:
-        if excluded(root, repo_root) or any(linked(p) for p in [root, *root.parents]):
+        if any(linked(p) for p in [root, *root.parents]):
             skipped['excluded_or_linked'] += 1
             continue
         if root.is_file():
@@ -255,6 +256,9 @@ def main(argv=None):
         # Avoid echoing invalid user values, paths, or raw decode buffers.
         print('usage error: ' + str(exc), file=sys.stderr)
         return 2
+    no_files = result['summary']['scanned_files'] == 0
+    if no_files:
+        result['message'] = '검사한 파일이 없습니다'
     if args.format == 'json':
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
@@ -264,6 +268,10 @@ def main(argv=None):
             print(f"{item['file']}:{item['line']}:{item['column']}  [{item['severity'].upper()}] "
                   f"{item['rule_id']}  {match} ({context})")
         print('summary: ' + json.dumps(result['summary'], ensure_ascii=False, sort_keys=True))
+        if no_files:
+            print(result['message'])
+    if no_files:
+        return 3
     return int(any(f['severity'] == 'error' or args.fail_on == 'warn' for f in result['findings']))
 
 
