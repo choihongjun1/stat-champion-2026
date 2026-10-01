@@ -1,0 +1,1168 @@
+[
+  {
+    "_schema_version": "0.1",
+    "_dummy": true,
+    "store_id": "DUMMY-BT-0001",
+    "store": {
+      "name": "(더미) 미용실 A",
+      "biz_type": "미용업",
+      "mdis_industry_code": "96",
+      "gu": "광진구",
+      "dong": "화양동",
+      "address_road": "서울특별시 광진구 샘플로 1, 2층",
+      "license_date": "2019-04-11"
+    },
+    "as_of": "2026-06-30",
+    "risk": {
+      "probability_12m": 0.152,
+      "ci_low": 0.104,
+      "ci_high": 0.207,
+      "band": "mid",
+      "percentile": 69,
+      "peer_group": "광진구 미용업 업력 유사 구간",
+      "peer_median": 0.103,
+      "model": "detect_v0",
+      "calibrated": true
+    },
+    "factors": [
+      {
+        "category": "경쟁",
+        "name": "상권 내 같은 업종 점포 수",
+        "contribution": 0.029,
+        "direction": "위험 증가",
+        "peer_percentile": 21,
+        "actionability": "external",
+        "explanation": "소속 상권의 같은 업종 점포 수가 비교 집단 대비 많은 편"
+      },
+      {
+        "category": "경쟁",
+        "name": "상권 내 같은 업종 폐업률",
+        "contribution": 0.017,
+        "direction": "위험 증가",
+        "peer_percentile": 30,
+        "actionability": "external",
+        "explanation": "직전 분기 소속 상권의 같은 업종 폐업률이 비교 집단 대비 높은 편"
+      },
+      {
+        "category": "사업체 구조",
+        "name": "영업장 면적",
+        "contribution": 0.008,
+        "direction": "위험 증가",
+        "peer_percentile": 44,
+        "actionability": "external",
+        "explanation": "영업장 면적이 동일 업종 점포 대비 작은 편"
+      }
+    ],
+    "prescriptions": [
+      {
+        "id": "ecommerce_channel",
+        "title": "온라인 판매채널 도입",
+        "available": false,
+        "unavailable_reason": "미용업(MDIS 산업중분류 96)은 표본 부족으로 업종별 개별 효과를 추정하지 않음",
+        "evidence_level": null,
+        "effect_summary": null,
+        "effect_value": null,
+        "source": "MDIS 2023 소상공인실태조사",
+        "caveat": "업종 전체 평균 효과는 개별 점포에 적용할 수 없음",
+        "actionability": "owner"
+      },
+      {
+        "id": "cost_review",
+        "title": "고정비 구조 점검",
+        "available": true,
+        "evidence_level": "C",
+        "effect_summary": "비용 요인 기여도가 높은 점포에 대한 일반 권고",
+        "effect_value": null,
+        "source": "현황 기반 일반 권고",
+        "caveat": "개별 점포 효과를 추정하지 않은 일반 안내",
+        "actionability": "owner"
+      }
+    ],
+    "online_presence": {
+      "naver_local_registered": true,
+      "kakao_registered": false,
+      "naver_blog_total_12m": 3,
+      "first_date_truncated": false,
+      "collected_at": "2026-09-20",
+      "note": "현재 시점 스냅샷 — 진단 화면 표시 전용, 과거 예측 feature 사용 금지"
+    },
+    "policies": [
+      {
+        "id": "sbiz_consult_2026",
+        "name": "(예시) 소상공인 경영개선 컨설팅",
+        "operator": "소상공인시장진흥공단",
+        "eligibility": "업력 제한 없음, 소상공인",
+        "matched_by": [
+          "biz_type"
+        ],
+        "link": "https://www.sbiz.or.kr",
+        "related_factor": "업력 구간",
+        "announce_year": 2026,
+        "collected_at": "2026-09-20",
+        "match_status": "matched"
+      },
+      {
+        "id": "seoul_rent_2026",
+        "name": "(예시) 서울시 소상공인 임차료 부담 완화 지원",
+        "operator": "서울특별시",
+        "eligibility": "서울 소재 소상공인, 연매출 3억 원 이하",
+        "matched_by": [
+          "gu"
+        ],
+        "link": "https://www.seoul.go.kr",
+        "related_factor": "필지 공시지가 수준",
+        "announce_year": 2026,
+        "collected_at": "2026-09-20",
+        "match_status": "check_required",
+        "check_note": "매출액 조건은 데이터에 없어 자동 매칭하지 않음 — 조건 확인 필요"
+      }
+    ],
+    "disclaimer": "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다."
+  },
+  {
+    "_schema_version": "0.1",
+    "_dummy": true,
+    "store_id": "DUMMY-BT-0002",
+    "store": {
+      "name": "(더미) 미용실 B",
+      "biz_type": "미용업",
+      "mdis_industry_code": "96",
+      "gu": "마포구",
+      "dong": "망원동",
+      "address_road": "서울특별시 마포구 샘플로 2, 2층",
+      "license_date": "2023-02-20"
+    },
+    "as_of": "2026-06-30",
+    "risk": {
+      "probability_12m": 0.193,
+      "ci_low": 0.131,
+      "ci_high": 0.262,
+      "band": "high",
+      "percentile": 81,
+      "peer_group": "마포구 미용업 업력 유사 구간",
+      "peer_median": 0.108,
+      "model": "detect_v0",
+      "calibrated": true
+    },
+    "factors": [
+      {
+        "category": "사업체 구조",
+        "name": "업력",
+        "contribution": 0.051,
+        "direction": "위험 증가",
+        "peer_percentile": 9,
+        "actionability": "external",
+        "explanation": "개업 후 경과 기간이 폐업이 상대적으로 많이 관측되는 구간에 해당"
+      },
+      {
+        "category": "경쟁",
+        "name": "상권 내 같은 업종 점포 수",
+        "contribution": 0.024,
+        "direction": "위험 증가",
+        "peer_percentile": 27,
+        "actionability": "external",
+        "explanation": "소속 상권의 같은 업종 점포 수가 비교 집단 대비 많은 편"
+      },
+      {
+        "category": "사업체 구조",
+        "name": "영업장 면적",
+        "contribution": 0.01,
+        "direction": "위험 증가",
+        "peer_percentile": 39,
+        "actionability": "external",
+        "explanation": "영업장 면적이 동일 업종 점포 대비 작은 편"
+      }
+    ],
+    "prescriptions": [
+      {
+        "id": "ecommerce_channel",
+        "title": "온라인 판매채널 도입",
+        "available": false,
+        "unavailable_reason": "미용업(MDIS 산업중분류 96)은 표본 부족으로 업종별 개별 효과를 추정하지 않음",
+        "evidence_level": null,
+        "effect_summary": null,
+        "effect_value": null,
+        "source": "MDIS 2023 소상공인실태조사",
+        "caveat": "업종 전체 평균 효과는 개별 점포에 적용할 수 없음",
+        "actionability": "owner"
+      },
+      {
+        "id": "cost_review",
+        "title": "고정비 구조 점검",
+        "available": true,
+        "evidence_level": "C",
+        "effect_summary": "비용 요인 기여도가 높은 점포에 대한 일반 권고",
+        "effect_value": null,
+        "source": "현황 기반 일반 권고",
+        "caveat": "개별 점포 효과를 추정하지 않은 일반 안내",
+        "actionability": "owner"
+      }
+    ],
+    "online_presence": null,
+    "policies": [
+      {
+        "id": "sbiz_consult_2026",
+        "name": "(예시) 소상공인 경영개선 컨설팅",
+        "operator": "소상공인시장진흥공단",
+        "eligibility": "업력 제한 없음, 소상공인",
+        "matched_by": [
+          "biz_type"
+        ],
+        "link": "https://www.sbiz.or.kr",
+        "related_factor": "업력 구간",
+        "announce_year": 2026,
+        "collected_at": "2026-09-20",
+        "match_status": "matched"
+      }
+    ],
+    "disclaimer": "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다."
+  },
+  {
+    "_schema_version": "0.1",
+    "_dummy": true,
+    "store_id": "DUMMY-GR-0003",
+    "store": {
+      "name": "(더미) 음식점 C",
+      "biz_type": "일반음식점",
+      "mdis_industry_code": "56",
+      "gu": "광진구",
+      "dong": "화양동",
+      "address_road": "서울특별시 광진구 샘플로 3, 2층",
+      "license_date": "2011-06-20"
+    },
+    "as_of": "2026-06-30",
+    "risk": {
+      "probability_12m": 0.187,
+      "ci_low": 0.142,
+      "ci_high": 0.239,
+      "band": "high",
+      "percentile": 78,
+      "peer_group": "광진구 일반음식점 업력 유사 구간",
+      "peer_median": 0.112,
+      "model": "detect_v0",
+      "calibrated": true
+    },
+    "factors": [
+      {
+        "category": "입지·수요",
+        "name": "상권 유동인구",
+        "contribution": 0.042,
+        "direction": "위험 증가",
+        "peer_percentile": 18,
+        "actionability": "external",
+        "explanation": "소속 상권의 직전 분기 유동인구가 동일 업종·유사 상권 점포 대비 적은 편"
+      },
+      {
+        "category": "경쟁",
+        "name": "상권 내 같은 업종 점포 수",
+        "contribution": 0.031,
+        "direction": "위험 증가",
+        "peer_percentile": 24,
+        "actionability": "external",
+        "explanation": "소속 상권의 같은 업종 점포 수가 비교 집단 대비 많은 편"
+      },
+      {
+        "category": "비용",
+        "name": "필지 공시지가",
+        "contribution": 0.018,
+        "direction": "위험 증가",
+        "peer_percentile": 71,
+        "actionability": "policy",
+        "explanation": "점포 필지의 공시지가가 동일 업종·유사 상권 점포 대비 높은 편"
+      },
+      {
+        "category": "사업체 구조",
+        "name": "업력",
+        "contribution": -0.012,
+        "direction": "위험 감소",
+        "peer_percentile": 62,
+        "actionability": "external",
+        "explanation": "개업 후 경과 기간이 폐업이 상대적으로 적게 관측되는 구간에 해당"
+      }
+    ],
+    "prescriptions": [
+      {
+        "id": "ecommerce_channel",
+        "title": "온라인 판매채널 도입",
+        "available": true,
+        "evidence_level": "A",
+        "effect_summary": "동일 업종·규모 사업체 비교에서 영업이익률 차이가 관측됨",
+        "effect_value": "+0.052 (영업이익률, 가중 기준)",
+        "source": "MDIS 2023 소상공인실태조사 · DML(Stage 3)",
+        "caveat": "관측 데이터 기반 추정이며 개별 점포의 보장된 효과가 아님",
+        "actionability": "owner"
+      },
+      {
+        "id": "online_listing",
+        "title": "지도 플랫폼 업체 정보 등록·관리",
+        "available": true,
+        "evidence_level": "B",
+        "effect_summary": "유사 점포 중 지도 플랫폼 등록 점포의 위험도 분포가 낮게 관측됨",
+        "effect_value": null,
+        "source": "3구 인허가 패널 · 온라인 존재감 수집(2026-09)",
+        "caveat": "유사 점포 관측 비교이며 인과효과가 검증되지 않음",
+        "actionability": "owner"
+      }
+    ],
+    "online_presence": {
+      "naver_local_registered": true,
+      "kakao_registered": false,
+      "naver_blog_total_12m": 14,
+      "first_date_truncated": false,
+      "collected_at": "2026-09-20",
+      "note": "현재 시점 스냅샷 — 진단 화면 표시 전용, 과거 예측 feature 사용 금지"
+    },
+    "policies": [
+      {
+        "id": "sbiz_online_2026",
+        "name": "(예시) 소상공인 온라인 판로지원 사업",
+        "operator": "소상공인시장진흥공단",
+        "eligibility": "업력 1년 이상 소상공인",
+        "matched_by": [
+          "biz_type",
+          "tenure"
+        ],
+        "link": "https://www.sbiz.or.kr",
+        "related_factor": "온라인 노출 채널 수",
+        "announce_year": 2026,
+        "collected_at": "2026-09-20",
+        "match_status": "matched"
+      },
+      {
+        "id": "seoul_rent_2026",
+        "name": "(예시) 서울시 소상공인 임차료 부담 완화 지원",
+        "operator": "서울특별시",
+        "eligibility": "서울 소재 소상공인, 연매출 3억 원 이하",
+        "matched_by": [
+          "gu"
+        ],
+        "link": "https://www.seoul.go.kr",
+        "related_factor": "필지 공시지가 수준",
+        "announce_year": 2026,
+        "collected_at": "2026-09-20",
+        "match_status": "check_required",
+        "check_note": "매출액 조건은 데이터에 없어 자동 매칭하지 않음 — 조건 확인 필요"
+      }
+    ],
+    "disclaimer": "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다."
+  },
+  {
+    "_schema_version": "0.1",
+    "_dummy": true,
+    "store_id": "DUMMY-GR-0004",
+    "store": {
+      "name": "(더미) 음식점 D",
+      "biz_type": "일반음식점",
+      "mdis_industry_code": "56",
+      "gu": "광진구",
+      "dong": "자양동",
+      "address_road": "서울특별시 광진구 샘플로 4, 1층",
+      "license_date": "2022-03-14"
+    },
+    "as_of": "2026-06-30",
+    "risk": {
+      "probability_12m": 0.134,
+      "ci_low": 0.098,
+      "ci_high": 0.176,
+      "band": "mid",
+      "percentile": 64,
+      "peer_group": "광진구 일반음식점 업력 유사 구간",
+      "peer_median": 0.121,
+      "model": "detect_v0",
+      "calibrated": true
+    },
+    "factors": [
+      {
+        "category": "사업체 구조",
+        "name": "업력",
+        "contribution": 0.036,
+        "direction": "위험 증가",
+        "peer_percentile": 29,
+        "actionability": "external",
+        "explanation": "개업 후 경과 기간이 폐업이 상대적으로 많이 관측되는 구간에 해당"
+      },
+      {
+        "category": "사업체 구조",
+        "name": "영업장 면적",
+        "contribution": 0.014,
+        "direction": "위험 증가",
+        "peer_percentile": 33,
+        "actionability": "external",
+        "explanation": "영업장 면적이 동일 업종 점포 대비 작은 편"
+      },
+      {
+        "category": "입지·수요",
+        "name": "상권 내 같은 업종 점포당 매출",
+        "contribution": 0.009,
+        "direction": "위험 증가",
+        "peer_percentile": 41,
+        "actionability": "external",
+        "explanation": "소속 상권의 같은 업종 점포당 추정매출이 비교 집단 대비 낮은 편"
+      },
+      {
+        "category": "입지·수요",
+        "name": "상권 유동인구",
+        "contribution": -0.006,
+        "direction": "위험 감소",
+        "peer_percentile": 58,
+        "actionability": "external",
+        "explanation": "소속 상권의 직전 분기 유동인구가 동일 업종·유사 상권 점포 대비 많은 편"
+      }
+    ],
+    "prescriptions": [
+      {
+        "id": "ecommerce_channel",
+        "title": "온라인 판매채널 도입",
+        "available": true,
+        "evidence_level": "A",
+        "effect_summary": "동일 업종·규모 사업체 비교에서 영업이익률 차이가 관측됨",
+        "effect_value": "+0.052 (영업이익률, 가중 기준)",
+        "source": "MDIS 2023 소상공인실태조사 · DML(Stage 3)",
+        "caveat": "관측 데이터 기반 추정이며 개별 점포의 보장된 효과가 아님",
+        "actionability": "owner"
+      },
+      {
+        "id": "cost_review",
+        "title": "고정비 구조 점검",
+        "available": true,
+        "evidence_level": "C",
+        "effect_summary": "비용 요인 기여도가 높은 점포에 대한 일반 권고",
+        "effect_value": null,
+        "source": "현황 기반 일반 권고",
+        "caveat": "개별 점포 효과를 추정하지 않은 일반 안내",
+        "actionability": "owner"
+      }
+    ],
+    "online_presence": {
+      "naver_local_registered": true,
+      "kakao_registered": true,
+      "naver_blog_total_12m": 6,
+      "first_date_truncated": false,
+      "collected_at": "2026-09-20",
+      "note": "현재 시점 스냅샷 — 진단 화면 표시 전용, 과거 예측 feature 사용 금지"
+    },
+    "policies": [
+      {
+        "id": "gwangjin_startup_2026",
+        "name": "(예시) 광진구 초기 소상공인 안정화 지원",
+        "operator": "광진구청",
+        "eligibility": "광진구 소재, 업력 3년 미만",
+        "matched_by": [
+          "gu",
+          "tenure"
+        ],
+        "link": "https://www.gwangjin.go.kr",
+        "related_factor": "업력 구간",
+        "announce_year": 2026,
+        "collected_at": "2026-09-20",
+        "match_status": "matched"
+      },
+      {
+        "id": "sbiz_consult_2026",
+        "name": "(예시) 소상공인 경영개선 컨설팅",
+        "operator": "소상공인시장진흥공단",
+        "eligibility": "업력 제한 없음, 소상공인",
+        "matched_by": [
+          "biz_type"
+        ],
+        "link": "https://www.sbiz.or.kr",
+        "related_factor": "업력 구간",
+        "announce_year": 2026,
+        "collected_at": "2026-09-20",
+        "match_status": "matched"
+      }
+    ],
+    "disclaimer": "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다."
+  },
+  {
+    "_schema_version": "0.1",
+    "_dummy": true,
+    "store_id": "DUMMY-GR-0005",
+    "store": {
+      "name": "(더미) 음식점 E",
+      "biz_type": "일반음식점",
+      "mdis_industry_code": "56",
+      "gu": "마포구",
+      "dong": "서교동",
+      "address_road": "서울특별시 마포구 샘플로 5, 1층",
+      "license_date": "2016-11-08"
+    },
+    "as_of": "2026-06-30",
+    "risk": {
+      "probability_12m": 0.214,
+      "ci_low": 0.168,
+      "ci_high": 0.265,
+      "band": "high",
+      "percentile": 86,
+      "peer_group": "마포구 일반음식점 업력 유사 구간",
+      "peer_median": 0.128,
+      "model": "detect_v0",
+      "calibrated": true
+    },
+    "factors": [
+      {
+        "category": "비용",
+        "name": "필지 공시지가",
+        "contribution": 0.048,
+        "direction": "위험 증가",
+        "peer_percentile": 12,
+        "actionability": "policy",
+        "explanation": "점포 필지의 공시지가가 동일 업종·유사 상권 점포 대비 높은 편"
+      },
+      {
+        "category": "경쟁",
+        "name": "상권 내 같은 업종 폐업률",
+        "contribution": 0.027,
+        "direction": "위험 증가",
+        "peer_percentile": 19,
+        "actionability": "external",
+        "explanation": "직전 분기 소속 상권의 같은 업종 폐업률이 비교 집단 대비 높은 편"
+      },
+      {
+        "category": "경쟁",
+        "name": "상권 내 같은 업종 개업률",
+        "contribution": 0.022,
+        "direction": "위험 증가",
+        "peer_percentile": 26,
+        "actionability": "external",
+        "explanation": "직전 분기 소속 상권의 같은 업종 개업률이 비교 집단 대비 높은 편"
+      },
+      {
+        "category": "사업체 구조",
+        "name": "업력",
+        "contribution": -0.01,
+        "direction": "위험 감소",
+        "peer_percentile": 60,
+        "actionability": "external",
+        "explanation": "개업 후 경과 기간이 폐업이 상대적으로 적게 관측되는 구간에 해당"
+      }
+    ],
+    "prescriptions": [
+      {
+        "id": "ecommerce_channel",
+        "title": "온라인 판매채널 도입",
+        "available": true,
+        "evidence_level": "A",
+        "effect_summary": "동일 업종·규모 사업체 비교에서 영업이익률 차이가 관측됨",
+        "effect_value": "+0.052 (영업이익률, 가중 기준)",
+        "source": "MDIS 2023 소상공인실태조사 · DML(Stage 3)",
+        "caveat": "관측 데이터 기반 추정이며 개별 점포의 보장된 효과가 아님",
+        "actionability": "owner"
+      },
+      {
+        "id": "cost_review",
+        "title": "고정비 구조 점검",
+        "available": true,
+        "evidence_level": "C",
+        "effect_summary": "비용 요인 기여도가 높은 점포에 대한 일반 권고",
+        "effect_value": null,
+        "source": "현황 기반 일반 권고",
+        "caveat": "개별 점포 효과를 추정하지 않은 일반 안내",
+        "actionability": "owner"
+      }
+    ],
+    "online_presence": {
+      "naver_local_registered": true,
+      "kakao_registered": true,
+      "naver_blog_total_12m": 58,
+      "first_date_truncated": false,
+      "collected_at": "2026-09-20",
+      "note": "현재 시점 스냅샷 — 진단 화면 표시 전용, 과거 예측 feature 사용 금지"
+    },
+    "policies": [
+      {
+        "id": "mapo_alley_2026",
+        "name": "(예시) 마포구 골목상권 활성화 지원",
+        "operator": "마포구청",
+        "eligibility": "마포구 소재 음식점·휴게음식점",
+        "matched_by": [
+          "gu",
+          "biz_type"
+        ],
+        "link": "https://www.mapo.go.kr",
+        "related_factor": "상권 유동인구",
+        "announce_year": 2026,
+        "collected_at": "2026-09-20",
+        "match_status": "matched"
+      },
+      {
+        "id": "seoul_rent_2026",
+        "name": "(예시) 서울시 소상공인 임차료 부담 완화 지원",
+        "operator": "서울특별시",
+        "eligibility": "서울 소재 소상공인, 연매출 3억 원 이하",
+        "matched_by": [
+          "gu"
+        ],
+        "link": "https://www.seoul.go.kr",
+        "related_factor": "필지 공시지가 수준",
+        "announce_year": 2026,
+        "collected_at": "2026-09-20",
+        "match_status": "check_required",
+        "check_note": "매출액 조건은 데이터에 없어 자동 매칭하지 않음 — 조건 확인 필요"
+      }
+    ],
+    "disclaimer": "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다."
+  },
+  {
+    "_schema_version": "0.1",
+    "_dummy": true,
+    "store_id": "DUMMY-GR-0006",
+    "store": {
+      "name": "(더미) 음식점 F",
+      "biz_type": "일반음식점",
+      "mdis_industry_code": "56",
+      "gu": "영등포구",
+      "dong": "여의도동",
+      "address_road": "서울특별시 영등포구 샘플로 6, 지하1층",
+      "license_date": "2008-03-17"
+    },
+    "as_of": "2026-06-30",
+    "risk": {
+      "probability_12m": 0.058,
+      "ci_low": 0.041,
+      "ci_high": 0.08,
+      "band": "low",
+      "percentile": 18,
+      "peer_group": "영등포구 일반음식점 업력 유사 구간",
+      "peer_median": 0.105,
+      "model": "detect_v0",
+      "calibrated": true
+    },
+    "factors": [
+      {
+        "category": "사업체 구조",
+        "name": "업력",
+        "contribution": -0.024,
+        "direction": "위험 감소",
+        "peer_percentile": 84,
+        "actionability": "external",
+        "explanation": "개업 후 경과 기간이 폐업이 상대적으로 적게 관측되는 구간에 해당"
+      },
+      {
+        "category": "비용",
+        "name": "필지 공시지가",
+        "contribution": 0.016,
+        "direction": "위험 증가",
+        "peer_percentile": 68,
+        "actionability": "policy",
+        "explanation": "점포 필지의 공시지가가 동일 업종·유사 상권 점포 대비 높은 편"
+      },
+      {
+        "category": "입지·수요",
+        "name": "상권 내 같은 업종 점포당 매출",
+        "contribution": -0.013,
+        "direction": "위험 감소",
+        "peer_percentile": 76,
+        "actionability": "external",
+        "explanation": "소속 상권의 같은 업종 점포당 추정매출이 비교 집단 대비 높은 편"
+      }
+    ],
+    "prescriptions": [
+      {
+        "id": "cost_review",
+        "title": "고정비 구조 점검",
+        "available": true,
+        "evidence_level": "C",
+        "effect_summary": "비용 요인 기여도가 높은 점포에 대한 일반 권고",
+        "effect_value": null,
+        "source": "현황 기반 일반 권고",
+        "caveat": "개별 점포 효과를 추정하지 않은 일반 안내",
+        "actionability": "owner"
+      }
+    ],
+    "online_presence": {
+      "naver_local_registered": true,
+      "kakao_registered": true,
+      "naver_blog_total_12m": 1240,
+      "first_date_truncated": true,
+      "collected_at": "2026-09-20",
+      "note": "현재 시점 스냅샷 — 진단 화면 표시 전용, 과거 예측 feature 사용 금지"
+    },
+    "policies": [
+      {
+        "id": "seoul_rent_2026",
+        "name": "(예시) 서울시 소상공인 임차료 부담 완화 지원",
+        "operator": "서울특별시",
+        "eligibility": "서울 소재 소상공인, 연매출 3억 원 이하",
+        "matched_by": [
+          "gu"
+        ],
+        "link": "https://www.seoul.go.kr",
+        "related_factor": "필지 공시지가 수준",
+        "announce_year": 2026,
+        "collected_at": "2026-09-20",
+        "match_status": "check_required",
+        "check_note": "매출액 조건은 데이터에 없어 자동 매칭하지 않음 — 조건 확인 필요"
+      },
+      {
+        "id": "ydp_facility_2026",
+        "name": "(예시) 영등포구 소상공인 시설개선 지원",
+        "operator": "영등포구청",
+        "eligibility": "영등포구 소재, 상시근로자 5인 미만",
+        "matched_by": [
+          "gu"
+        ],
+        "link": "https://www.ydp.go.kr",
+        "related_factor": "영업장 면적",
+        "announce_year": 2026,
+        "collected_at": "2026-09-20",
+        "match_status": "check_required",
+        "check_note": "종업원 수 조건은 데이터에 없어 자동 매칭하지 않음 — 조건 확인 필요"
+      }
+    ],
+    "disclaimer": "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다."
+  },
+  {
+    "_schema_version": "0.1",
+    "_dummy": true,
+    "store_id": "DUMMY-GR-0007",
+    "store": {
+      "name": "(더미) 음식점 G",
+      "biz_type": "일반음식점",
+      "mdis_industry_code": "56",
+      "gu": "영등포구",
+      "dong": "영등포동",
+      "address_road": "서울특별시 영등포구 샘플로 7, 1층",
+      "license_date": "2024-01-22"
+    },
+    "as_of": "2026-06-30",
+    "risk": {
+      "probability_12m": 0.176,
+      "ci_low": 0.118,
+      "ci_high": 0.243,
+      "band": "high",
+      "percentile": 80,
+      "peer_group": "영등포구 일반음식점 업력 유사 구간",
+      "peer_median": 0.126,
+      "model": "detect_v0",
+      "calibrated": true
+    },
+    "factors": [
+      {
+        "category": "사업체 구조",
+        "name": "업력",
+        "contribution": 0.044,
+        "direction": "위험 증가",
+        "peer_percentile": 14,
+        "actionability": "external",
+        "explanation": "개업 후 경과 기간이 폐업이 상대적으로 많이 관측되는 구간에 해당"
+      },
+      {
+        "category": "경쟁",
+        "name": "상권 내 같은 업종 점포 수",
+        "contribution": 0.021,
+        "direction": "위험 증가",
+        "peer_percentile": 28,
+        "actionability": "external",
+        "explanation": "소속 상권의 같은 업종 점포 수가 비교 집단 대비 많은 편"
+      },
+      {
+        "category": "사업체 구조",
+        "name": "영업장 면적",
+        "contribution": 0.009,
+        "direction": "위험 증가",
+        "peer_percentile": 42,
+        "actionability": "external",
+        "explanation": "영업장 면적이 동일 업종 점포 대비 작은 편"
+      }
+    ],
+    "prescriptions": [
+      {
+        "id": "ecommerce_channel",
+        "title": "온라인 판매채널 도입",
+        "available": true,
+        "evidence_level": "A",
+        "effect_summary": "동일 업종·규모 사업체 비교에서 영업이익률 차이가 관측됨",
+        "effect_value": "+0.052 (영업이익률, 가중 기준)",
+        "source": "MDIS 2023 소상공인실태조사 · DML(Stage 3)",
+        "caveat": "관측 데이터 기반 추정이며 개별 점포의 보장된 효과가 아님",
+        "actionability": "owner"
+      },
+      {
+        "id": "cost_review",
+        "title": "고정비 구조 점검",
+        "available": true,
+        "evidence_level": "C",
+        "effect_summary": "비용 요인 기여도가 높은 점포에 대한 일반 권고",
+        "effect_value": null,
+        "source": "현황 기반 일반 권고",
+        "caveat": "개별 점포 효과를 추정하지 않은 일반 안내",
+        "actionability": "owner"
+      }
+    ],
+    "online_presence": {
+      "naver_local_registered": false,
+      "kakao_registered": false,
+      "naver_blog_total_12m": 2,
+      "first_date_truncated": false,
+      "collected_at": "2026-09-20",
+      "note": "현재 시점 스냅샷 — 진단 화면 표시 전용, 과거 예측 feature 사용 금지"
+    },
+    "policies": [
+      {
+        "id": "sbiz_consult_2026",
+        "name": "(예시) 소상공인 경영개선 컨설팅",
+        "operator": "소상공인시장진흥공단",
+        "eligibility": "업력 제한 없음, 소상공인",
+        "matched_by": [
+          "biz_type"
+        ],
+        "link": "https://www.sbiz.or.kr",
+        "related_factor": "업력 구간",
+        "announce_year": 2026,
+        "collected_at": "2026-09-20",
+        "match_status": "matched"
+      },
+      {
+        "id": "ydp_facility_2026",
+        "name": "(예시) 영등포구 소상공인 시설개선 지원",
+        "operator": "영등포구청",
+        "eligibility": "영등포구 소재, 상시근로자 5인 미만",
+        "matched_by": [
+          "gu"
+        ],
+        "link": "https://www.ydp.go.kr",
+        "related_factor": "영업장 면적",
+        "announce_year": 2026,
+        "collected_at": "2026-09-20",
+        "match_status": "check_required",
+        "check_note": "종업원 수 조건은 데이터에 없어 자동 매칭하지 않음 — 조건 확인 필요"
+      }
+    ],
+    "disclaimer": "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다."
+  },
+  {
+    "_schema_version": "0.1",
+    "_dummy": true,
+    "store_id": "DUMMY-SR-0008",
+    "store": {
+      "name": "(더미) 카페 H",
+      "biz_type": "휴게음식점",
+      "mdis_industry_code": "56",
+      "gu": "광진구",
+      "dong": "구의동",
+      "address_road": "서울특별시 광진구 샘플로 8, 1층",
+      "license_date": "2019-09-02"
+    },
+    "as_of": "2026-06-30",
+    "risk": {
+      "probability_12m": 0.071,
+      "ci_low": 0.049,
+      "ci_high": 0.098,
+      "band": "low",
+      "percentile": 31,
+      "peer_group": "광진구 휴게음식점 업력 유사 구간",
+      "peer_median": 0.094,
+      "model": "detect_v0",
+      "calibrated": true
+    },
+    "factors": [
+      {
+        "category": "입지·수요",
+        "name": "상권 내 같은 업종 점포당 매출",
+        "contribution": -0.018,
+        "direction": "위험 감소",
+        "peer_percentile": 72,
+        "actionability": "external",
+        "explanation": "소속 상권의 같은 업종 점포당 추정매출이 비교 집단 대비 높은 편"
+      },
+      {
+        "category": "경쟁",
+        "name": "상권 내 같은 업종 점포 수",
+        "contribution": 0.011,
+        "direction": "위험 증가",
+        "peer_percentile": 40,
+        "actionability": "external",
+        "explanation": "소속 상권의 같은 업종 점포 수가 비교 집단 대비 많은 편"
+      },
+      {
+        "category": "사업체 구조",
+        "name": "업력",
+        "contribution": -0.009,
+        "direction": "위험 감소",
+        "peer_percentile": 66,
+        "actionability": "external",
+        "explanation": "개업 후 경과 기간이 폐업이 상대적으로 적게 관측되는 구간에 해당"
+      }
+    ],
+    "prescriptions": [
+      {
+        "id": "online_listing",
+        "title": "지도 플랫폼 업체 정보 등록·관리",
+        "available": true,
+        "evidence_level": "B",
+        "effect_summary": "유사 점포 중 지도 플랫폼 등록 점포의 위험도 분포가 낮게 관측됨",
+        "effect_value": null,
+        "source": "3구 인허가 패널 · 온라인 존재감 수집(2026-09)",
+        "caveat": "유사 점포 관측 비교이며 인과효과가 검증되지 않음",
+        "actionability": "owner"
+      }
+    ],
+    "online_presence": {
+      "naver_local_registered": true,
+      "kakao_registered": true,
+      "naver_blog_total_12m": 27,
+      "first_date_truncated": false,
+      "collected_at": "2026-09-20",
+      "note": "현재 시점 스냅샷 — 진단 화면 표시 전용, 과거 예측 feature 사용 금지"
+    },
+    "policies": [
+      {
+        "id": "sbiz_online_2026",
+        "name": "(예시) 소상공인 온라인 판로지원 사업",
+        "operator": "소상공인시장진흥공단",
+        "eligibility": "업력 1년 이상 소상공인",
+        "matched_by": [
+          "biz_type",
+          "tenure"
+        ],
+        "link": "https://www.sbiz.or.kr",
+        "related_factor": "온라인 노출 채널 수",
+        "announce_year": 2026,
+        "collected_at": "2026-09-20",
+        "match_status": "matched"
+      }
+    ],
+    "disclaimer": "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다."
+  },
+  {
+    "_schema_version": "0.1",
+    "_dummy": true,
+    "store_id": "DUMMY-SR-0009",
+    "store": {
+      "name": "(더미) 카페 I",
+      "biz_type": "휴게음식점",
+      "mdis_industry_code": "56",
+      "gu": "마포구",
+      "dong": "합정동",
+      "address_road": "서울특별시 마포구 샘플로 9, 1층",
+      "license_date": "2021-05-27"
+    },
+    "as_of": "2026-06-30",
+    "risk": {
+      "probability_12m": 0.089,
+      "ci_low": 0.061,
+      "ci_high": 0.124,
+      "band": "low",
+      "percentile": 42,
+      "peer_group": "마포구 휴게음식점 업력 유사 구간",
+      "peer_median": 0.097,
+      "model": "detect_v0",
+      "calibrated": true
+    },
+    "factors": [
+      {
+        "category": "사업체 구조",
+        "name": "업력",
+        "contribution": 0.015,
+        "direction": "위험 증가",
+        "peer_percentile": 38,
+        "actionability": "external",
+        "explanation": "개업 후 경과 기간이 폐업이 상대적으로 많이 관측되는 구간에 해당"
+      },
+      {
+        "category": "입지·수요",
+        "name": "상권 유동인구",
+        "contribution": -0.012,
+        "direction": "위험 감소",
+        "peer_percentile": 69,
+        "actionability": "external",
+        "explanation": "소속 상권의 직전 분기 유동인구가 동일 업종·유사 상권 점포 대비 많은 편"
+      },
+      {
+        "category": "경쟁",
+        "name": "상권 내 같은 업종 점포 수",
+        "contribution": 0.007,
+        "direction": "위험 증가",
+        "peer_percentile": 47,
+        "actionability": "external",
+        "explanation": "소속 상권의 같은 업종 점포 수가 비교 집단 대비 많은 편"
+      }
+    ],
+    "prescriptions": [
+      {
+        "id": "ecommerce_channel",
+        "title": "온라인 판매채널 도입",
+        "available": true,
+        "evidence_level": "A",
+        "effect_summary": "동일 업종·규모 사업체 비교에서 영업이익률 차이가 관측됨",
+        "effect_value": "+0.052 (영업이익률, 가중 기준)",
+        "source": "MDIS 2023 소상공인실태조사 · DML(Stage 3)",
+        "caveat": "관측 데이터 기반 추정이며 개별 점포의 보장된 효과가 아님",
+        "actionability": "owner"
+      },
+      {
+        "id": "online_listing",
+        "title": "지도 플랫폼 업체 정보 등록·관리",
+        "available": true,
+        "evidence_level": "B",
+        "effect_summary": "유사 점포 중 지도 플랫폼 등록 점포의 위험도 분포가 낮게 관측됨",
+        "effect_value": null,
+        "source": "3구 인허가 패널 · 온라인 존재감 수집(2026-09)",
+        "caveat": "유사 점포 관측 비교이며 인과효과가 검증되지 않음",
+        "actionability": "owner"
+      }
+    ],
+    "online_presence": {
+      "naver_local_registered": true,
+      "kakao_registered": false,
+      "naver_blog_total_12m": 21,
+      "first_date_truncated": false,
+      "collected_at": "2026-09-20",
+      "note": "현재 시점 스냅샷 — 진단 화면 표시 전용, 과거 예측 feature 사용 금지"
+    },
+    "policies": [
+      {
+        "id": "mapo_alley_2026",
+        "name": "(예시) 마포구 골목상권 활성화 지원",
+        "operator": "마포구청",
+        "eligibility": "마포구 소재 음식점·휴게음식점",
+        "matched_by": [
+          "gu",
+          "biz_type"
+        ],
+        "link": "https://www.mapo.go.kr",
+        "related_factor": "상권 유동인구",
+        "announce_year": 2026,
+        "collected_at": "2026-09-20",
+        "match_status": "matched"
+      },
+      {
+        "id": "sbiz_online_2026",
+        "name": "(예시) 소상공인 온라인 판로지원 사업",
+        "operator": "소상공인시장진흥공단",
+        "eligibility": "업력 1년 이상 소상공인",
+        "matched_by": [
+          "biz_type",
+          "tenure"
+        ],
+        "link": "https://www.sbiz.or.kr",
+        "related_factor": "온라인 노출 채널 수",
+        "announce_year": 2026,
+        "collected_at": "2026-09-20",
+        "match_status": "matched"
+      }
+    ],
+    "disclaimer": "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다."
+  },
+  {
+    "_schema_version": "0.1",
+    "_dummy": true,
+    "store_id": "DUMMY-SR-0010",
+    "store": {
+      "name": "(더미) 카페 J",
+      "biz_type": "휴게음식점",
+      "mdis_industry_code": "56",
+      "gu": "영등포구",
+      "dong": "문래동3가",
+      "address_road": "서울특별시 영등포구 샘플로 10, 1층",
+      "license_date": "2020-10-05"
+    },
+    "as_of": "2026-06-30",
+    "risk": {
+      "probability_12m": 0.118,
+      "ci_low": 0.083,
+      "ci_high": 0.159,
+      "band": "mid",
+      "percentile": 55,
+      "peer_group": "영등포구 휴게음식점 업력 유사 구간",
+      "peer_median": 0.101,
+      "model": "detect_v0",
+      "calibrated": true
+    },
+    "factors": [
+      {
+        "category": "경쟁",
+        "name": "상권 내 같은 업종 개업률",
+        "contribution": 0.019,
+        "direction": "위험 증가",
+        "peer_percentile": 31,
+        "actionability": "external",
+        "explanation": "직전 분기 소속 상권의 같은 업종 개업률이 비교 집단 대비 높은 편"
+      },
+      {
+        "category": "사업체 구조",
+        "name": "영업장 면적",
+        "contribution": 0.012,
+        "direction": "위험 증가",
+        "peer_percentile": 36,
+        "actionability": "external",
+        "explanation": "영업장 면적이 동일 업종 점포 대비 작은 편"
+      },
+      {
+        "category": "입지·수요",
+        "name": "상권 유동인구",
+        "contribution": -0.008,
+        "direction": "위험 감소",
+        "peer_percentile": 61,
+        "actionability": "external",
+        "explanation": "소속 상권의 직전 분기 유동인구가 동일 업종·유사 상권 점포 대비 많은 편"
+      }
+    ],
+    "prescriptions": [
+      {
+        "id": "ecommerce_channel",
+        "title": "온라인 판매채널 도입",
+        "available": true,
+        "evidence_level": "A",
+        "effect_summary": "동일 업종·규모 사업체 비교에서 영업이익률 차이가 관측됨",
+        "effect_value": "+0.052 (영업이익률, 가중 기준)",
+        "source": "MDIS 2023 소상공인실태조사 · DML(Stage 3)",
+        "caveat": "관측 데이터 기반 추정이며 개별 점포의 보장된 효과가 아님",
+        "actionability": "owner"
+      },
+      {
+        "id": "online_listing",
+        "title": "지도 플랫폼 업체 정보 등록·관리",
+        "available": true,
+        "evidence_level": "B",
+        "effect_summary": "유사 점포 중 지도 플랫폼 등록 점포의 위험도 분포가 낮게 관측됨",
+        "effect_value": null,
+        "source": "3구 인허가 패널 · 온라인 존재감 수집(2026-09)",
+        "caveat": "유사 점포 관측 비교이며 인과효과가 검증되지 않음",
+        "actionability": "owner"
+      }
+    ],
+    "online_presence": {
+      "naver_local_registered": false,
+      "kakao_registered": true,
+      "naver_blog_total_12m": 33,
+      "first_date_truncated": false,
+      "collected_at": "2026-09-20",
+      "note": "현재 시점 스냅샷 — 진단 화면 표시 전용, 과거 예측 feature 사용 금지"
+    },
+    "policies": [
+      {
+        "id": "sbiz_online_2026",
+        "name": "(예시) 소상공인 온라인 판로지원 사업",
+        "operator": "소상공인시장진흥공단",
+        "eligibility": "업력 1년 이상 소상공인",
+        "matched_by": [
+          "biz_type",
+          "tenure"
+        ],
+        "link": "https://www.sbiz.or.kr",
+        "related_factor": "온라인 노출 채널 수",
+        "announce_year": 2026,
+        "collected_at": "2026-09-20",
+        "match_status": "matched"
+      },
+      {
+        "id": "ydp_facility_2026",
+        "name": "(예시) 영등포구 소상공인 시설개선 지원",
+        "operator": "영등포구청",
+        "eligibility": "영등포구 소재, 상시근로자 5인 미만",
+        "matched_by": [
+          "gu"
+        ],
+        "link": "https://www.ydp.go.kr",
+        "related_factor": "영업장 면적",
+        "announce_year": 2026,
+        "collected_at": "2026-09-20",
+        "match_status": "check_required",
+        "check_note": "종업원 수 조건은 데이터에 없어 자동 매칭하지 않음 — 조건 확인 필요"
+      }
+    ],
+    "disclaimer": "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다."
+  }
+]
