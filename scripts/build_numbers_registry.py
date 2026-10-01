@@ -1,8 +1,8 @@
-"""A4 numeric contracts. Dependencies: standard library and pandas only.
+"""A4 numeric contracts. Dependencies: standard library, pandas and pyarrow.
 
-JSON paths accept object keys and nonnegative array indices. CI uses
+JSON paths accept object keys, nonnegative indices and unique object selectors. CI uses
 {"low": <extract>, "high": <extract>} against the same artifact.
-TBD definitions deliberately produce MISSING rather than guessed values.
+Parquet statistics read only the needed column; rows uses footer metadata.
 """
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ import subprocess
 import sys
 
 import pandas as pd
+import pyarrow.parquet as pq
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HEADER = "본문·화면 수치는 이 표의 값만 사용합니다. 잠정 값은 본문에 쓰지 않습니다."
@@ -54,6 +55,15 @@ def extract_value(content: bytes, spec: dict):
             value = json.loads(content.decode("utf-8-sig"))
             for key in path:
                 if isinstance(value, list):
+                    if isinstance(key, dict):
+                        if not key or any(not isinstance(k, str) for k in key):
+                            raise ExtractionError("JSON 객체 선택자 형식 오류")
+                        selected = [item for item in value if isinstance(item, dict)
+                                    and all(k in item and item[k] == v for k, v in key.items())]
+                        if len(selected) != 1:
+                            raise ExtractionError(f"JSON 객체 선택자 {len(selected)}개 매칭; 정확히 1개 필요")
+                        value = selected[0]
+                        continue
                     if type(key) is not int or key < 0:
                         raise ExtractionError("JSON 배열 인덱스 오류")
                 elif isinstance(value, dict):
@@ -119,6 +129,29 @@ def extract_value(content: bytes, spec: dict):
     return _numeric(getattr(values, agg)())
 
 
+def extract_parquet(path: Path, spec: dict):
+    """Aggregate only; input rows and identifiers never enter output diagnostics."""
+    op = spec.get("op")
+    if op not in ("rows", "nunique", "sum", "mean"):
+        raise ExtractionError("Parquet 연산은 rows/nunique/sum/mean만 허용")
+    try:
+        if op == "rows":
+            # No data columns are needed to obtain the row count.
+            return int(pq.ParquetFile(path).metadata.num_rows)
+        column = spec.get("column")
+        if not isinstance(column, str) or not column:
+            raise ExtractionError("Parquet 열 이름 필요")
+        series = pd.read_parquet(path, columns=[column], engine="pyarrow")[column]
+        if op == "nunique":
+            return int(series.nunique(dropna=True))
+        values = pd.to_numeric(series, errors="raise")
+        for value in values:
+            _numeric(value)
+        return _numeric(getattr(values, op)())
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ExtractionError("Parquet 열 없음 또는 읽기·숫자 집계 오류") from exc
+
+
 def _format(value, pattern):
     if not isinstance(pattern, str):
         raise ExtractionError("표시 형식 오류")
@@ -179,6 +212,8 @@ def build_registry(entries: list[dict], outputs_root: Path, *, allow_missing_sta
         row = {key: entry[key] for key in ("id", "label", "metric", "window", "sample", "status", "rule_ref", "artifact")}
         row.update({"표시값": "", "CI": "", "artifact sha256(앞 12자)": "", "artifact 수정 시각": "", "생성 commit": commit})
         try:
+            if not isinstance(entry["extract"], dict):
+                raise ExtractionError("추출 정의 형식 오류")
             if entry["artifact"] == "TBD":
                 raise ExtractionError("artifact 미확정")
             relative = Path(entry["artifact"])
@@ -188,22 +223,48 @@ def build_registry(entries: list[dict], outputs_root: Path, *, allow_missing_sta
             if path not in cache:
                 try:
                     before = path.stat()
-                    content = path.read_bytes()
+                    if entry["extract"].get("type") == "parquet_stat":
+                        content = None
+                        digest = hashlib.sha256()
+                        with path.open("rb") as stream:
+                            for block in iter(lambda: stream.read(1024 * 1024), b""):
+                                digest.update(block)
+                        digest = digest.hexdigest()[:12]
+                    else:
+                        content = path.read_bytes()
+                        digest = hashlib.sha256(content).hexdigest()[:12]
                     after = path.stat()
                     if (before.st_mtime_ns, before.st_size) != (after.st_mtime_ns, after.st_size):
                         raise ExtractionError("읽는 중 artifact 변경")
-                    cache[path] = (content, hashlib.sha256(content).hexdigest()[:12],
-                                   datetime.fromtimestamp(after.st_mtime, timezone.utc).isoformat())
+                    cache[path] = (content, digest,
+                                   datetime.fromtimestamp(after.st_mtime, timezone.utc).isoformat(),
+                                   (after.st_mtime_ns, after.st_size))
                 except OSError as exc:
                     raise ExtractionError("artifact 없음 또는 읽기 불가") from exc
-            content, digest, modified = cache[path]
+            content, digest, modified, fingerprint = cache[path]
             row["artifact sha256(앞 12자)"], row["artifact 수정 시각"] = digest, modified
-            row["표시값"] = _format(extract_value(content, entry["extract"]), entry["format"])
+            def extract_current(spec):
+                if not isinstance(spec, dict):
+                    raise ExtractionError("추출 정의 형식 오류")
+                if spec.get("type") != "parquet_stat":
+                    if content is None:
+                        raise ExtractionError("동일 artifact에 서로 다른 파일 형식 지정")
+                    return extract_value(content, spec)
+                try:
+                    before = path.stat()
+                    value = extract_parquet(path, spec)
+                    after = path.stat()
+                except OSError as exc:
+                    raise ExtractionError("Parquet 파일 없음 또는 읽기 불가") from exc
+                if any((stat.st_mtime_ns, stat.st_size) != fingerprint for stat in (before, after)):
+                    raise ExtractionError("집계 중 artifact 변경")
+                return value
+            row["표시값"] = _format(extract_current(entry["extract"]), entry["format"])
             if "ci" in entry:
                 ci = entry["ci"]
                 if not isinstance(ci, dict) or not all(key in ci for key in ("low", "high")):
                     raise ExtractionError("CI 정의 형식 오류")
-                lo, hi = extract_value(content, ci["low"]), extract_value(content, ci["high"])
+                lo, hi = extract_current(ci["low"]), extract_current(ci["high"])
                 if lo > hi:
                     raise ExtractionError("CI 하한이 상한보다 큼")
                 row["CI"] = f"[{_format(lo, entry['format'])}, {_format(hi, entry['format'])}]"

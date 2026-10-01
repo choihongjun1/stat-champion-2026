@@ -157,11 +157,18 @@ def test_cli_invalid_config_exit_2(tmp_path):
 
 def test_initial_definitions_load_without_artifacts():
     entries = registry.load_definitions(SCRIPT.parents[1] / "configs/numbers_w3.json")
-    assert len(entries) == 10
+    assert len(entries) == 13
     lookup = {x["id"]: x for x in entries}
-    assert lookup["N-DML-56-ATE"]["extract"]["path"] == ["results", 0, "analyses", "1_main", "ate"]
-    assert lookup["N-45-DIFF8"]["extract"]["filter"]["scope"] == "TBD"
+    assert lookup["N-DML-56-ATE"]["extract"]["path"] == ["results", {"sample": "56 주"}, "analyses", "1_main", "ate"]
+    assert lookup["N-45-DIFF8"]["extract"]["filter"]["scope"] == "선택값=고정값 origin 8개 (2023Q3~2025Q2)"
     assert lookup["N-AUC-MEAN10"]["extract"]["expected_rows"] == 10
+    assert "TBD" not in json.dumps(entries, ensure_ascii=False)
+    assert "N-AUC-POOLED" not in lookup
+    for id in ("N-PANEL", "N-PANEL-ROWS", "N-PANEL-EVENTS", "N-PANEL-EVENT-RATE"):
+        assert lookup[id]["artifact"] == "master/master_base.parquet"
+        assert lookup[id]["status"] == "확정"
+    assert lookup["N-AUC-POOLED-PRE"]["status"] == "잠정(재생성 전)"
+    assert lookup["N-AUC-MEAN10-PRE"]["status"] == "잠정(재생성 전)"
 
 
 def test_oversized_json_number_is_missing(tmp_path):
@@ -183,3 +190,75 @@ def test_csv_count_text_and_empty_selection():
     assert registry.extract_value(content, extract) == 1
     extract["filter"] = {"group": "absent"}
     assert registry.extract_value(content, extract) == 0
+
+
+@pytest.mark.parametrize("op,column,expected", [("rows", None, 4), ("nunique", "store_id", 3), ("sum", "event_12m", 2), ("mean", "event_12m", .5)])
+def test_parquet_stat_reads_only_required_column(tmp_path, monkeypatch, op, column, expected):
+    path = tmp_path / "panel.parquet"
+    pd.DataFrame({"store_id": ["SYN-000001", "SYN-000001", "SYN-000002", "SYN-000003"],
+                  "event_12m": [1, 0, 1, 0], "unused": ["synthetic"] * 4}).to_parquet(path, index=False)
+    original = pd.read_parquet
+    calls = []
+    def guarded(path, **kwargs):
+        calls.append(kwargs["columns"])
+        assert kwargs["columns"] == [column]
+        return original(path, **kwargs)
+    monkeypatch.setattr(pd, "read_parquet", guarded)
+    extract = {"type": "parquet_stat", "op": op}
+    if column is not None: extract["column"] = column
+    table, failures, _ = registry.build_registry([definition(artifact="panel.parquet", extract=extract)], tmp_path)
+    assert failures == 0
+    assert table.iloc[0]["표시값"] == f"{expected:.4f}"
+    assert calls == ([] if op == "rows" else [[column]])
+    assert table.iloc[0]["artifact sha256(앞 12자)"] == hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+    assert "SYN-" not in table.to_csv(index=False)
+
+
+def test_parquet_missing_column_is_missing(tmp_path):
+    pd.DataFrame({"value": [1]}).to_parquet(tmp_path / "x.parquet", index=False)
+    entry = definition(artifact="x.parquet", extract={"type": "parquet_stat", "op": "sum", "column": "absent"})
+    table, failures, _ = registry.build_registry([entry], tmp_path)
+    assert failures == 1 and table.iloc[0]["표시값"].startswith("MISSING")
+
+
+@pytest.mark.parametrize("matches", [0, 1, 2])
+def test_json_object_selector_exactly_one(matches):
+    content = json.dumps({"results": [{"sample": "56 주", "value": .25}] * matches + [{"sample": "전체 보조", "value": .8}]}).encode()
+    extract = {"type": "json", "path": ["results", {"sample": "56 주"}, "value"]}
+    if matches == 1:
+        assert registry.extract_value(content, extract) == .25
+    else:
+        with pytest.raises(registry.ExtractionError):
+            registry.extract_value(content, extract)
+
+
+def test_dml_definitions_select_reordered_samples(tmp_path):
+    entries = registry.load_definitions(SCRIPT.parents[1] / "configs/numbers_w3.json")
+    entries = [e for e in entries if e["id"].startswith("N-DML-")]
+    path = tmp_path / "prescribe/dml_results.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps({"results": [
+        {"sample": "전체 보조", "analyses": {"1_main": {"ate": .8, "ci_low": .7, "ci_high": .9}}},
+        {"sample": "56 주", "analyses": {"1_main": {"ate": .2, "ci_low": .1, "ci_high": .3, "n": 20, "n_treated": 5}}},
+    ]}), encoding="utf-8")
+    table, failures, _ = registry.build_registry(entries, tmp_path)
+    assert failures == 0
+    rows = table.set_index("id")
+    assert rows.loc["N-DML-56-ATE", "표시값"] == "0.2000"
+    assert rows.loc["N-DML-ALL-ATE", "표시값"] == "0.8000"
+    assert rows.loc["N-DML-56-ATE", "CI"] == "[0.1000, 0.3000]"
+    assert rows.loc["N-DML-56-N", "표시값"] == "20"
+    assert rows.loc["N-DML-56-NTREAT", "표시값"] == "5"
+
+
+def test_initial_alias_pairs(tmp_path):
+    entries = registry.load_definitions(SCRIPT.parents[1] / "configs/numbers_w3.json")
+    lookup = {e["id"]: e for e in entries}
+    ids = ("N-AUC-MEAN10", "N-AUC-MEAN10-PRE", "N-AUC-POOLED-PRE")
+    assert lookup[ids[0]]["forbidden_alias"] == [ids[2]]
+    assert lookup[ids[1]]["forbidden_alias"] == [ids[2]]
+    assert set(lookup[ids[2]]["forbidden_alias"]) == {ids[0], ids[1]}
+    (tmp_path / "test.json").write_text('{"value":0.5}', encoding="utf-8")
+    synthetic = [definition(id, forbidden_alias=lookup[id]["forbidden_alias"]) for id in ids]
+    _, failures, warnings = registry.build_registry(synthetic, tmp_path)
+    assert failures == 0 and len(warnings) == 2
