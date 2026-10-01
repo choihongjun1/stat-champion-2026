@@ -56,12 +56,25 @@ MIN_TRAIN_ORIGINS = 4
 EVAL_FROM = "2023Q4"  # 상권 polygon 스냅샷(2023-10-23) 이후 origin
 TEST_SIZE = 2  # 최종 검증 origin 수 (마지막 2개)
 MODEL_NAME = "detect_v0"
-# #32 리뷰(2026-09-26·27): 튜닝 후보(HPO, feat/w2-2-benchmark). 최종 채택은 #45 결정 대기 — 여기서는
-# 비교용으로만 쓰고, risk_scores.parquet 등 실제 서빙 산출물은 여전히 DEFAULT_PARAMS(현 설정)로 만든다.
+# #45에서 (0.03, 31)이 채택돼(Issue #49 S13) risk_scores.parquet 등 서빙 산출물은 기본으로 detect.ADOPTED_PARAMS로
+# 만든다(`--params adopted`, 기본). `--params default`는 이전 DEFAULT_PARAMS(0.06, 31)로 돌린다(비교·재현용).
+PARAMS_BY_NAME = {"adopted": detect.ADOPTED_PARAMS, "default": detect.DEFAULT_PARAMS}
+# 불채택 비교용 (0.03, 15) — 사후 선택이라 #45에서 불채택. 서빙에 쓰지 말 것
+# (#32 리뷰 2026-09-26·27: 튜닝 후보 HPO, feat/w2-2-benchmark. 비교표의 "튜닝" 행에만 쓴다.)
 # DEFAULT_PARAMS 전체를 유지하고 두 값만 바꾼다 — 두 값만 넘기면 나머지(max_iter·min_samples_leaf·l2·
 # early_stopping·random_state)가 sklearn 기본값이 되어 다른 모형이 되고 실행마다 결과가 달라진다.
 TUNED_PARAMS = {**detect.DEFAULT_PARAMS, "learning_rate": 0.03, "max_leaf_nodes": 15}
-CONFIG_PARAMS = {"현 설정": dict(detect.DEFAULT_PARAMS), "튜닝": dict(TUNED_PARAMS)}  # OOF config → 실제 모형 설정
+
+
+def config_params(params_name: str = "adopted") -> dict[str, dict]:
+    """OOF config 이름 → 실제 모형 설정. "현 설정"은 서빙에 쓰는 설정(params_name)이고 "튜닝"은 불채택 비교용 (0.03, 15).
+    이름은 기존 산출물 스키마를 유지한다 — 어느 설정인지는 run_meta의 params_name이 말한다."""
+    if params_name not in PARAMS_BY_NAME:
+        raise ValueError(f"params_name은 {sorted(PARAMS_BY_NAME)} 중 하나: {params_name}")
+    return {"현 설정": dict(PARAMS_BY_NAME[params_name]), "튜닝": dict(TUNED_PARAMS)}
+
+
+CONFIG_PARAMS = config_params("default")  # 하위 호환(이전 이름). run()은 config_params(params_name)을 쓴다
 # 보정 3구간(#32 리뷰 M2): fit(보정기 학습) 4개 origin, select(적용 여부 선택) 4개 origin, test(최종 보고,
 # TEST_SIZE개) — 서로 겹치지 않게 순서대로 이어 붙인다. 선택과 최종 평가를 같은 구간에서 하면 선택 편향이
 # 생긴다(choihongjun1 리뷰). 오늘 데이터(2021Q1~2025Q2, 18개 origin)에서는 fit=2023Q1–Q4, select=2024Q1–Q4,
@@ -365,9 +378,13 @@ def permutation_importance(df, X, y, origins: list[str], *, n_sample: int = 3000
 
 # ---------------------------------------------------------------------------
 def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
-        with_split_comparison: bool, online_path: Path | None = None, primary: str = "base") -> None:
-    """primary: 보정·등급·부트스트랩·risk_scores를 만들 feature set (기본 base, 온라인 반영 시 enriched)."""
+        with_split_comparison: bool, online_path: Path | None = None, primary: str = "base",
+        params_name: str = "adopted") -> None:
+    """primary: 보정·등급·부트스트랩·risk_scores를 만들 feature set (기본 base, 온라인 반영 시 enriched).
+    params_name: 서빙에 쓰는 모형 설정 — "adopted"(기본, #45 채택 (0.03, 31)) 또는 "default"(이전 (0.06, 31))."""
     t0 = time.time()
+    cfg_params = config_params(params_name)  # 잘못된 이름이면 여기서 멈춘다
+    params = cfg_params["현 설정"]
     out_dir.mkdir(parents=True, exist_ok=True)
     df = load_master(master_path)
     if online_path is not None:
@@ -385,9 +402,10 @@ def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
             "online": str(online_path) if online_path else None,
             "online_sha256": sha256(online_path) if online_path else None, "embargo": EMBARGO,
             "min_train_origins": MIN_TRAIN_ORIGINS, "eval_from": EVAL_FROM, "test_origins": test_origins,
-            "n_boot": n_boot, "params": detect.DEFAULT_PARAMS,  # 서빙(#36 model_params)이 읽는 키 — 현 설정
+            "n_boot": n_boot, "params": dict(params),  # 서빙(#36 model_params)이 읽는 키 — 서빙에 쓰는 설정(params_name)
+            "params_name": params_name, "model_class": detect.MODEL_CLASS,  # F10: 클래스명을 산출물에 남긴다
             # OOF·분할 비교·보정 비교의 config 이름 → 실제로 학습에 넘긴 최종 모형 설정 (둘 다 DEFAULT 전체 포함)
-            "model_params_by_config": CONFIG_PARAMS, "feature_sets": {}}
+            "model_params_by_config": cfg_params, "feature_sets": {}}
 
     by_origin_all, summary, oof_base, X_base = [], [], None, None
     for fs in feature_sets:
@@ -395,7 +413,7 @@ def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
         X = features.build_X(df, cols)
         meta["feature_sets"][fs] = cols
         log(f"[{fs}] feature {len(cols)}개 → rolling OOF")
-        oof = rolling_oof(df, X, y)
+        oof = rolling_oof(df, X, y, params=params)
         bo = metrics_by_origin(oof).assign(feature_set=fs)
         by_origin_all.append(bo)
         summary.append({"feature_set": fs, "n_features": len(cols), **summarize(bo, oof)})
@@ -419,15 +437,15 @@ def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
 
     if with_split_comparison:
         log("분할 방식 비교 (embargo 4/0, random, 점포 홀드아웃 × 현 설정·튜닝 설정)")
-        split_comparison(df, X_base, y, CONFIG_PARAMS).to_csv(
+        split_comparison(df, X_base, y, cfg_params).to_csv(
             out_dir / "split_comparison.csv", index=False)
     log(f"변수 기여 진단 (permutation, {origins[-1]})")
-    imp = permutation_importance(df, X_base, y, origins)
+    imp = permutation_importance(df, X_base, y, origins, params=params)
     imp.to_csv(out_dir / "feature_importance.csv", index=False)
     log("\n" + imp.head(12)[["feature", "auc_drop_mean", "auc_drop_std", "missing_rate"]].to_string(index=False))
 
-    # --- 보정: 3구간(fit/select/test) 비교, 현 설정으로 실제 서빙에 쓸 후보를 고른다.
-    # 튜닝 설정은 같은 방식으로 한 번 더 돌려 비교표에만 싣는다(#45 결정 전까지 서빙은 그대로 현 설정).
+    # --- 보정: 3구간(fit/select/test) 비교, 서빙 설정(params_name)으로 실제 서빙에 쓸 후보를 고른다.
+    # 튜닝 설정(불채택 (0.03, 15))은 같은 방식으로 한 번 더 돌려 비교표에만 싣는다.
     # 보정 선택 유의성 검정은 불확실성 구간용 n_boot(--quick=5 등 리스크 구간 재학습 횟수)와 별개다 —
     # 재학습이 아니라 이미 있는 OOF 예측의 재표본이라 훨씬 싸다. --quick만 줄인다.
     calib_boot = 200 if n_boot <= 5 else 1000
@@ -436,7 +454,7 @@ def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
     log(f"보정 선택: {analysis['chosen']} — {analysis['decision']['reason']}")
     log("\n" + analysis["report"].to_string(index=False))
 
-    oof_tuned = rolling_oof(df, X_base, y, params=CONFIG_PARAMS["튜닝"])
+    oof_tuned = rolling_oof(df, X_base, y, params=cfg_params["튜닝"])
     analysis_tuned = calibration_analysis(oof_tuned, df, origins, n_boot=calib_boot)
     log(f"[비교용] 튜닝 설정 보정 선택: {analysis_tuned['chosen']} — {analysis_tuned['decision']['reason']}")
     pd.concat([analysis["report"].assign(params="현 설정"), analysis_tuned["report"].assign(params="튜닝")],
@@ -509,7 +527,7 @@ def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
         pos_in_te = pd.Series(np.arange(len(te_oof)), index=te_oof["idx"].to_numpy())
         for o in analysis["windows"]["test"]:
             log(f"부트스트랩 {n_boot}회 ({o})")
-            te_mask, lo, hi_ci = bootstrap_ci(df, X_base, y, o, origins, n_boot=n_boot)
+            te_mask, lo, hi_ci = bootstrap_ci(df, X_base, y, o, origins, n_boot=n_boot, params=params)
             lo, hi_ci = apply_candidate(cal_current, lo), apply_candidate(cal_current, hi_ci)
             at = pos_in_te.loc[np.flatnonzero(te_mask)].to_numpy()
             ci_lo[at], ci_hi[at] = lo, hi_ci
@@ -550,7 +568,7 @@ def run(master_path: Path, out_dir: Path, feature_sets: list[str], n_boot: int,
     log(f"완료 ({meta['seconds']}초) → {out_dir}")
 
 
-def main(argv=None) -> None:
+def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--master", type=Path, default=config.MASTER_BASE_PATH)
     ap.add_argument("--out", type=Path, default=None)
@@ -562,13 +580,19 @@ def main(argv=None) -> None:
     ap.add_argument("--no-split-comparison", action="store_true")
     ap.add_argument("--primary", default="base", help="risk_scores를 만들 feature set (예: enriched)")
     ap.add_argument("--quick", action="store_true", help="base만, 부트스트랩 5회, 분할 비교 생략")
-    a = ap.parse_args(argv)
+    ap.add_argument("--params", choices=sorted(PARAMS_BY_NAME), default="adopted",
+                    help="서빙에 쓰는 모형 설정: adopted = #45 채택 (0.03, 31) (기본), default = 이전 (0.06, 31) (비교·재현용)")
+    return ap
+
+
+def main(argv=None) -> None:
+    a = build_parser().parse_args(argv)
     fsets = [a.primary] if a.quick else [s.strip() for s in a.feature_sets.split(",") if s.strip()]
     if a.primary not in fsets:
         fsets.append(a.primary)
     out = a.out or (config.REPO_ROOT / "outputs" / "models" / (MODEL_NAME + (f"_{a.tag}" if a.tag else "")))
     run(a.master, out, fsets, 5 if a.quick else a.n_boot, not (a.quick or a.no_split_comparison), a.online,
-        a.primary)
+        a.primary, params_name=a.params)
 
 
 if __name__ == "__main__":

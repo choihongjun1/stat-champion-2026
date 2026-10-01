@@ -1029,7 +1029,8 @@ NESTED_MODELS = {"a_hgb_enriched": "현 hgb_enriched", "b_tuned_fixed": "튜닝 
                  "c_tuned_nested": "중첩 튜닝", "d_logit_enriched": "logit_enriched",
                  "e_serving_fixed": "서빙 구간 선택값 (0.03, 31)"}
 # 서빙 학습 구간(2026Q2 → 2021Q1~2025Q1)에 같은 격자·내부 분할(embargo 4)을 적용해 고른 값 (serving_window_hpo.csv)
-SERVING_WINDOW_PARAMS = {"learning_rate": 0.03, "max_leaf_nodes": 31}
+SERVING_WINDOW_PARAMS = {k: detect.ADOPTED_PARAMS[k] for k in ("learning_rate", "max_leaf_nodes")}  # #45 채택(S13)
+assert SERVING_WINDOW_PARAMS == {"learning_rate": 0.03, "max_leaf_nodes": 31}  # 이전 리터럴과 값이 같아야 한다
 NESTED_PAIRS = (("c_tuned_nested", "a_hgb_enriched"), ("c_tuned_nested", "d_logit_enriched"),
                 ("b_tuned_fixed", "c_tuned_nested"), ("e_serving_fixed", "a_hgb_enriched"))
 # 중첩 선택값이 고정값 (0.03, 15)와 같은(학습 구간이 충분한) origin에서만 비교하는 쌍

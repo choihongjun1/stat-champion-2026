@@ -28,6 +28,10 @@ DEFAULT_PARAMS = dict(
     early_stopping=False,
     random_state=20260922,
 )
+# #45 채택, Issue #49 S13: 서빙·재생성 경로의 모형 설정. DEFAULT_PARAMS는 벤치마크의 "현 설정" 비교 기준이라 바꾸지 않는다.
+ADOPTED_PARAMS = {**DEFAULT_PARAMS, "learning_rate": 0.03, "max_leaf_nodes": 31}
+# 탐지 모형 클래스의 전체 경로 — run_meta에 기록한다(F10: 지금까지는 클래스명이 산출물에 남지 않았다).
+MODEL_CLASS = "sklearn.ensemble.HistGradientBoostingClassifier"
 
 
 @dataclass
