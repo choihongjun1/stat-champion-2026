@@ -490,7 +490,7 @@ W2-4 이벤트 스터디(마지막 언급일-폐업일 갭)와 함께 설계한�
   적용한다. raw·calibrated 지표를 둘 다 남긴다 (origin별 base rate 변동이 커서 보정이 오히려 나빠질 수
   있다 — 실측 상대 27% 변동). → **2026-09-28 갱신**: 선택(적용 여부 판단)과 최종 평가에 같은 구간을 쓰는
   절차는 선택 편향이 생긴다(#32 리뷰) — 아래 "보정 3구간·후보 비교" 항목의 fit/select/test 분리로 바뀌었다.
-- **불확실성 구간 = 점포 단위 부트스트랩 재학습의 5–95 백분위** (기본 B=20). Venn-ABERS는 보정 표본이
+- **불확실성 구간 = 점포 단위 부트스트랩 재학습의 5–95 백분위 = 90% 구간** (95% CI가 아니다, 기본 B=20). Venn-ABERS는 보정 표본이
   크면 폭이 사실상 0이라(평균 0.0013, 구간 커버 0/10) 화면에 쓰지 않는다. 화면 문구는 "예측이 얼마나
   흔들리는가"의 구간이며 "폐업 확률의 범위"가 아니다. 점추정이 구간 밖에 놓이면 구간을 넓혀 포함시킨다.
 - **band = 절대 확률 컷오프.** high = {p ≥ c} 집단의 실측 위험이 보정 구간 평균의 2배 이상이 되는 가장
@@ -518,6 +518,10 @@ W2-4 이벤트 스터디(마지막 언급일-폐업일 갭)와 함께 설계한�
   격차는 분기당 +0.49%p씩 커지지만, enriched의 성능 향상은 같은 기간 분기당 −0.0007 AUC로 오히려 줄었다
   (2023년 +0.022 → 최근 +0.017). 수집 시점(2026-09) 비대칭이 성능을 부풀렸다면 반대 방향이어야 하므로
   향상은 실제 신호로 본다.
+  → **2026-10-01 갱신**: 이 "통과"는 오래된 origin을 **쓰기로 한 운영 판정**이지 "삭제 편향이 없다"는 결론이 아니다.
+  오래된 origin일수록 비폐업(event_12m=0) 집단에 이후 폐업 점포가 더 섞이는 관측 기간 차이(구성 효과, 아래 2026-09-29
+  항목 2)와 게시물 삭제 편향이 같은 격차에 섞여 있어 둘을 분리하지 못한다. 하류 영향이 작다는 근거는 마스킹 민감도
+  (2021Q1–2022Q3 전 점포 NA에도 2023Q4~ AUC 0.6222 → 0.6219)다.
 - **주 탐지 모형은 enriched(base 19개 + 온라인 6개)다.** rolling OOF 10개 origin 모두에서 base보다 높다
   (평균 AUC 0.6029 → 0.6219, AP 0.1764 → 0.1872). 온라인 묶음의 permutation 기여(0.029)는 상권 묶음(0.0055)의
   5배를 넘고, 대부분 `online_blog_months_since_last`에서 나온다. 보정은 적용하지 않는다(raw ECE 0.0111).
@@ -529,12 +533,14 @@ W2-4 이벤트 스터디(마지막 언급일-폐업일 갭)와 함께 설계한�
   → **2026-09-29 갱신**: "관측된 글만 센 하한값(`lower_bound`)과의 AUC 차이 0.0015 = 이 경로의 누수 상한"이라는
   표현은 틀렸다(두 방식은 결측 패턴과 관측값이 동시에 바뀌어 차이를 한 경로로 귀속할 수 없다) — 삭제하고
   아래 "PR #33 리뷰 반영" 항목의 3방향 민감도로 바꿨다.
+  → **2026-10-01 갱신**: 절단 전용 플래그로 다시 재면 절단 경로는 **유의한 정보 경로**다 — 아래 2026-10-01 항목.
+  기본값(`na`)은 그대로 두되 한계로 기록하고, 처리 정책은 #44와 함께 정한다.
 - 등급(enriched): mid 0.1493 / high 0.2142 → low 78.1%(lift 0.82) · mid 14.7%(1.45) · high 7.2%(2.06).
 
 ## 2026-09-25 — W2-3 Stage 2 진단: 요인 매핑·기여 계산·peer 비교·A/P/N (초안, 팀 확인 대상)
 근거: `src/models/diagnose.py`, 합성 데이터 검증. 실행 `python -m src.models.diagnose --online ... --primary enriched`.
 
-- **기여 계산 = 요인 단위 정확 Shapley (interventional, 학습 구간 배경 표본 16개).** 요인(feature 묶음) 수가
+- **기여 계산 = 요인 단위 정확 Shapley (interventional, 학습 구간 배경 표본).** (배경: 처음엔 무작위 16개 → **2026-10-01부터 Issue #49 S8 층화 256 두 개**, 아래 2026-10-01 #34 항목) 요인(feature 묶음) 수가
   10개 이하라 2^F 조합을 전부 계산한다. 확률 척도이며 Σ기여 + base = 예측 확률이 정확히 성립한다.
   SHAP 라이브러리(TreeExplainer)는 HistGradientBoosting 범주형 분기를 해석하지 못해 쓰지 않는다
   (shap 0.51 실측: 기여 합 오차 최대 7.8 log-odds). 기여는 예측 분해이지 인과효과가 아니다.
@@ -663,6 +669,11 @@ W2-4 이벤트 스터디(마지막 언급일-폐업일 갭)와 함께 설계한�
 바꾸지 않는다 — 튜닝 설정(`learning_rate=0.03, max_leaf_nodes=15`, feat/w2-2-benchmark HPO) 채택은 Issue #45
 결정 대기다. 아래 비교는 두 설정 모두로 냈다.
 
+> **2026-10-01 갱신(#51, Issue #49 S13):** 위 "결정 대기"는 끝났다 — #45에서 (0.03, 31)을 채택했고(튜닝 (0.03, 15)는 불채택),
+> 학습·서빙 경로의 기본이 `detect.ADOPTED_PARAMS`로 바뀌었다(아래 "2026-10-01 — #51" 항목). **이 절의 수치에서 "현 설정"은
+> 당시의 `DEFAULT_PARAMS` (0.06, 31)이다.** 재생성 후의 `train_detect` 산출물에서 "현 설정"은 `run_meta.params_name`이 가리키는
+> 설정(기본 adopted)이다.
+
 - **분할 비교표(`split_comparison.csv`)에 평가 모집단을 명시한다.** `random_split`·점포 홀드아웃은 전체 18개
   origin에서 무작위로 뽑은 **약 20%**(`splits.random_split_baseline`/`store_holdout_split`의 `test_frac=0.2`)를
   평가한 값이라 "2025Q2 검증 결과"가 아니다 — `test_scope` 열에 이를 적는다. 네 분할 모두 최신 origin(오늘
@@ -698,8 +709,15 @@ W2-4 이벤트 스터디(마지막 언급일-폐업일 갭)와 함께 설계한�
       늘고 low는 79.8% → 67.7%로 줄었다(raw에서 mid 문턱 바로 아래였던 점포들이 platt의 확대(기울기>1)로
       문턱을 넘음). **등급 분포가 실무적으로 크게 바뀌므로, 이 채택을 최종 반영할지는 위 held-out 한계와
       함께 팀 판단이 필요하다** (Issue #45와 별개로 남기는 열린 질문).
-  - **튜닝 설정: `raw` 유지.** select 구간에서 platt의 Brier가 raw보다 낮아 보였지만(0.105847 vs 0.105975)
-    부트스트랩 95% CI [−0.00030, +0.00004]가 0을 포함해 유의하지 않았다.
+  - **튜닝 설정: `raw` 유지.** select 구간에서 platt의 Brier가 raw보다 낮아 보였지만(0.105842 vs 0.105960,
+    차이 −0.00012) 부트스트랩 95% CI [−0.00027, +0.00003]가 0을 포함해 유의하지 않았다. test 구간 raw는
+    Brier 0.100613, ECE 0.0065, 보정 기울기 0.937.
+    - **2026-10-01 정정(#32 재검증)**: 이전 수치(select 0.105847 vs 0.105975, CI [−0.00030, +0.00004])는
+      `TUNED_PARAMS`가 두 값만 담고 있어 나머지가 sklearn 기본값(`max_iter=100`, `min_samples_leaf=20`,
+      `l2_regularization=0`, `early_stopping='auto'`, `random_state=None`)으로 학습된 **다른 모형·비결정적 실행**의
+      결과였다. `TUNED_PARAMS = {**DEFAULT_PARAMS, learning_rate=0.03, max_leaf_nodes=15}`로 고치고(#47과 같은 방식)
+      다시 돌린 값으로 교체했다. 결론(raw 유지)은 같다. 현 설정 결과는 바뀌지 않았다(OOF 예측값 완전 일치).
+      실제 학습 설정은 `run_meta.model_params_by_config`에 config별로 남는다.
   - 전체 표는 `outputs/models/detect_v0/calibration_window_report.csv`, 선택 근거는 `calibration_decision.json`.
 - **high 등급의 평균 예측 확률이 실측 폐업률보다 높게 나오는 경향은 platt 적용 후에도 남는다** (다만
   격차는 줄었다): test 구간 high 행 평균 예측 0.248 vs 실측 0.240(platt 적용, 실제 서빙 값) — 같은 fit
@@ -712,7 +730,7 @@ W2-4 이벤트 스터디(마지막 언급일-폐업일 갭)와 함께 설계한�
   | 필드 | 정의 | 산출식 |
   |---|---|---|
   | `probability_12m` | 12개월 내 폐업 예측 확률(점추정) | `calibrated=true`면 선택된 보정기(`chosen.predict`)를 원 모형 확률(`p_oof`)에 적용한 값, `false`면 원 모형 확률 그대로 |
-  | `ci_low`/`ci_high` | 점포 단위 부트스트랩 재학습(B회) 예측의 5/95 백분위 — **신뢰구간이 아니라 "학습 데이터가 달랐다면 예측이 얼마나 흔들렸을지"의 범위** | 부트스트랩 원값에 `calibrated=true`면 같은 보정기를 적용. 점추정이 구간 밖에 놓이면 구간을 넓혀 포함시킨다(좁히지 않음) |
+  | `ci_low`/`ci_high` | 점포 단위 부트스트랩 재학습(B회) 예측의 5/95 백분위(= 90% 구간) — **신뢰구간이 아니라 "학습 데이터가 달랐다면 예측이 얼마나 흔들렸을지"의 범위** | 부트스트랩 원값에 `calibrated=true`면 같은 보정기를 적용. 점추정이 구간 밖에 놓이면 구간을 넓혀 포함시킨다(좁히지 않음) |
   | `band` | low/mid/high 절대 확률 등급 | `probability_12m`(보정 적용 여부 반영된 값)에 `bands.assign_bands_absolute` — 컷오프는 **fit 구간** OOF(선택된 보정기 적용)로 `bands.suggest_cutoffs`가 정함 |
   | `calibrated` | 보정을 적용했는지 (`chosen != "raw"`) | 위 선택 규칙의 결과. `false`면 `probability_12m`은 원 모형 확률과 같다 |
 
@@ -732,6 +750,12 @@ W2-4 이벤트 스터디(마지막 언급일-폐업일 갭)와 함께 설계한�
 `src/models/train_detect.py`(`attach_online`), rolling OOF 10개 origin 실데이터.
 
 ### 1. 절단 결측 누수 — "AUC 차이 0.0015 = 누수 상한" 표현을 폐기
+> **2026-10-01 갱신 — 이 절의 두 해석은 틀렸다(아래 2026-10-01 항목으로 대체).** ① "NA 플래그"(온라인 feature 중
+> 하나라도 NA)는 절단 대리 지표가 아니었다 — 실데이터에서 그 NA 행의 대부분은 절단이 아니라 "언급이 한 번도 없음"
+> (`months_since_last`가 정의상 NA)이다. 그래서 "플래그 효과 유의하지 않음"은 절단 경로의 크기를 잰 결과가 아니다.
+> ② (iii) `lower_bound`는 "절단 경로 차단"이 아니다 — 절단 점포의 과거 창을 과소 집계하므로 수집 시점 절단 영향이 값에
+> 남는다. 아래 표의 "튜닝" 행은 `TUNED_PARAMS`가 두 값만 담던 때(#32 20cbd95 이전)의 값이라 다시 돌린 값과 다르다.
+
 이전 표현("`lower_bound`와의 AUC 차이 0.0015 = 이 결측 경로의 누수 상한")은 틀렸다. `na`/`lower_bound`는
 **결측 패턴과 관측값을 동시에** 바꾸므로, 두 설정의 AUC 차이를 결측 경로 하나에 귀속할 수 없다. 대신
 명시한다: **절단 여부(수집 시점 2026-09의 누적 게시물 수로 정해지는 미래 정보)는 온라인 feature의 NA
@@ -792,6 +816,10 @@ PR에서 다루지 않는다(요청대로 범위 밖).
 — #26이 "18개 origin 모두 통과"로 판정한 결정의 하방 위험이 작다는 근거로 덧붙인다.
 
 ### 3. 시점 메타 분리 — `online_available_at` ≠ `origin_end`
+> **2026-10-01 갱신 — 대체됨.** 수집 시각을 `online_available_at`에 넣는 방식은 축B `available_at` = 게시월 말일 정의
+> (2026-09-29 #23 항목, DATA_CATALOG §6)와 충돌해 되돌렸다: `online_available_at` = 마지막 게시월 말일, 수집 시각은
+> `online_collected_at`(KST tz-naive)으로 분리. 아래 "검사 대상을 `online_feature_asof`로 옮겼다"도 구성상 항상 통과하는
+> 검사였다 — 실제 검사는 `assert_no_future_posts`(월별 원천 재집계 대조). 아래 2026-10-01 항목 참고.
 **문제**: `online_features.build_online_features`가 `online_available_at`에 `origin_end`를 그대로
 넣고 있었다. 그러면 `attach_online`의 시점 검사(`online_available_at > origin_end` 금지)가 항상
 자기 자신과 비교하는 셈이라 아무것도 검증하지 못한다(항상 0건 통과).
@@ -848,30 +876,30 @@ PR에서 다루지 않는다(요청대로 범위 밖).
 - run id·git SHA를 찾지 못한 행이 있으면 export를 멈춘다. git SHA는 run의 모든 manifest 기록에서 읽는다(중단 후 이어 받은 run 대응).
 - 한계는 그대로: 축B는 과거 글을 수집 시점에 관측한 값이라 삭제된 글이 빠져 있다(#26). 구현·실측은 `DATA_CATALOG.md` §6.
 
+## 2026-09-30 — #45 구현 이슈: 컷오프 정의 문장·fallback 기록·provenance (기본 동작 불변)
+- **정의(코드 `bands.CUT_MID_DEFINITION`·`CUT_HIGH_DEFINITION`, run_meta·serve_meta와 같은 문장)**:
+  - cut_mid = 1.2 × base_rate — 보정 창 OOF 관측 폐업률의 1.2배인 **개별 예측 확률 임계값**이다("실측 lift 1.2배가 되는 컷오프"가 아니다).
+  - cut_high = 보정 창 OOF 예측 확률의 **50~99.5 백분위를 200등분한 격자**를 낮은 쪽부터 훑어, {p ≥ c} 집단이 **200곳 이상**이고 그
+    관측 폐업률이 base_rate의 **2배 이상**인 첫 c. 그런 c가 없으면 예측 확률 95백분위로 fallback.
+- **fallback 발생 여부**를 `run_meta.band_provenance.high_fallback`(cut_high의 p95 대체)·`mid_fallback`(cut_mid ≥ cut_high여서 base_rate로 대체)에 기록한다.
+- **provenance**(`run_meta.band_provenance`, serve가 `serve_meta.cutoff_provenance`로 옮김): 보정 창 origin 목록, base_rate, cut_mid, cut_high, fallback,
+  검증 구간 high 비율, high lift와 점포 단위 부트스트랩 95% CI, 확률 척도(raw/calibrated).
+  - **2026-10-01 보완(#32 재검증)**: 창 규칙 `window_rule`(현재 `fixed` — 보정 fit 구간 고정 창. #45/#47의 동적 창과 구분),
+    컷오프 창 행 수 `n_cutoff_rows`, 목표 lift(`target_high_lift` 2.0 / `target_mid_lift` 1.2), high 최소 집단 `high_min_group_n`(200),
+    후보 격자 `high_grid`(50~99.5 백분위·200점·fallback 95백분위), high lift CI 설정 `high_lift_ci`(단위 store_id, B, seed, 백분위 2.5/97.5)를
+    함께 남긴다. 값은 `bands`의 상수에서 읽으므로 코드와 기록이 어긋나지 않는다. 기본 동작(컷오프 값)은 바뀌지 않는다.
+
 ## 2026-09-30 — PR #34 리뷰 반영: Shapley 배경 안정성·절단 점포 온라인 요인·업력대 경계·문서 정합성
 근거: `src/analysis/shapley_background_stability.py`(c87384c), 실행 로그(300점포 2025Q2, 시드 5개). 모든 수치는
 이미 저장된 로그·산출물에서 옮겼다(새 계산 없음). **실데이터 전체 재생성(2025Q2·2026Q2)은 #44·#45 결정 후 한 번에
 진행하며, 그때 1순위 비율·표시 보류 수를 갱신한다.**
 
-### ① 배경 표본 안정성 (기준 = 무작위 256개 5시드 기여 평균, 대상 300점포)
-| 배경 | 1순위 일치율 평균 (최소) | 온라인 부호 일치율 평균 (최소) | 기준값 범위 | 초/1,000점포 |
-|---|---|---|---|---|
-| 무작위 16 (현행) | 0.750 (0.647) | 0.844 (0.733) | 0.100–0.142 | 37 |
-| 무작위 64 | 0.870 (0.850) | 0.911 (0.850) | 0.099–0.122 | 112 |
-| 무작위 128 | 0.883 (0.847) | 0.894 (0.770) | 0.097–0.130 | 213 |
-| 무작위 256 | 0.940 (0.923) | 0.966 (0.930) | 0.109–0.118 | 517 |
-| 층화(업종×자치구) 16 | 0.757 (0.727) | 0.775 (0.690) | 0.086–0.135 | 45 |
-| 층화 64 | 0.871 (0.810) | 0.921 (0.850) | 0.110–0.136 | 130 |
-| **층화 128** | **0.921 (0.907)** | **0.946 (0.913)** | 0.109–0.121 | 242 |
-| 층화 256 (시드 1개) | 0.903 | 0.893 | 0.118 | 494 |
-- **권장: 층화 128.** 5시드 모두 두 일치율 ≥ 90%인 가장 빠른 설정이다(무작위 128은 평균 88%로 미달, 무작위 256은
-  충족하지만 2배 느림). 현행 16개는 1순위 일치 65–81%로 불안정하다.
-- **한계**: (a) 기준이 무작위 256 평균이라 무작위 256 행은 자기 참조로 높게 나온다. (b) 연구 프로세스가 층화 256 두 번째
-  시드에서 중단돼 k-means 대표 배경은 실행하지 못했고 요약 CSV·`chosen_background.csv`도 저장되지 않았다 — 권장값은 로그
-  집계이며 **아직 서빙에 채택·저장하지 않았다**(재현 인덱스 저장은 재실행 시). (c) 1,000점포당 242초라 전체 29,101점포는
-  약 2시간.
+### ① 배경 표본 안정성 — **대체됨 (2026-10-01)**
+이 절의 300점포·기준 무작위 256 실험과 "층화 128 권장"은 철회한다(기준이 작아 자기 참조가 섞였고, 이후 1,500점포·기준
+무작위 1,024 실험에서 어느 설정도 사전 기준을 충족하지 못했다). 운영 배경은 **Issue #49 S8 두 배경 규칙**이다 — 아래
+2026-10-01 "#34 Shapley 배경 = Issue #49 S8" 항목.
 
-### ② 절단 점포 온라인 요인 (feat/w2-serve c38d07e)
+### ② 절단 점포 온라인 요인 (feat/w2-serve c38d07e → 2026-10-01부터 #34 `diagnose.explain`)
 전부든 일부든 온라인 feature가 결측인 절단 점포는 `display=false`, `hold_reason=data_missing`,
 `missing_reason=online_unobservable`로 보류, 기여값·가법성은 보존한다. 2025Q2 온라인 테이블 기준(저장된 feature 표 집계):
 절단 점포 3,931곳 중 전부 결측 272(이미 보류 대상, #36 시험 실행 272와 일치)·일부 결측 **229**(새로 보류)·결측 없음
@@ -880,28 +908,21 @@ PR에서 다루지 않는다(요청대로 범위 밖).
 
 ### ③ 업력대·months_since_last
 - 업력대 경계 `(lo, hi]` → `[lo, hi)`: 12·36·60·120개월 경계 테스트 추가. **구간이 바뀐 점포 수는 아직 집계하지
-  않았다**(전체 재생성 때 산출).
+  않았다**(전체 재생성 때 산출). → 2026-10-01: #40 `detect_subgroups`도 같은 경계로 맞췄다(아래 2026-10-01 #34 항목).
 - months_since_last NA: has_ever가 확정 0이면 "이력 없음", has_ever도 NA(절단으로 관측 시작 이전을 모름)면 "관측 불가".
   2025Q2 저장된 feature 표: NA 13,712곳 중 **이력 없음 13,419 · 관측 불가 293**. 리뷰어의 7곳과는 범위가 다르다(검증
   표본 기준으로 보이며 이쪽은 전 점포).
 
 ### ④ 문서 정합성
-- #34 단독 vs #36 최종 차이표는 `diagnose.py` 모듈 docstring과 PR 본문에 둔다(영향 미미 |기여|<0.001, hold_reason·
-  missing_reason 코드, driver_code, 절단 점포 보류).
+- ~~#34 단독 vs #36 최종 차이표~~ → 2026-10-01: #36에만 있던 진단 로직(영향 미미 |기여|<0.001, hold_reason·missing_reason
+  코드, driver_code, 절단 점포 보류, 배경 manifest 재현)을 #34 `diagnose`로 옮겨 두 출력이 같아졌다 — 차이표는 없앴다.
 - 비용 요인(임대료 수준)은 **기여 0이 아니라 계산 대상 제외**(`비용_available=False`)다.
 - "최고 위험 3개 점포" = 검토 대기(`hold_reason=online_review`) 점포 중 `probability_12m` 상위 3곳, 동률은 store_id
   오름차순(#39 priority와 같은 기준, `name_match_review.select_targets`).
 
-## 2026-09-30 — #45 구현 이슈: 컷오프 정의 문장·fallback 기록·provenance (기본 동작 불변)
-- **정의(코드 `bands.CUT_MID_DEFINITION`·`CUT_HIGH_DEFINITION`, run_meta·serve_meta와 같은 문장)**:
-  - cut_mid = 1.2 × base_rate — 보정 창 OOF 관측 폐업률의 1.2배인 **개별 예측 확률 임계값**이다("실측 lift 1.2배가 되는 컷오프"가 아니다).
-  - cut_high = 보정 창 OOF에서 {p ≥ c} 집단의 관측 폐업률이 base_rate의 2배 이상이 되는 가장 낮은 c(집단 200곳 이상). 그런 c가 없으면
-    예측 확률 95백분위로 fallback.
-- **fallback 발생 여부**를 `run_meta.band_provenance.high_fallback`(cut_high의 p95 대체)·`mid_fallback`(cut_mid ≥ cut_high여서 base_rate로 대체)에 기록한다.
-- **provenance**(`run_meta.band_provenance`, serve가 `serve_meta.cutoff_provenance`로 옮김): 보정 창 origin 목록, base_rate, cut_mid, cut_high, fallback,
-  검증 구간 high 비율, high lift와 점포 단위 부트스트랩 95% CI, 확률 척도(raw/calibrated).
-
 ## 2026-09-30 — #34 ① Shapley 서빙 배경 확정 (실험 완료) · 절단/업력대 재집계
+> **대체됨(2026-10-01):** 아래 단일 배경 채택(층화 256·첫 시드)과 `serve`의 단일 manifest 재현은 Issue #49 S8(두 배경 "해석 민감",
+> 아래 "#34 Shapley 배경 = Issue #49 S8" 항목)로 대체됐다. 실험 수치는 S8 항목의 기존 근거로 남긴다.
 설계(결과 보기 전 고정): 2025Q2 1,500점포(seed 20260930), 기준 = 학습 구간 무작위 1,024개(seed 20261024), 후보 × 시드 5개.
 채택 규칙: 5시드 중앙값 1순위 일치 ≥ 90%·온라인 부호 일치 ≥ 95% 중 최단 시간, 없으면 두 중앙값의 최솟값이 가장 높은 설정.
 
@@ -938,3 +959,168 @@ PR에서 다루지 않는다(요청대로 범위 밖).
 - 재집계(저장된 feature 표, 새 학습 없음, 2025Q2 29,101점포): 절단 점포 온라인 요인 보류 — 전부 결측 272 · 일부 결측 229
   (2026Q2: 46 · 203). months_since_last NA 13,712 = 이력 없음 13,419 · 관측 불가 293 (2026Q2: 12,406 · 59).
   업력대 `(lo,hi]`→`[lo,hi)`로 구간이 바뀐 점포 = 업력이 정확히 12·36·60·120개월인 점포: 2025Q2 721곳, 2026Q2 756곳.
+
+## 2026-10-01 — PR #33 재검증 반영: 절단 경로 재측정·clean 실험·온라인 시점 계약
+근거: `src/analysis/online_truncation_sensitivity.py`, `src/data/online_features.py`(`assert_no_future_posts`),
+`src/models/train_detect.py`(`attach_online`), 실데이터 rolling OOF 10개 origin(2023Q1–2025Q2), 점포 클러스터 부트스트랩 1,000회.
+온라인 predictor 6개의 값·결측 규칙은 바뀌지 않았다(새 코드로 다시 만든 표가 이전 표와 predictor 값 완전 일치).
+
+### 1. 절단 경로는 유의한 정보 경로다 (2026-09-29 항목 1의 결론 정정)
+- 옛 "NA 플래그"(온라인 feature 중 하나라도 NA)는 절단 대리 지표가 아니었다: 그 NA 행 293,362개 중 **94.7%(277,794)가
+  "언급이 한 번도 없음"**(`months_since_last`가 정의상 NA)이고 절단 점포 행은 5.3%(15,568)뿐이다(`any_na_composition`).
+- **절단 전용 플래그**(절단 점포이면서 온라인 feature 중 하나라도 NA, 전체 행의 2.95%)만 base에 더해 다시 쟀다:
+
+  | params | base 합산 AUC | base + 절단 플래그 | 차이 [95% CI] |
+  |---|---|---|---|
+  | 현 설정 | 0.6013 | 0.6040 | **+0.0027 [+0.0013, +0.0040]** |
+  | 튜닝 (0.03, 15) | 0.6112 | 0.6141 | **+0.0029 [+0.0016, +0.0042]** |
+
+  → 수집 시점(2026-09) 절단 여부는 결측 패턴을 통해 **작지만 유의한** 미래 정보 경로다. `na` 기본값은 유지하되 이 한계를
+  명시한다. 절단 점포의 폐업률(8.98%)은 비절단(11.71%)보다 낮다.
+- `lower_bound`는 **절단 경로 차단이 아니다** — 절단 점포의 미관측 구간을 관측된 글만 센 하한으로 채워 NA는 없어지지만,
+  수집 시점 인기(>200건)로 정해지는 절단 점포의 과거 창이 과소 집계되어 절단 영향이 값에 남는다.
+  (i) na − (iii) lower_bound: 현 설정 +0.0015 [+0.0002, +0.0027], 튜닝 +0.0011 [+0.0002, +0.0020] — 두 방식은 결측 패턴과
+  값이 함께 바뀌므로 이 차이를 경로 크기로 해석하지 않는다.
+
+### 2. clean 실험 — 절단 점포를 학습·평가 모두에서 제외
+| params | base | enriched | enriched − base [95% CI] |
+|---|---|---|---|
+| 현 설정 (전체 점포, 참고) | 0.6013 | 0.6205 | +0.0192 [+0.0168, +0.0217] |
+| 현 설정 (clean) | 0.6029 | 0.6197 | **+0.0168 [+0.0143, +0.0193]** |
+| 튜닝 (0.03, 15) (전체 점포, 참고) | 0.6112 | 0.6289 | +0.0177 [+0.0153, +0.0200] |
+| 튜닝 (0.03, 15) (clean) | 0.6131 | 0.6281 | **+0.0150 [+0.0128, +0.0171]** |
+
+- 합산 AUC. clean에서도 10개 origin 모두 enriched가 높다(`truncation_sensitivity_by_origin.csv`). 온라인 feature의 효과는 절단
+  경로가 없는 표본에서도 유지되며, 전체 점포 효과(+0.019) 중 약 0.002–0.003이 절단 점포 쪽에서 온다.
+- clean은 민감도 실험이다 — 모집단에서 절단 점포를 지우지 않는다(CLAUDE.md complete-case 금지).
+- 평균 AUC(origin별): base 0.6029 → enriched 0.6219(현 설정, 기존 값 그대로 재현). 튜닝 행은 #32 `20cbd95`에서 `TUNED_PARAMS`를
+  전체 설정으로 고친 뒤의 값이다(2026-09-29 표의 튜닝 행은 옛 부분 설정 값).
+- 처리 정책(절단 경로를 한계로 두고 쓸지, 절단과 무관한 처리를 찾을지)은 **#44(짧은 상호)와 함께** 정한다.
+
+### 3. 온라인 시점 계약 (2026-09-29 항목 3 대체)
+| 컬럼 | 의미 | 불변식 |
+|---|---|---|
+| `online_feature_asof` | origin_end — feature 창의 기준일 | = origin_end |
+| `online_available_at` | 창에 들어갈 수 있는 **마지막 게시월의 말일**(축B `available_at` = 게시월 말일, 2026-09-29 #23 항목·DATA_CATALOG §6과 같은 정의) | ≤ origin_end |
+| `online_collected_at` | 실제 원문 수집 시각, UTC ISO8601 → **KST tz-naive**(#21 `export_online_features._to_naive_kst`와 같은 처리) | 검사하지 않음 (과거 origin은 모두 뒤 — 회고적 재구성) |
+
+- **실제 시점 검사**: `online_features.assert_no_future_posts`가 월별 원천에서 표와 **다른 계산 경로**(정렬 키 + searchsorted
+  누적합)로 origin_end가 속한 달까지의 게시월만 다시 집계해, 값이 있는 칸을 모두 대조한다(창을 한 달만 미래로 밀어도 멈춤).
+  CLI가 표를 쓰기 전에 항상 실행한다 — 실데이터 na 2,805,181칸, lower_bound 2,876,979칸 일치.
+- `attach_online`은 원천 없이 표만 받으므로: `online_feature_asof == origin_end`(같은 origin 정의), 새 형식 표의
+  `online_available_at ≤ origin_end`를 확인한다. 이전 형식 표(`online_collected_at` 없음)는 경고 후 그대로 읽는다 —
+  이미 만든 #34·#36 산출물이 깨지지 않게. 전체 재생성(#44·#45 결정 후) 때 새 형식으로 바뀐다.
+- 영향 범위: 하위 브랜치(#34 diagnose, #36 serve, #41 report)는 온라인 메타 컬럼을 읽지 않는다(`attach_online`만 호출).
+  predictor 값·모형 산출물은 바뀌지 않는다.
+
+### 4. #26 해석과 #44 의존성
+- #26 "18개 origin 통과"는 **운영 판정**으로만 둔다 — 관측 기간 차이(구성 효과)와 삭제 편향이 같은 격차에 섞여 있어
+  "삭제 편향이 없다"고 결론 내리지 않는다(2026-09-25 항목 갱신 참고).
+- 짧은 상호(≤2자) 온라인 feature 처리(keep/NA)는 **#44 미결정** — 이 PR은 정하지 않는다. 기존 민감도(`benchmark
+  --short-name-sensitivity`, 튜닝 (0.03, 15), 10개 origin 합산, 위 새 온라인 표로 재실행):
+
+  | 비교 | 합산 AUC 차이 [95% CI] |
+  |---|---|
+  | HGB enriched: na − keep | −0.0006 [−0.0018, +0.0007] (유의하지 않음) |
+  | HGB enriched − base: keep / na | +0.0177 [+0.0152, +0.0201] / +0.0172 [+0.0146, +0.0195] |
+  | logit enriched: na − keep | +0.0010 [+0.0003, +0.0018] |
+
+  짧은 상호 점포(17,703행)만 보면 HGB enriched의 base 대비 AUC 이득이 keep +0.0177 → na −0.0026으로 사라진다(전체 성능은
+  거의 같다). 어느 쪽이 맞는지는 매칭 오탐률(#39 round2 판정)로 정한다 — #44.
+- 서빙 모형 설정은 #45/#47 결정((0.03, 31))을 따르며 이 PR은 바꾸지 않는다. 경쟁지표(#43)도 건드리지 않는다.
+
+## 2026-10-01 — #34 Shapley 배경 = Issue #49 S8 (두 배경 "해석 민감") · 진단 로직 일원화 · 업력 경계 통일
+근거: Issue #49 S8(결과 확인 전 등록 2026-10-01 12:02 KST), 기존 실험 결과(작성자 #36 d4f1de0·3d2e84f, 1,500점포)와
+2026-10-01 spot-check. **새 Shapley 실험은 하지 않았다.** 구현 `src/models/background.py`, `src/models/diagnose.py`.
+
+### 1. 배경 규칙 = S8 (`background.S8_RULE`, rule_version `S8-2026-10-01`)
+- 배경 두 개: 업종×자치구 층화 256개, **seed 20260931(주, primary)** · **20261001(민감도, sensitivity)**. 기준 origin(2025Q2)
+  학습 구간(≤ 2024Q1) 행에서 같은 알고리즘으로 뽑는다(같은 입력이면 같은 배경). seed 20260931 배경은 작성자 manifest 파일 해시
+  `ffedb33b…`와 같은 행이다(2026-10-01 재추출 확인).
+- 화면 문장·기여는 **주 배경** 값이다. 두 배경에서 요인의 **방향**(|기여| < 0.001이면 "영향 미미", 그 외 위험 증가/감소) 또는
+  **표시 상태**(display)가 다르면 그 점포×요인을 `interpretation_sensitive=True`, `sensitivity_label="해석 민감"`으로 표시한다.
+- **어느 배경도 "가장 안정적"이라고 하지 않는다.** 이전 채택(층화 256 seed 20260931 단일)은 결과를 본 뒤 만든 대체 규칙으로
+  고른 것이었고, 그 seed의 온라인 부호 일치는 층화 256 5시드 중 최저(83.7%)였다.
+- "반전 요인 표시 0건"은 **UI 전파 검사**라고만 부르고 통계적 안정성의 증명으로 쓰지 않는다.
+- 배경은 **설명(기여·driver·표시 보류)만** 바꾼다. 위험 확률·등급은 모형 예측이라 배경과 무관하다
+  (`diagnose.explain_s8`이 두 배경의 확률이 같은지 검사하고 다르면 멈춘다). Shapley 기여는 예측 분해이며 인과효과가 아니다.
+
+### 2. 무작위 1,024 = 대조용 (`background.CHECK_1024`, 배경 선택에 쓰지 않음)
+- 2026Q2 서빙 대상 200곳, seed 20261002: low 66·mid 66·high 68, 등급 점포 수가 배분보다 적으면 전수·부족분은 다음 등급으로
+  (low→mid→high). 등급 안에서는 store_id 정렬 후 seed 고정 무작위(`background.check_sample`). 1,024 배경도 같은 seed의 별도
+  생성기로 학습 구간에서 뽑는다(`draw_check_background`). 비교 요약은 `diagnose.compare_explanations`.
+- 준비 상태: 코드·명령(`python -m src.models.background check-sample --risk <2026Q2 serve risk> --out …`)·테스트까지.
+  실제 실행은 2026Q2 서빙 모형이 필요해 #36 재생성 단계에서 한다(#34 병합 조건 아님).
+- 기존 근거(문서용, 새 계산 아님): 이전 채택 배경 vs 무작위 1,024(seed 20261024), 2025Q2 1,500곳 — 온라인 표시 라벨 25.9%,
+  위험 감소↔증가 4.1%(전부 감소→증가), online_review 0.5% 변경, 1순위 일치 92.3%. 무작위 1,024(seed 20261024) 재계산은
+  작성자 기록(|온라인 기여| ≥ 0.001 1,350곳, online_review 27곳)과 일치 — 재현 확인일 뿐 1,024 자체의 시드 안정성은 재지 않았다.
+
+### 3. 출력 계약 (점포×요인, `diagnosis.parquet`)
+| 열 | 뜻 |
+|---|---|
+| `contribution`, `direction`, `display`, `hold_reason` | 주 배경(seed 20260931) 결과 — 화면 기준 |
+| `contribution_sens`, `direction_sens`, `display_sens`, `hold_reason_sens` | 민감도 배경(seed 20261001) 결과 |
+| `interpretation_sensitive`, `sensitivity_label` | 방향 또는 표시가 다르면 True / "해석 민감" |
+- `factors_json(..., with_sensitivity=True)`는 factor마다 `interpretation_sensitive`를 붙인다. **#41 factor 스키마가
+  additionalProperties=false라** 스키마에 이 필드를 추가하기 전까지 서빙(#36)은 기본값(False)으로 부른다 — #41·#36 후속.
+- `diagnose_meta.json`: 모형 설정·출처, 두 배경의 seed·행 파일 sha256·index_sha256, S8 규칙 참조, 비교 기준, 대조 규칙,
+  기존 근거, s8_summary(해석 민감 수·방향/표시 변경 비율 — UI 전파 검사용 요약).
+
+### 4. 진단 로직 일원화 (#36 → #34)
+#36에만 있던 `explain`(진단·서빙 공용), `hold_reason`(online_review/data_missing), `missing_reason` 코드(`online_unobservable` 등),
+절단 점포(#33 QA) 온라인 요인 보류, `driver_code`(#41 분류표), 배경 manifest 재현·fail-fast를 #34 `diagnose`로 옮겼다.
+#36은 이 함수(`explain_s8`, `background_rows_s8`)를 불러 서빙 형태로 조립하기만 하면 된다. `diagnose` CLI는 S8 manifest를
+기본으로 요구하고(없으면 멈춤), 무작위 배경은 `--random-background N`으로 명시할 때만 쓴다(비교·시험용).
+
+### 5. 모형 설정과 #51
+진단 모형은 탐지 실행과 같은 설정이어야 한다(`--detect-run` → run_meta.params). 지정하지 않으면 `detect.DEFAULT_PARAMS`이고
+`diagnose_meta.model_params_source`에 그렇게 남는다. **최종 재생성에서는 #51(채택 (0.03, 31))의 detect run을 반드시 넘긴다** —
+이 PR은 DEFAULT_PARAMS를 바꾸거나 #51 코드를 가져오지 않는다.
+- **2026-10-01 갱신(#51):** `diagnose` CLI는 `--detect-run`이 없으면 멈춘다. DEFAULT_PARAMS로 돌리려면 `--default-params`를
+  명시해야 한다(비교·시험용). 함수 수준(`diagnose.run(detect_run=None)`)의 DEFAULT fallback은 시험용으로 남고 출처에 적힌다.
+
+### 6. #44 A안과의 관계
+#44는 A안(정규화 상호 ≤ 2자 점포의 온라인 feature를 전 origin NA)으로 결정됐다. NA 처리는 온라인 표 재생성의 몫이고, 진단은
+기존 경로대로 온라인 요인이 전부 결측이면 `data_missing`(missing_reason `online_unobservable`, 문구 "관측 불가")으로 보류한다.
+#44 코멘트의 "'온라인 관측 불가' 문구·코드 이름은 재생성 때 확인"은 그대로 남는다(이 PR에서 코드 이름을 바꾸지 않음).
+
+### 7. 업력 경계 통일 `[lo, hi)`
+12·36·60·120개월 **미만**이 아래 구간, 정확히 12·36·60·120개월이면 다음 구간 — #34 `diagnose.AGE_BANDS`, #38
+`FACTOR_POLICY_LINKS.md`와 같다. #40 `detect_subgroups.age_band`는 `(lo, hi]`였던 것을 이 기준으로 고쳤다(경계값 점포만 구간이
+바뀐다 — #40 산출 표는 재생성 때 갱신). 라벨 표기는 진단 "1~3년", #40·#38 "1–3년"으로 다르다(값 문자열, 경계와 무관).
+- **후속(TODO)**: #47 `benchmark.age_band`(업력 기준 모형 `tenure_only`의 내부 구간)는 아직 `(lo, hi]`다. 바꾸면 #47 기록 수치가
+  달라지므로 이 PR에서 고치지 않는다 — 재생성 때 함께 맞출지 결정.
+
+## 2026-10-01 — #51 채택 파라미터 (0.03, 31)를 학습·서빙 경로에 연결 (Issue #49 S13)
+근거: Issue #45 결정(서빙 구간 선택값 (0.03, 31) 채택, 사후 선택인 튜닝 (0.03, 15) 불채택), Issue #49 S13. 학습·재생성은
+이 PR에서 실행하지 않았다(코드 경로와 run_meta 계약만).
+
+- **채택 설정:** `detect.ADOPTED_PARAMS = {**DEFAULT_PARAMS, learning_rate=0.03, max_leaf_nodes=31}`. DEFAULT_PARAMS의
+  나머지 키(max_iter·min_samples_leaf·l2·early_stopping=False·random_state)는 그대로 상속한다. DEFAULT의 max_leaf_nodes가
+  이미 31이라 실제로 바뀌는 값은 learning_rate 0.06 → 0.03 하나다.
+- **`train_detect` 기본 = adopted.** `run(params_name="adopted")`, CLI `--params {adopted,default}`(기본 adopted). 선택한 설정이
+  OOF·보정·컷오프·risk_scores·부트스트랩·permutation·분할 비교의 주 행에 똑같이 쓰인다. `--params default`는 이전 (0.06, 31)
+  동작을 재현한다(비교·재현용).
+- **DEFAULT_PARAMS는 바꾸지 않는다** — `benchmark`(#32/#47)의 "현 설정" 비교 기준·HPO 기저이고, 바꾸면 #45 근거 수치를 다시
+  만들 수 없다. `benchmark.SERVING_WINDOW_PARAMS`는 값을 복제하지 않고 `ADOPTED_PARAMS`를 참조한다. `TUNED_PARAMS` (0.03, 15)는
+  불채택 비교용으로만 남는다.
+- **run_meta 계약:** `params`(학습에 쓴 전체 설정), `params_name`("adopted"/"default"), `model_class`
+  (`sklearn.ensemble.HistGradientBoostingClassifier`)를 기록한다. #51 이전 run_meta에는 `params_name`이 없다 — 읽는 쪽은
+  `train_detect.run_meta_params_name`으로 `legacy_default`(params가 DEFAULT와 같음) / `legacy_unnamed`로 구분해 적고, 이름을
+  지어내지 않는다.
+- **진단·서빙은 같은 run_meta.params를 쓴다.** 최종 재생성 순서: `train_detect`(adopted) → 그 run 폴더를 `diagnose --detect-run`,
+  `shapley_background_stability --run-meta`, 서빙(#36 `serve.model_params`)에 같은 경로로 넘긴다. `diagnose` CLI는
+  `--detect-run` 없이 멈추고 DEFAULT는 `--default-params`로 명시할 때만 쓴다. 배경 안정성 실험의 설계 기록(`design.json`)에도
+  `params`·`params_name`을 남긴다(운영 배경은 여전히 #53 S8 규칙이며 이 실험은 배경을 고르지 않는다).
+- **"현 설정"이라는 이름의 뜻은 문맥마다 다르다** (산출물 스키마를 바꾸지 않으려고 이름은 유지한다):
+
+  | 위치 | "현 설정"이 가리키는 설정 |
+  |---|---|
+  | `benchmark` 산출물·#32/#47 기록 수치 | `DEFAULT_PARAMS` (0.06, 31) |
+  | 2026-10-01 이전 `train_detect` 산출물·이 문서의 그때 수치(#32 보정 비교, #33 민감도 등) | `DEFAULT_PARAMS` (0.06, 31) |
+  | `online_truncation_sensitivity`의 "현 설정" 행 | `DEFAULT_PARAMS` (params=None, 과거 근거 분석) |
+  | #51 이후 `train_detect` 산출물(`model_params_by_config`·`oof_predictions.config`·`calibration_*`·`split_comparison`) | `run_meta.params_name`의 설정 (기본 adopted (0.03, 31)) |
+
+  수치를 인용할 때는 "현 설정" 대신 `params_name` 또는 (learning_rate, max_leaf_nodes)를 함께 적는다.
+- **후속(#36):** `serve_meta`에 run_meta의 `params_name`·`model_class`를 옮겨 적고, legacy run_meta로 서빙하지 않도록 막는 일은
+  #36에서 한다. 이 PR은 학습 경로와 run_meta 계약까지만 책임진다.

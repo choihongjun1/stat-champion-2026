@@ -13,18 +13,23 @@ SHAP 라이브러리(TreeExplainer)를 쓰지 않는 이유: HistGradientBoostin
 해석 경계 (DECISIONS.md 2026-09-10, CLAUDE.md): 기여도는 **예측이 어떤 관측 특성에서 비롯됐는지**의
 분해이지 인과효과가 아니다. "이 요인을 바꾸면 위험이 내려간다"는 표현은 Stage 3 검증을 거친 요인에만 쓴다.
 
-#34 단독 출력과 #36(서빙) 최종 출력의 차이 (#34 리뷰 ④, 2026-09-30)
-| 항목 | #34 단독 (이 브랜치) | #36 최종 (feat/w2-serve) |
-|---|---|---|
-| direction | 부호만("위험 증가/감소") | |기여|<0.001이면 "영향 미미" (`DIRECTION_EPS`, 설명문과 같은 기준) |
-| 표시 보류 이유 | display=false만 | + `hold_reason`(online_review/data_missing), `missing_reason` 코드 |
-| 데이터 없음 요인 | 그대로 진단문 생성 | 요인 feature가 전부 결측이면 data_missing 보류 |
-| driver_code | 없음 | 온라인 요인만(decline/lapse/absent/unobservable/no_change/presence, #41 분류표와 동일) |
-| 절단 점포 온라인 요인 | 구분 없음 | 전부·일부 결측이면 data_missing/online_unobservable 보류(기여값 보존) |
-| 비용 요인 | 계산 제외(available=false) | 같음 |
+진단 로직은 이 모듈 하나가 진단(이 CLI)과 서빙(#36 `serve`) 모두의 기준이다 (2026-10-01, 이전엔 #36에만 있던
+`explain`·`hold_reason`·`missing_reason`·`driver_code`·절단 점포 보류·배경 manifest 재현을 여기로 옮겼다):
+- direction: |기여| < 0.001이면 "영향 미미" (`DIRECTION_EPS`, 설명문과 같은 기준)
+- 표시 보류: `display=false` ⇔ `hold_reason` ∈ {online_review, data_missing}, 데이터 없음은 `missing_reason` 코드
+- 온라인 요인 근거: `driver_code`(#41 분류표와 동일)
+- 절단 점포(#33 QA) 온라인 요인: 전부·일부 결측이면 data_missing/online_unobservable 보류(기여값 보존)
+- Shapley 배경 = Issue #49 S8: 층화 256 두 개(seed 20260931 주, 20261001 민감도)의 S8 manifest를 **기본으로 요구**한다
+  (없으면 멈춤). 두 배경에서 요인의 방향 또는 표시 상태가 다르면 `interpretation_sensitive=True`("해석 민감"). 무작위 배경은
+  `--random-background N`으로 명시할 때만(비교·시험용, 운영 출력 아님). 배경은 설명만 바꾸고 위험 확률·등급은 바꾸지 않는다
+  (`explain_s8`이 두 배경의 확률이 같은지 검사).
+- 모형 설정: `--detect-run`(탐지 실행 run_meta.params)과 같아야 한다 — 최종 재생성에서는 #51의 채택 설정 run_meta를 준다.
+  CLI는 `--detect-run`이 없으면 멈춘다. DEFAULT_PARAMS로 돌리려면 `--default-params`를 명시한다(비교·시험용, 운영 출력 아님).
 
 실행:
-    python -m src.models.diagnose --online outputs/online/online_features.parquet --primary enriched
+    python -m src.models.background create --master outputs/master/master_base.parquet   # S8 배경 manifest (한 번)
+    python -m src.models.diagnose --online outputs/online/online_features.parquet --primary enriched \\
+        --qa <online_blog_monthly_qa.csv> --detect-run outputs/models/detect_v0_enriched
 """
 from __future__ import annotations
 
@@ -368,10 +373,15 @@ def _plain(v):
     return str(v)
 
 
-def factors_json(long: pd.DataFrame, store_id: str, origin: str, values: dict | None = None) -> list[dict]:
-    """values: {factor_id: {feature: 값}} — 화면이 "무엇을 보고 이렇게 판단했는지"를 함께 보여줄 수 있게 한다."""
+def factors_json(long: pd.DataFrame, store_id: str, origin: str, values: dict | None = None, *,
+                 with_sensitivity: bool = False) -> list[dict]:
+    """values: {factor_id: {feature: 값}} — 화면이 "무엇을 보고 이렇게 판단했는지"를 함께 보여줄 수 있게 한다.
+    with_sensitivity: S8 "해석 민감" 여부(`interpretation_sensitive`)를 붙인다. #41 factor 스키마가
+    additionalProperties=false라 스키마에 이 필드를 추가하기 전까지 서빙(#36)은 기본값(False)으로 부른다."""
     g = long[(long["store_id"] == store_id) & (long["origin"] == origin)].sort_values("contribution", ascending=False)
     values = values or {}
+    extra = (lambda r: {"interpretation_sensitive": None if pd.isna(r.get("interpretation_sensitive"))
+                        else bool(r["interpretation_sensitive"])}) if with_sensitivity else (lambda r: {})
     return [{
         "category": r["category"], "name": r["factor"], "factor_id": r["factor_id"],
         "contribution": round(float(r["contribution"]), 4),
@@ -385,6 +395,7 @@ def factors_json(long: pd.DataFrame, store_id: str, origin: str, values: dict | 
         "missing_reason": r.get("missing_reason_code") or None,
         "hold_reason": r.get("hold_reason") or None,
         "values": {k: _plain(v) for k, v in values.get(r["factor_id"], {}).items()},
+        **extra(r),
     } for _, r in g.iterrows()]
 
 
@@ -512,32 +523,138 @@ def load_truncated_stores(qa_path: Path) -> set:
     return truncated_store_ids(load_qa(qa_path))
 
 
-def background_rows(manifest_path: Path | None, df: pd.DataFrame, tr: np.ndarray, rng, n_background: int
-                    ) -> tuple[np.ndarray, dict]:
-    """Shapley 배경 행 위치(df 기준)와 재현 정보. manifest가 있으면 #34 실험이 확정한 배경을 그대로 재현하고
-    (`background.load_background`: 파일 없음·해시 불일치·행 누락이면 오류, 학습 구간 밖 행이면 오류),
-    None이면 학습 구간에서 무작위 n_background개(재현 정보는 행 키 해시)."""
+def background_rows(manifest_path: Path | None, df: pd.DataFrame, tr: np.ndarray, rng, n_background: int,
+                    role: str = "primary") -> tuple[np.ndarray, dict]:
+    """Shapley 배경 하나의 위치(df 기준)와 provenance. manifest가 있으면 S8 manifest의 `role` 배경을 재현한다
+    (`background.load_background`: 파일 없음·해시 불일치·행 수/행 키 불일치·행 누락이면 오류, 학습 구간 밖 행이면 오류).
+    None이면 학습 구간에서 무작위 n_background개 — 비교·시험용이며 `operational=False`."""
     from src.models import background
 
     if manifest_path is not None:
-        idx, man = background.load_background(manifest_path, df)
+        idx, man = background.load_background(manifest_path, df, role)
         outside = ~np.isin(idx, np.flatnonzero(tr))
         if outside.any():
             raise ValueError(f"배경 행 {int(outside.sum())}개가 이 학습 구간 밖이다")
-        train_detect.log(f"배경 {len(idx)}개 — manifest 재현 ({man.get('method')} {man.get('n_background', len(idx))}, {manifest_path})")
-        return idx, {"source": str(manifest_path), "method": man.get("method"), "n": int(len(idx)),
-                     "rows_sha256": man["sha256"], "met_rule": man.get("met_rule")}
-    import hashlib
-
+        entry = man.get("backgrounds", {}).get(role, man)
+        train_detect.log(f"배경[{role}] {len(idx)}개 — manifest 재현 ({man.get('method')}, seed {entry.get('seed')}, "
+                         f"{manifest_path})")
+        return idx, {"source": str(manifest_path), "role": role, "operational": man.get("format") == "s8",
+                     "method": man.get("method"), "n": int(len(idx)), "seed": entry.get("seed"),
+                     "rows_sha256": entry["sha256"], "index_sha256": background.index_sha256(df, idx),
+                     "rule_ref": man.get("rule_ref"), "rule_version": man.get("rule_version")}
     idx = rng.choice(np.flatnonzero(tr), n_background, replace=False)
-    keys = background.row_keys(df.iloc[idx]["store_id"].astype(str), df.iloc[idx]["origin"].astype(str))
-    return idx, {"source": "random", "method": "random", "n": int(len(idx)),
-                 "rows_sha256": hashlib.sha256("\n".join(keys).encode()).hexdigest()}
+    train_detect.log(f"경고: 무작위 배경 {n_background}개 — S8 운영 배경이 아니다 (비교·시험용)")
+    return idx, {"source": "random", "role": role, "operational": False, "method": "random", "n": int(len(idx)),
+                 "rows_sha256": background.index_sha256(df, idx), "index_sha256": background.index_sha256(df, idx)}
+
+
+def background_rows_s8(manifest_path: Path, df: pd.DataFrame, tr: np.ndarray) -> tuple[dict, dict]:
+    """S8 두 배경(primary·sensitivity)의 위치와 provenance. 반환: ({role: idx}, provenance)."""
+    from src.models import background
+
+    idx, info = {}, {}
+    for role in background.ROLES:
+        idx[role], info[role] = background_rows(manifest_path, df, tr, None, 0, role=role)
+    man = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    keep = ("rule_ref", "rule_version", "method", "strata", "n_background", "pool", "pool_origin", "pool_origins",
+            "comparison", "ui_check_note", "check_1024", "prior_evidence", "affects", "source_master_sha256")
+    return idx, {"backgrounds": info, **{k: man[k] for k in keep if k in man}}
+
+
+SENSITIVE_LABEL = "해석 민감"
+# S8 비교 결과 열 (점포×요인). 주 배경 값은 기존 열(contribution, direction, display, hold_reason)이다.
+SENSITIVITY_COLS = ("contribution_sens", "direction_sens", "display_sens", "hold_reason_sens",
+                    "interpretation_sensitive", "sensitivity_label")
+
+
+def attach_sensitivity(long_p: pd.DataFrame, long_s: pd.DataFrame) -> pd.DataFrame:
+    """Issue #49 S8: 주 배경(long_p)과 민감도 배경(long_s)의 점포×요인 해석을 비교한다. 방향(direction_label, 3단계)
+    또는 표시 상태(display)가 다르면 interpretation_sensitive=True, sensitivity_label="해석 민감".
+    주 배경의 값(기여·문장·표시)은 바꾸지 않는다."""
+    key = ["store_id", "origin", "factor_id"]
+    s = long_s[key + ["contribution", "display", "hold_reason"]].rename(
+        columns={"contribution": "contribution_sens", "display": "display_sens", "hold_reason": "hold_reason_sens"})
+    out = long_p.merge(s, on=key, how="left", validate="1:1")
+    if out["contribution_sens"].isna().any():
+        raise ValueError("민감도 배경 결과에 없는 점포×요인이 있다")
+    out["direction"] = out["contribution"].map(direction_label)
+    out["direction_sens"] = out["contribution_sens"].map(direction_label)
+    out["interpretation_sensitive"] = (out["direction"] != out["direction_sens"]) | (
+        out["display"].astype(bool) != out["display_sens"].astype(bool))
+    out["sensitivity_label"] = np.where(out["interpretation_sensitive"], SENSITIVE_LABEL, "")
+    return out
+
+
+def compare_explanations(long_a: pd.DataFrame, long_b: pd.DataFrame) -> dict:
+    """두 배경 해석의 요약 비교 (S8 두 배경, 또는 주 배경 vs 무작위 1,024 대조). 비율은 점포×요인 기준, 1순위는 점포 기준.
+    "반전 요인 표시 0건" 같은 결과는 UI 전파 검사이며 통계적 안정성의 증명이 아니다."""
+    key = ["store_id", "origin", "factor_id"]
+    cols = key + ["contribution", "display", "hold_reason"]
+    m = long_a[cols].merge(long_b[cols], on=key, suffixes=("_a", "_b"), validate="1:1")
+    da, db = m["contribution_a"].map(direction_label), m["contribution_b"].map(direction_label)
+    flip = ((da == "위험 증가") & (db == "위험 감소")) | ((da == "위험 감소") & (db == "위험 증가"))
+    on = m["factor_id"] == "online_attention"
+    rev_a = (m["hold_reason_a"] == "online_review") & on
+    rev_b = (m["hold_reason_b"] == "online_review") & on
+
+    def top(L):
+        return L.loc[L.groupby(["store_id", "origin"])["contribution"].idxmax(), ["store_id", "origin", "factor_id"]]
+
+    t = top(long_a).merge(top(long_b), on=["store_id", "origin"], suffixes=("_a", "_b"))
+    nan = float("nan")
+    return {"n_store_factor": int(len(m)), "n_stores": int(len(t)),
+            "direction_changed": float((da != db).mean()), "direction_flip": float(flip.mean()),
+            "display_changed": float((m["display_a"] != m["display_b"]).mean()),
+            "online_direction_changed": float((da != db)[on].mean()) if on.any() else nan,
+            "online_direction_flip": float(flip[on].mean()) if on.any() else nan,
+            "online_review_changed": float((rev_a != rev_b)[on].mean()) if on.any() else nan,
+            "top1_agreement": float((t["factor_id_a"] == t["factor_id_b"]).mean()),
+            "note": "UI 전파 검사용 요약 — 통계적 안정성의 증명이 아니다"}
+
+
+def explain_s8(model: detect.DetectModel, Xt: pd.DataFrame, Xb_primary: pd.DataFrame, Xb_sensitivity: pd.DataFrame,
+               meta: pd.DataFrame, raw: pd.DataFrame, *, truncated_stores: set | None = None) -> dict:
+    """Issue #49 S8 진단 (진단·서빙 공용): 주 배경으로 `explain`, 민감도 배경으로 한 번 더 계산해 점포×요인마다
+    "해석 민감" 여부를 붙인다. 반환은 `explain`과 같고 long에 SENSITIVITY_COLS, 추가로 `s8_summary`.
+    위험 확률은 두 배경에서 같아야 한다(다르면 멈춤) — 배경은 설명만 바꾼다."""
+    res = explain(model, Xt, Xb_primary, meta, raw, truncated_stores=truncated_stores)
+    res_s = explain(model, Xt, Xb_sensitivity, meta, raw, truncated_stores=truncated_stores)
+    if not np.array_equal(res["meta"]["probability_12m"].to_numpy(), res_s["meta"]["probability_12m"].to_numpy()):
+        raise RuntimeError("배경에 따라 위험 확률이 달라졌다 — 배경은 설명만 바꿔야 한다")
+    res["long"] = attach_sensitivity(res["long"], res_s["long"])
+    res["s8_summary"] = {**compare_explanations(res["long"], res_s["long"]),
+                         "n_interpretation_sensitive": int(res["long"]["interpretation_sensitive"].sum()),
+                         "base_value_primary": float(res["base"]), "base_value_sensitivity": float(res_s["base"])}
+    return res
+
+
+def model_params_from_detect_run(detect_run: Path | None) -> tuple[dict, str]:
+    """진단 모형 설정 = 탐지 실행(`train_detect` run_meta.json의 `params`, #51 이후 채택 (0.03, 31))과 같아야 한다 —
+    진단이 risk_scores와 같은 모형을 분해하도록. 지정하지 않으면 detect.DEFAULT_PARAMS이고 출처에 그렇게 적는다
+    (함수 수준 fallback — 시험용. CLI는 `--detect-run` 또는 명시적 `--default-params` 없이는 멈춘다).
+    params_name이 없는 #51 이전 run_meta는 legacy_default / legacy_unnamed로 적는다(`train_detect.run_meta_params_name`)."""
+    if detect_run is None:
+        return dict(detect.DEFAULT_PARAMS), "detect.DEFAULT_PARAMS (detect run 미지정 — 비교·시험용 fallback, 운영 출력 아님)"
+    p = Path(detect_run)
+    meta_path = p if p.suffix == ".json" else p / "run_meta.json"
+    rm = json.loads(meta_path.read_text(encoding="utf-8"))
+    params = rm.get("params")
+    if not isinstance(params, dict) or not params:
+        raise ValueError(f"탐지 실행 run_meta에 params가 없다: {meta_path}")
+    return dict(params), f"detect run_meta.params ({meta_path}, params_name={train_detect.run_meta_params_name(rm)})"
 
 
 def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: str, origin: str | None,
-        n_background: int, max_stores: int | None, seed: int = 20260925,
-        qa_path: Path | None = None, background_manifest: Path | None = None) -> pd.DataFrame:
+        max_stores: int | None, seed: int = 20260925, qa_path: Path | None = None,
+        background_manifest: Path | None = None, random_background: int | None = None,
+        detect_run: Path | None = None) -> pd.DataFrame:
+    """background_manifest: S8 manifest(기본 `background.DEFAULT_MANIFEST`, 없으면 멈춤) — 두 배경으로 진단하고 "해석 민감"을
+    붙인다. random_background: 정수를 주면 manifest 대신 학습 구간 무작위 그 개수 하나로만(비교·시험용, 해석 민감 없음).
+    detect_run: 탐지 실행 폴더 또는 run_meta.json — 모형 설정을 그대로 쓴다(없으면 DEFAULT_PARAMS, provenance에 기록)."""
+    from src.models import background
+
+    if random_background is None and background_manifest is None:
+        background_manifest = background.DEFAULT_MANIFEST
     t0 = time.time()
     out_dir.mkdir(parents=True, exist_ok=True)
     df = train_detect.load_master(master_path)
@@ -557,21 +674,45 @@ def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: 
         te_idx = np.sort(rng.choice(te_idx, max_stores, replace=False))
     train_detect.log(f"진단 대상 {origin} {len(te_idx):,}점포 · 학습 {origins[0]}~{origins[t - train_detect.EMBARGO - 1]} "
                      f"· feature set {primary}")
-    model = detect.DetectModel().fit(X[tr], y[tr])
+    params, params_source = model_params_from_detect_run(detect_run)
+    model = detect.DetectModel(params=params).fit(X[tr], y[tr])
 
     truncated_stores = None
     if online_path is not None and qa_path is not None:
         truncated_stores = load_truncated_stores(qa_path)
         train_detect.log(f"절단 점포 {len(truncated_stores):,}곳 (QA {qa_path})")
 
-    bg_idx, _ = background_rows(background_manifest, df, tr, rng, n_background)
     meta = df.iloc[te_idx][["store_id", "origin", "biz_type", "gu", "age_months"]].reset_index(drop=True)
-    res = explain(model, X.iloc[te_idx], X.iloc[bg_idx], meta, df.iloc[te_idx].reset_index(drop=True),
-                 truncated_stores=truncated_stores)
+    raw = df.iloc[te_idx].reset_index(drop=True)
+    if random_background is not None:
+        bg_idx, bg_info = background_rows(None, df, tr, rng, random_background)
+        res = explain(model, X.iloc[te_idx], X.iloc[bg_idx], meta, raw, truncated_stores=truncated_stores)
+        res["long"] = res["long"].assign(direction=res["long"]["contribution"].map(direction_label))
+        bg_prov, s8 = {"backgrounds": {"primary": bg_info}, "rule_ref": None}, None
+    else:
+        idx, bg_prov = background_rows_s8(background_manifest, df, tr)
+        res = explain_s8(model, X.iloc[te_idx], X.iloc[idx["primary"]], X.iloc[idx["sensitivity"]], meta, raw,
+                         truncated_stores=truncated_stores)
+        s8 = res["s8_summary"]
+        train_detect.log(f"S8 해석 민감: {s8['n_interpretation_sensitive']:,} / {s8['n_store_factor']:,} 점포×요인 "
+                         f"(방향 변경 {s8['direction_changed']:.1%}, 표시 변경 {s8['display_changed']:.1%})")
     long, cat, active, base, meta = res["long"], res["by_category"], res["active"], res["base"], res["meta"]
     long.to_parquet(out_dir / "diagnosis.parquet", index=False)
-
     cat.to_parquet(out_dir / "diagnosis_by_category.parquet", index=False)
+    # run_meta: 모형·배경·입력 provenance. 배경은 설명만 바꾸고 위험 확률(=모형 예측)·등급은 바꾸지 않는다.
+    run_meta = {"origin": origin, "n_stores": int(len(te_idx)), "primary_feature_set": primary,
+                "model_params": params, "model_params_source": params_source,
+                "model_class": "sklearn.ensemble.HistGradientBoostingClassifier",
+                "base_value": float(base), "train_origins": f"{origins[0]}~{origins[t - train_detect.EMBARGO - 1]}",
+                "background": bg_prov, "s8_summary": s8,
+                "master_sha256": train_detect.sha256(Path(master_path)),
+                "online_sha256": train_detect.sha256(Path(online_path)) if online_path else None,
+                "qa_sha256": train_detect.sha256(Path(qa_path)) if qa_path else None,
+                "n_truncated_stores": len(truncated_stores) if truncated_stores is not None else None,
+                "interpretation_note": "Shapley 기여는 예측 분해이며 인과효과가 아니다. 배경에 따라 설명이 달라질 수 있고"
+                                       "(S8 '해석 민감'), 위험 확률·등급은 배경과 무관하다."}
+    (out_dir / "diagnose_meta.json").write_text(json.dumps(run_meta, ensure_ascii=False, indent=2, default=str),
+                                                encoding="utf-8")
 
     summary = long.groupby(["category", "factor_id", "factor", "actionability"]).agg(
         mean_abs=("contribution", lambda s: s.abs().mean()), mean=("contribution", "mean"),
@@ -582,12 +723,13 @@ def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: 
 
     # 샘플 진단문 10건: high 등급 쪽에서 5건, 나머지 5건
     order = meta.sort_values("probability_12m", ascending=False)
-    pick = pd.concat([order.head(5), order.sample(5, random_state=seed)])
+    pick = pd.concat([order.head(5), order.sample(min(5, len(order)), random_state=seed)])
     vals = res["values"]
     sample = [{"store_id": r.store_id, "origin": r.origin, "probability_12m": round(float(r.probability_12m), 4),
                "base_value": round(base, 4),
                "unavailable_categories": [c for c in CATEGORIES if not any(f["category"] == c for f in active)],
-               "factors": factors_json(long, r.store_id, r.origin, vals(r.store_id, r.origin)),
+               "factors": factors_json(long, r.store_id, r.origin, vals(r.store_id, r.origin),
+                                       with_sensitivity=s8 is not None),
                "disclaimer": "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다."}
               for r in pick.itertuples()]
     (out_dir / "sample_factors.json").write_text(json.dumps(sample, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -598,23 +740,34 @@ def run(master_path: Path, out_dir: Path, *, online_path: Path | None, primary: 
 
 
 def main(argv=None) -> None:
-    ap = argparse.ArgumentParser(description="W2-3 요인별 진단")
+    ap = argparse.ArgumentParser(description="W2-3 요인별 진단 (Issue #49 S8 두 배경 해석 민감 포함)")
     ap.add_argument("--master", type=Path, default=config.MASTER_BASE_PATH)
     ap.add_argument("--online", type=Path, default=None)
     ap.add_argument("--primary", default="base")
     ap.add_argument("--origin", default=None, help="진단할 origin (기본: 마지막)")
-    ap.add_argument("--n-background", type=int, default=16)
     ap.add_argument("--max-stores", type=int, default=None, help="동작 확인용 표본 점포 수")
     ap.add_argument("--qa", type=Path, default=None,
                     help="온라인 QA csv — 있으면 절단 점포를 온라인 요인 data_missing으로 보류 (#34)")
     ap.add_argument("--background-manifest", type=Path, default=None,
-                    help="#34 배경 manifest(outputs/diagnosis/background/background_manifest.json) — 있으면 재현, 없으면 무작위")
+                    help="S8 배경 manifest (기본 outputs/diagnosis/background/background_manifest.json, 없으면 멈춤 — "
+                         "`python -m src.models.background create`로 만든다)")
+    ap.add_argument("--random-background", type=int, default=None, metavar="N",
+                    help="manifest 대신 학습 구간 무작위 N개 하나로 (비교·시험용, 운영 출력 아님, 해석 민감 없음)")
+    ap.add_argument("--detect-run", type=Path, default=None,
+                    help="탐지 실행 폴더(run_meta.json) — 모형 설정을 그대로 쓴다. 필수(#51), --default-params일 때만 생략")
+    ap.add_argument("--default-params", action="store_true",
+                    help="--detect-run 없이 detect.DEFAULT_PARAMS로 진단 (비교·시험용, 운영 출력 아님)")
     ap.add_argument("--out", type=Path, default=None)
     a = ap.parse_args(argv)
+    if a.detect_run is None and not a.default_params:
+        ap.error("--detect-run이 필요하다 — 진단 모형은 risk_scores를 만든 탐지 실행(run_meta.params)과 같아야 한다(#51). "
+                 "DEFAULT_PARAMS로 시험하려면 --default-params를 명시한다")
+    if a.detect_run is not None and a.default_params:
+        ap.error("--detect-run과 --default-params는 함께 쓸 수 없다")
     out = a.out or (config.REPO_ROOT / "outputs" / "models" / f"diagnosis_{a.primary}")
-    run(a.master, out, online_path=a.online, primary=a.primary, origin=a.origin,
-        n_background=a.n_background, max_stores=a.max_stores, qa_path=a.qa,
-        background_manifest=a.background_manifest)
+    run(a.master, out, online_path=a.online, primary=a.primary, origin=a.origin, max_stores=a.max_stores,
+        qa_path=a.qa, background_manifest=a.background_manifest, random_background=a.random_background,
+        detect_run=a.detect_run)
 
 
 if __name__ == "__main__":

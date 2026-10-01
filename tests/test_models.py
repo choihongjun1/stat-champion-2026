@@ -204,9 +204,14 @@ def test_end_to_end(tmp_path, panel):
 
     oof = pd.read_parquet(out / "oof_predictions.parquet")
     assert set(oof["config"]) == {"현 설정", "튜닝"} and set(oof.columns) == {"store_id", "origin", "config", "p_oof", "y"}
-    assert not oof["store_id"].isna().any()
+    assert not oof["store_id"].isna().any() and not oof["p_oof"].isna().any()
+    assert not oof.duplicated(["store_id", "origin", "config"]).any()
 
     meta = json.loads((out / "run_meta.json").read_text(encoding="utf-8"))
+    # S13: 서빙 경로의 기본 설정은 #45 채택 (0.03, 31). "현 설정" config 이름은 서빙에 쓰는 설정을 가리킨다.
+    assert meta["model_params_by_config"] == {"현 설정": detect.ADOPTED_PARAMS, "튜닝": train_detect.TUNED_PARAMS}
+    assert meta["params"] == detect.ADOPTED_PARAMS and meta["params_name"] == "adopted"  # 서빙이 읽는 키
+    assert meta["model_class"] == detect.MODEL_CLASS  # F10: 클래스명이 산출물에 남는다
     assert meta["oof_predictions_sha256"] == train_detect.sha256(out / "oof_predictions.parquet")
     assert meta["oof_predictions_rows"] == len(oof)
     assert meta["calibration_candidate"] in ("raw", "isotonic", "platt")
@@ -218,6 +223,88 @@ def test_end_to_end(tmp_path, panel):
     assert isinstance(bp["high_fallback"], bool) and isinstance(bp["mid_fallback"], bool)
     assert bp["base_rate"] == pytest.approx(cut["base_rate"]) and 0 <= bp["high_share_test"] <= 1
     assert len(bp["high_lift_ci95"]) == 2
+    assert bp["window_rule"].startswith("fixed") and bp["n_cutoff_rows"] == (oof["origin"].isin(bp["calib_origins"])
+                                                                             & (oof["config"] == "현 설정")).sum()
+    assert (bp["target_high_lift"], bp["target_mid_lift"], bp["high_min_group_n"]) == (2.0, 1.2, 200)
+    assert bp["high_grid"] == {"quantile_from": 0.50, "quantile_to": 0.995, "n_points": 200, "fallback_quantile": 0.95}
+    assert bp["high_lift_ci"]["unit"] == "store_id" and bp["high_lift_ci"]["seed"] == bands.LIFT_CI_SEED
+    assert bp["high_lift_ci"]["percentiles"] == [2.5, 97.5] and bp["high_lift_ci"]["n_boot"] > 0
+
+
+def test_tuned_params_keep_every_default_except_the_two_tuned_values():
+    """튜닝 설정은 DEFAULT_PARAMS 전체 위에 learning_rate·max_leaf_nodes만 바꾼다 — 두 값만 넘기면 나머지가
+    sklearn 기본값(max_iter=100, early_stopping='auto', random_state=None …)이 되어 다른 모형·비결정적 실행이 된다."""
+    tuned, default = train_detect.TUNED_PARAMS, detect.DEFAULT_PARAMS
+    assert set(tuned) == set(default)
+    assert {k for k in default if tuned[k] != default[k]} == {"learning_rate", "max_leaf_nodes"}
+    assert (tuned["learning_rate"], tuned["max_leaf_nodes"]) == (0.03, 15)
+    assert tuned["early_stopping"] is False and tuned["random_state"] == default["random_state"]
+
+
+def test_adopted_params_are_default_with_only_the_two_adopted_values_changed():
+    a, d = detect.ADOPTED_PARAMS, detect.DEFAULT_PARAMS
+    # 채택값 (0.03, 31)은 DEFAULT (0.06, 31)와 learning_rate만 다르다(max_leaf_nodes는 둘 다 31). 나머지 키는 전부 같다.
+    assert set(a) == set(d) and {k for k in d if a[k] != d[k]} == {"learning_rate"}
+    assert (a["learning_rate"], a["max_leaf_nodes"]) == (0.03, 31)
+    assert (d["learning_rate"], d["max_leaf_nodes"]) == (0.06, 31)  # DEFAULT는 그대로 — 벤치마크 "현 설정" 비교 기준
+    assert a["early_stopping"] is False and a["random_state"] == d["random_state"]
+    t = train_detect.TUNED_PARAMS  # 불채택 비교용 (0.03, 15)는 그대로, 채택값과 다르다
+    assert (t["learning_rate"], t["max_leaf_nodes"]) == (0.03, 15) and t != a
+
+
+def test_serving_path_defaults_to_adopted_params():
+    import inspect
+
+    assert inspect.signature(train_detect.run).parameters["params_name"].default == "adopted"
+    assert train_detect.build_parser().parse_args([]).params == "adopted"
+    assert train_detect.build_parser().parse_args(["--params", "default"]).params == "default"
+    assert train_detect.config_params()["현 설정"] == detect.ADOPTED_PARAMS
+    assert train_detect.config_params("default")["현 설정"] == detect.DEFAULT_PARAMS
+    with pytest.raises(ValueError):
+        train_detect.config_params("nope")
+    with pytest.raises(SystemExit):
+        train_detect.build_parser().parse_args(["--params", "nope"])
+
+
+def test_run_with_default_params_name_reproduces_the_previous_setting(tmp_path, panel):
+    path = tmp_path / "master.parquet"
+    panel.to_parquet(path, index=False)
+    out = tmp_path / "out"
+    train_detect.run(path, out, ["base"], n_boot=2, with_split_comparison=False, params_name="default")
+    meta = json.loads((out / "run_meta.json").read_text(encoding="utf-8"))
+    assert meta["params"] == detect.DEFAULT_PARAMS and meta["params_name"] == "default"
+    assert meta["model_params_by_config"]["현 설정"] == detect.DEFAULT_PARAMS
+    assert meta["model_class"] == detect.MODEL_CLASS
+
+
+def test_run_meta_params_name_distinguishes_legacy_runs():
+    assert train_detect.run_meta_params_name({"params": detect.ADOPTED_PARAMS, "params_name": "adopted"}) == "adopted"
+    assert train_detect.run_meta_params_name({"params": detect.DEFAULT_PARAMS}) == "legacy_default"
+    assert train_detect.run_meta_params_name({"params": detect.ADOPTED_PARAMS}) == "legacy_unnamed"
+
+
+def test_model_class_path_is_the_class_actually_used(panel):
+    import importlib
+
+    mod, _, name = detect.MODEL_CLASS.rpartition(".")
+    cls = getattr(importlib.import_module(mod), name)
+    cols = features.select_features(panel.columns, "base")
+    sub = panel[panel["origin"] < "2022Q1"]
+    m = detect.DetectModel().fit(features.build_X(sub, cols), sub["event_12m"].to_numpy())
+    assert type(m.model_) is cls
+
+
+def test_tuned_fit_is_deterministic():
+    # early_stopping='auto'는 1만 행 이상에서 켜지므로 그보다 큰 학습 표본으로 확인한다
+    df = synthetic_master(n_stores=900, seed=5)
+    X = features.build_X(df, features.select_features(df.columns, "base"))
+    y = df["event_12m"].to_numpy()
+    tr = (df["origin"] < "2024Q2").to_numpy()
+    te = (df["origin"] == "2025Q2").to_numpy()
+    assert tr.sum() > 10_000
+    a = detect.fit_predict(X[tr], y[tr], X[te], train_detect.TUNED_PARAMS)
+    b = detect.fit_predict(X[tr], y[tr], X[te], train_detect.TUNED_PARAMS)
+    np.testing.assert_array_equal(a, b)
 
 
 # ---------------------------------------------------------------- Enriched (온라인)
@@ -258,13 +345,40 @@ def test_end_to_end_with_online(tmp_path, panel):
     assert set(pd.read_parquet(out / "risk_scores.parquet")["model"]) == {"detect_v0_enriched"}
 
 
-def test_online_time_leak_is_rejected(tmp_path, panel):
+def test_online_table_built_for_other_origin_definition_is_rejected(tmp_path, panel):
     t = _online_table(panel)
     t["online_feature_asof"] = t["online_feature_asof"] + pd.Timedelta(days=1)
     op = tmp_path / "online.parquet"
     t.to_parquet(op, index=False)
-    with pytest.raises(ValueError, match="시점 누수"):
+    with pytest.raises(ValueError, match="다른 origin 정의"):
         train_detect.attach_online(panel, op)
+
+
+def test_attach_online_new_format_checks_available_at(tmp_path, panel):
+    """새 형식(online_collected_at 있음): available_at(마지막 게시월 말일) > origin_end면 멈춘다.
+    collected_at(수집 시각, 항상 origin 뒤)은 검사하지 않는다 — 회고적 재구성이라 누수가 아니다."""
+    t = _online_table(panel).merge(panel[["store_id", "origin", "origin_end"]], on=["store_id", "origin"])
+    t["online_available_at"] = t["origin_end"]
+    t["online_collected_at"] = pd.Timestamp("2026-09-23 23:39:46")
+    op = tmp_path / "online.parquet"
+    t.drop(columns="origin_end").to_parquet(op, index=False)
+    out = train_detect.attach_online(panel, op)
+    assert not {"online_feature_asof", "online_available_at", "online_collected_at"} & set(out.columns)
+    t["online_available_at"] = t["origin_end"] + pd.offsets.MonthEnd(1)  # 다음 달 게시물까지 들어갈 수 있는 창
+    t.drop(columns="origin_end").to_parquet(op, index=False)
+    with pytest.raises(ValueError, match="available_at > origin_end"):
+        train_detect.attach_online(panel, op)
+
+
+def test_attach_online_old_format_still_loads(tmp_path, panel, capsys):
+    """이전 형식(2026-09-29: available_at에 수집 시각, collected_at 열 없음)도 하위 산출물을 위해 읽되 경고한다."""
+    t = _online_table(panel)
+    t["online_available_at"] = pd.Timestamp("2026-09-23")
+    op = tmp_path / "online.parquet"
+    t.to_parquet(op, index=False)
+    out = train_detect.attach_online(panel, op)
+    assert len(out) == len(panel) and "online_available_at" not in out.columns
+    assert "이전 형식 온라인 표" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------- #32 리뷰: 보정 3구간 · Platt · 분할 비교

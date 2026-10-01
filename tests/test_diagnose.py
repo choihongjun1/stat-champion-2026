@@ -99,7 +99,7 @@ def test_run_end_to_end(tmp_path, panel):
     _online_table(panel).to_parquet(op, index=False)
     out = tmp_path / "diag"
     long = diagnose.run(mp, out, online_path=op, primary="enriched", origin=None,
-                        n_background=4, max_stores=30)
+                        random_background=4, max_stores=30)
     assert set(long["category"]) <= set(diagnose.CATEGORIES)
     assert "rent_level" not in set(long["factor_id"])  # 학습 구간에 공시지가 값이 없다
     cat = pd.read_parquet(out / "diagnosis_by_category.parquet")
@@ -169,7 +169,7 @@ def test_all_missing_factor_is_held(tmp_path, panel):
     panel.to_parquet(mp, index=False)
     _online_table(panel).to_parquet(op, index=False)
     long = diagnose.run(mp, tmp_path / "diag", online_path=op, primary="enriched", origin=None,
-                        n_background=4, max_stores=60)
+                        random_background=4, max_stores=60)
     trdar_ids = {f["id"] for f in diagnose.FACTORS if any(c.startswith("trdar_") for c in f["features"])}
     miss = long[long["data_missing"]]
     assert len(miss) > 0 and set(miss["factor_id"]) <= trdar_ids | {"online_attention"}
@@ -359,7 +359,7 @@ def test_online_review_hold_reason(tmp_path, panel):
     panel.to_parquet(mp, index=False)
     _online_table(panel).to_parquet(op, index=False)
     long = diagnose.run(mp, tmp_path / "diag", online_path=op, primary="enriched", origin=None,
-                        n_background=4, max_stores=60)
+                        random_background=4, max_stores=60)
     held = long[~long["display"]]
     assert set(held["hold_reason"]) <= set(diagnose.HOLD_REASONS)
     assert (long.loc[long["display"], "hold_reason"] == "").all()
@@ -382,7 +382,7 @@ def test_load_truncated_stores_reads_qa_csv(tmp_path):
 
 
 def test_run_reproduces_manifest_background(tmp_path, panel):
-    """#34: background manifest를 주면 무작위 대신 저장된 배경(해시 키)을 그대로 쓰고, 같은 결과가 재현된다."""
+    """#34: S8 manifest를 주면 무작위 대신 저장된 두 배경(해시 키)을 그대로 쓰고, 같은 결과가 재현된다."""
     from src.models import background
 
     mp, op = tmp_path / "master.parquet", tmp_path / "online.parquet"
@@ -390,9 +390,9 @@ def test_run_reproduces_manifest_background(tmp_path, panel):
     _online_table(panel).to_parquet(op, index=False)
     origins = sorted(panel["origin"].unique())
     pool = np.flatnonzero((panel["origin"] < origins[-5]).to_numpy())
-    background.save_background(panel, pool[:4], tmp_path / "bg")
+    background.save_s8(panel, {"primary": pool[:4], "sensitivity": pool[4:8]}, tmp_path / "bg")
     man = tmp_path / "bg" / "background_manifest.json"
-    kw = dict(online_path=op, primary="enriched", origin=None, n_background=4, max_stores=30, background_manifest=man)
+    kw = dict(online_path=op, primary="enriched", origin=None, max_stores=30, background_manifest=man)
     a = diagnose.run(mp, tmp_path / "d1", seed=1, **kw)
     b = diagnose.run(mp, tmp_path / "d2", seed=2, **kw)  # 시드가 달라도 배경이 같으므로(표본 점포만 다름) 같은 점포는 같은 기여
     m = a.merge(b, on=["store_id", "origin", "factor_id"], suffixes=("_a", "_b"))
@@ -426,8 +426,166 @@ def test_run_with_qa_holds_truncated_stores_end_to_end(tmp_path, panel):
     qa_path = _qa_csv(tmp_path, qa_rows)
 
     long = diagnose.run(mp, tmp_path / "diag", online_path=op, primary="enriched", origin=None,
-                        n_background=4, max_stores=60, qa_path=qa_path)
+                        random_background=4, max_stores=60, qa_path=qa_path)
     row = long[(long["store_id"] == trunc_store) & (long["factor_id"] == "online_attention")]
     if len(row):  # 진단 대상 표본(max_stores)에 포함됐을 때만 검사한다
         assert row.iloc[0]["hold_reason"] == "data_missing"
         assert row.iloc[0]["missing_reason"] == "관측 불가"
+
+
+# ---------------------------------------------------------------- 2026-10-01: 배경 운영 규칙·#36 로직 이관
+def _inputs(tmp_path, panel):
+    mp, op = tmp_path / "master.parquet", tmp_path / "online.parquet"
+    panel.to_parquet(mp, index=False)
+    _online_table(panel).to_parquet(op, index=False)
+    return mp, op
+
+
+def test_run_requires_background_manifest_by_default(tmp_path, panel, monkeypatch):
+    """무작위 16개를 암묵적 기본값으로 쓰지 않는다 — manifest가 없으면 멈추고, 무작위는 명시할 때만."""
+    from src.models import background
+
+    mp, op = _inputs(tmp_path, panel)
+    monkeypatch.setattr(background, "DEFAULT_MANIFEST", tmp_path / "missing" / "background_manifest.json")
+    with pytest.raises(FileNotFoundError, match="manifest"):
+        diagnose.run(mp, tmp_path / "d", online_path=op, primary="enriched", origin=None, max_stores=10)
+    with pytest.raises(FileNotFoundError, match="manifest"):
+        diagnose.main(["--master", str(mp), "--online", str(op), "--primary", "enriched", "--max-stores", "10",
+                       "--out", str(tmp_path / "d2"), "--default-params"])
+
+
+def test_run_with_s8_manifest_records_sensitivity_and_provenance(tmp_path, panel):
+    """S8: 두 배경으로 진단하고 점포×요인마다 해석 민감 여부를 남기며, run_meta에 두 seed·해시·규칙을 기록한다."""
+    from src.models import background
+
+    mp, op = _inputs(tmp_path, panel)
+    origins = sorted(panel["origin"].unique())
+    rule = {**background.S8_RULE, "n_background": 8, "reference_origin": origins[-1]}
+    man = background.create(mp, tmp_path / "bg", rule=rule)
+    long = diagnose.run(mp, tmp_path / "d", online_path=op, primary="enriched", origin=None, max_stores=20,
+                        background_manifest=tmp_path / "bg" / "background_manifest.json")
+    for c in ("contribution", "direction", "display", *diagnose.SENSITIVITY_COLS):
+        assert c in long.columns, c
+    exp = (long["direction"] != long["direction_sens"]) | (long["display"] != long["display_sens"])
+    assert (long["interpretation_sensitive"] == exp).all()
+    assert set(long.loc[long["interpretation_sensitive"], "sensitivity_label"]) <= {"해석 민감"}
+    meta = json.loads((tmp_path / "d" / "diagnose_meta.json").read_text(encoding="utf-8"))
+    bg = meta["background"]
+    for role in background.ROLES:
+        b = bg["backgrounds"][role]
+        assert b["operational"] and b["rows_sha256"] == man["backgrounds"][role]["sha256"]
+        assert b["index_sha256"] == man["backgrounds"][role]["index_sha256"] and b["seed"] == rule["seeds"][role]
+    assert "#49 S8" in bg["rule_ref"] and "display" in bg["comparison"] and bg["check_1024"]["seed"] == 20261002
+    assert meta["s8_summary"]["n_interpretation_sensitive"] == int(long["interpretation_sensitive"].sum())
+    assert "DEFAULT_PARAMS" in meta["model_params_source"]  # detect run 미지정 — 최종 재생성 전 #51 연결 필요
+    sample = json.loads((tmp_path / "d" / "sample_factors.json").read_text(encoding="utf-8"))
+    assert all("interpretation_sensitive" in f for s in sample for f in s["factors"])
+    random_meta = diagnose.background_rows(None, panel, np.ones(len(panel), bool), np.random.default_rng(0), 3)[1]
+    assert random_meta["operational"] is False
+
+
+def test_attach_sensitivity_flags_direction_or_display_mismatch():
+    base = pd.DataFrame({"store_id": ["A"] * 4, "origin": "2025Q2", "factor_id": ["f1", "f2", "f3", "f4"],
+                         "contribution": [0.01, 0.01, 0.0005, 0.02], "display": [True, True, True, True],
+                         "hold_reason": ["", "", "", ""]})
+    other = base.assign(contribution=[0.012, -0.01, 0.0009, 0.02], display=[True, True, True, False],
+                        hold_reason=["", "", "", "online_review"])
+    out = diagnose.attach_sensitivity(base, other).set_index("factor_id")
+    # f1: 같은 방향·표시 → 민감 아님 / f2: 증가↔감소 / f3: 둘 다 영향 미미 → 민감 아님 / f4: 표시 상태만 다름
+    assert out["interpretation_sensitive"].to_dict() == {"f1": False, "f2": True, "f3": False, "f4": True}
+    assert out.at["f2", "sensitivity_label"] == "해석 민감" and out.at["f1", "sensitivity_label"] == ""
+    assert (out["contribution"] == base.set_index("factor_id")["contribution"]).all()  # 주 배경 값은 그대로
+    summ = diagnose.compare_explanations(base, other)
+    assert summ["direction_flip"] == pytest.approx(0.25) and summ["display_changed"] == pytest.approx(0.25)
+    assert "증명이 아니다" in summ["note"]
+    with pytest.raises(ValueError, match="민감도 배경"):
+        diagnose.attach_sensitivity(base, other.iloc[:3])
+
+
+def test_detect_run_params_are_used_for_diagnosis(tmp_path, panel):
+    """진단 모형 = 탐지 실행(run_meta.params)과 같은 설정 — #51 이후 채택 (0.03, 31)을 그대로 받는다."""
+    from src.models import detect
+
+    params = {**detect.DEFAULT_PARAMS, "learning_rate": 0.03, "max_leaf_nodes": 31}
+    (tmp_path / "det").mkdir()
+    (tmp_path / "det" / "run_meta.json").write_text(json.dumps({"params": params, "params_name": "adopted"}),
+                                                    encoding="utf-8")
+    got, src = diagnose.model_params_from_detect_run(tmp_path / "det")
+    assert got == params and "adopted" in src
+    assert diagnose.model_params_from_detect_run(None)[0] == detect.DEFAULT_PARAMS
+    (tmp_path / "bad.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match="params"):
+        diagnose.model_params_from_detect_run(tmp_path / "bad.json")
+    mp, op = _inputs(tmp_path, panel)
+    diagnose.run(mp, tmp_path / "d", online_path=op, primary="enriched", origin=None, max_stores=10,
+                 random_background=4, detect_run=tmp_path / "det")
+    meta = json.loads((tmp_path / "d" / "diagnose_meta.json").read_text(encoding="utf-8"))
+    assert meta["model_params"] == params and "run_meta.params" in meta["model_params_source"]
+
+
+def test_background_changes_explanation_not_probability_or_band(tmp_path, panel):
+    """배경은 설명(기여)만 바꾼다 — 위험 확률(모형 예측)과 그 확률로 정하는 등급은 그대로다."""
+    from src.models import bands
+
+    mp, op = _inputs(tmp_path, panel)
+    kw = dict(online_path=op, primary="enriched", origin=None, max_stores=None, random_background=6)
+    a = diagnose.run(mp, tmp_path / "a", seed=1, **kw)
+    b = diagnose.run(mp, tmp_path / "b", seed=2, **kw)  # 다른 무작위 배경
+    pa = pd.read_parquet(tmp_path / "a" / "diagnosis_by_category.parquet").set_index(["store_id", "origin"])
+    pb = pd.read_parquet(tmp_path / "b" / "diagnosis_by_category.parquet").set_index(["store_id", "origin"]).loc[pa.index]
+    np.testing.assert_array_equal(pa["probability_12m"].to_numpy(), pb["probability_12m"].to_numpy())
+    band_a = bands.assign_bands_absolute(pa["probability_12m"].to_numpy(), cut_mid=0.12, cut_high=0.2)
+    band_b = bands.assign_bands_absolute(pb["probability_12m"].to_numpy(), cut_mid=0.12, cut_high=0.2)
+    assert (band_a == band_b).all()
+    m = a.merge(b, on=["store_id", "origin", "factor_id"], suffixes=("_a", "_b"))
+    assert not np.allclose(m["contribution_a"], m["contribution_b"])  # 기여(설명)는 배경에 따라 달라진다
+    assert not np.allclose(pa["base_value"], pb["base_value"])
+
+
+def test_truncated_store_online_factor_is_held_end_to_end(tmp_path, panel):
+    """#33 절단 점포(QA)이면서 온라인 feature가 하나라도 결측이면 온라인 요인은 data_missing·online_unobservable로
+    보류된다(기여값 보존). 절단이 아니면 같은 결측이어도 이 사유로 보류하지 않는다."""
+    mp, op = _inputs(tmp_path, panel)
+    online = pd.read_parquet(op)
+    last = panel["origin"].max()
+    cols = list(features.ONLINE_PREDICTORS)
+    # 마지막 origin에서 값이 모두 있는 점포 두 곳의 12개월 창만 결측으로 — 절단 점포의 "일부 결측"을 흉내
+    full = online.loc[(online["origin"] == last) & online[cols].notna().all(axis=1), "store_id"]
+    some_na = full.iloc[:2].reset_index(drop=True)
+    online.loc[(online["origin"] == last) & online["store_id"].isin(some_na), "online_blog_cnt_12m"] = np.nan
+    online.to_parquet(op, index=False)
+    trunc = set(some_na.iloc[:1])
+    qa_rows = [(s, "", "True" if s in trunc else "False", "20200101" if s in trunc else "")
+               for s in panel["store_id"].unique()]
+    long = diagnose.run(mp, tmp_path / "d", online_path=op, primary="enriched", origin=None, max_stores=None,
+                        random_background=4, qa_path=_qa_csv(tmp_path, qa_rows))
+    on = long[long["factor_id"] == "online_attention"].set_index("store_id")
+    t = on.loc[list(trunc)[0]]
+    assert (t["display"], t["hold_reason"], t["missing_reason_code"]) == (False, "data_missing", "online_unobservable")
+    other = on.loc[some_na.iloc[1]]
+    assert other["hold_reason"] != "data_missing"  # 일부 결측이지만 절단이 아니면 이 사유로 보류하지 않는다
+
+
+def test_cli_requires_detect_run_unless_default_params_is_explicit(tmp_path, monkeypatch):
+    """#51: 최종 경로(CLI)는 --detect-run 없이 DEFAULT_PARAMS로 조용히 진단하지 않는다 — 명시적 --default-params만 허용."""
+    seen = {}
+    monkeypatch.setattr(diagnose, "run", lambda *a, **k: seen.update(k))
+    with pytest.raises(SystemExit):
+        diagnose.main(["--out", str(tmp_path / "d")])
+    with pytest.raises(SystemExit):
+        diagnose.main(["--detect-run", str(tmp_path / "det"), "--default-params"])
+    assert not seen
+    diagnose.main(["--detect-run", str(tmp_path / "det"), "--out", str(tmp_path / "d")])
+    assert seen["detect_run"] == tmp_path / "det"
+    seen.clear()
+    diagnose.main(["--default-params", "--out", str(tmp_path / "d")])
+    assert seen["detect_run"] is None
+
+
+def test_legacy_detect_run_without_params_name_is_marked(tmp_path):
+    """#51 이전 run_meta(params_name 없음)는 params_name=None으로 숨기지 않고 legacy 여부를 적는다."""
+    from src.models import detect
+
+    (tmp_path / "old.json").write_text(json.dumps({"params": detect.DEFAULT_PARAMS}), encoding="utf-8")
+    got, src = diagnose.model_params_from_detect_run(tmp_path / "old.json")
+    assert got == detect.DEFAULT_PARAMS and "params_name=legacy_default" in src
