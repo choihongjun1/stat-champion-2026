@@ -20,14 +20,9 @@
     }
   },
   "risk": {
-    "probability_12m": 0.172,
-    "ci_low": 0.141,
-    "ci_high": 0.205,
-    "interval_note": "학습 데이터가 달랐다면 예측이 얼마나 흔들렸을지의 범위이며, 폐업 확률 자체의 범위가 아닙니다.",
     "band": "mid",
     "percentile": 72,
     "peer_group": "광진구 일반음식점",
-    "peer_median": 0.118,
     "model": "sample_synthetic",
     "calibrated": false
   },
@@ -242,5 +237,6 @@
       "check_note": "데이터로 확인할 수 없는 조건이 있어 자동 매칭하지 않음: 연매출 3억 원 이하"
     }
   ],
-  "disclaimer": "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다."
+  "disclaimer": "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다.",
+  "_public_contract_version": "public-static-0.1"
 }

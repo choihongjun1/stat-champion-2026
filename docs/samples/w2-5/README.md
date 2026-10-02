@@ -1,4 +1,4 @@
-# W2-5 합성 샘플 번들 (최종 0.3 계약)
+# W2-5 합성 샘플 번들 (public-static-0.1 계약)
 
 **모든 값은 지어낸 값이다.** 점포(`SAMPLE-001`~`010`, 상호 `(샘플) …`, 주소 `가상로`), 위험도·등급, 요인 기여, 온라인 존재감,
 정책(`(예시) …`)은 실제 점포·실제 추정 결과·실제 통계가 아니다. 실제 결과에서 가져와 가린 것이 아니라 처음부터 합성했다.
@@ -52,3 +52,7 @@ const report = await (await fetch(`${base}/${meta.report_path_template.replace("
 2026-10-02: 모든 factor에 sensitivity pair 및 driver_code 키를 추가했다. 온라인 일반 표시 사례는 true/해석 민감,
 그 밖은 false/빈 라벨이다. primary 값은 그대로다. provenance 해시는 합성 반복 문자열이며 실제 배경/학습 실행의 증거가 아니다.
 동 fallback은 dongs.json의 (gu,dong)을 선택해 dong_summary.json을 읽는다. 버전은 meta/report/search/dong/manifest 모두 0.3이다.
+
+W3-14/T3: 공개 번들은 개인 확률·예측구간 네 키와 peer_median을 포함하지 않는다.
+등급(low/mid/high), 비확률 동종 비교, 요인·해석 민감 경고·정책·기준 시점은 유지한다.
+생성기의 내부 serve fixture는 확률/구간을 보존하며 static export에서만 projection한다.

@@ -24,6 +24,7 @@
     "dongs": "dongs.json",
     "dong_summary": "dong_summary.json"
   },
+  "public_contract_version": "public-static-0.1",
   "technical_gate": {
     "passed": true,
     "blockers": []

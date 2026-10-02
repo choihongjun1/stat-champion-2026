@@ -138,7 +138,7 @@ def test_bad_config_is_usage_error(tmp_path,kind):
     allowlist = []
     if kind == 'regex': rules[0]['patterns'] = ['[']
     if kind == 'severity': rules[0]['severity'] = 'fatal'
-    if kind == 'mask': rules[-1]['mask'] = False
+    if kind == 'mask': next(r for r in rules if r['id'].startswith('ID-'))['mask'] = False
     if kind == 'ids': rules[1]['id'] = rules[0]['id']
     if kind == 'reason': del rules[0]['reason']
     if kind == 'allowlist': allowlist = [dict(path_glob='sample.md',rule_ids=['UNKNOWN'],reason='synthetic')]
@@ -405,3 +405,18 @@ def test_report_schema_nested_store_name(tmp_path):
                                '"name":"검증용가상식당"}}', 'report.json')
     assert 'ID-05' in {f['rule_id'] for f in result['findings']}
     assert '검증용가상식당' not in json.dumps(result, ensure_ascii=False)
+
+@pytest.mark.parametrize('key', ['probability_12m','ci_low','ci_high','interval_note'])
+def test_public_contract_reserved_keys_and_aggregate_ci_scope(tmp_path, key):
+    public = json.dumps({'_public_contract_version':'public-static-0.1','risk':{key:None}})
+    assert 'CL-19' in {f['rule_id'] for f in findings(tmp_path, public, 'public.json')['findings']}
+    aggregate = json.dumps({'auc':{'ci_low':0.61,'ci_high':0.66}, 'band_cutoffs':{'cut_high':0.2}})
+    assert not findings(tmp_path, aggregate, 'meta.json')['findings']
+
+
+def test_public_sample_claims_have_no_probability_findings():
+    rules, allowlist = config()
+    result = checker.scan([ROOT/'docs/samples/w2-5/bundle',ROOT/'docs/samples/w2-5/bundle_no_policy'],
+                          rules,allowlist)
+    assert result['summary']['scanned_files'] == 20
+    assert not any(f['rule_id'] in {'CL-04','CL-19'} for f in result['findings'])

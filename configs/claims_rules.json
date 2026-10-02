@@ -32,7 +32,8 @@
     "patterns": [
       "\\d+(\\.\\d+)?\\s*%\\s*(로|으로)\\s*예측",
       "(?<![\\d.])38\\s*%",
-      "\"(?:probability_12m|ci_low|ci_high)\"\\s*:\\s*-?\\d"
+      "\"probability_12m\"\\s*:\\s*-?\\d",
+      "\"risk\"\\s*:\\s*\\{[^{}]*\"(?:ci_low|ci_high)\"\\s*:\\s*-?\\d"
     ],
     "reason": "CLAIMS 탐지: 개인 수치 예측 금지",
     "mask": false
@@ -241,5 +242,15 @@
     ],
     "reason": "A3: 관리번호·row_key·필지 식별자 값",
     "mask": true
+  },
+  {
+    "id": "CL-19",
+    "severity": "error",
+    "patterns": [
+      "\"(?:probability_12m|ci_low|ci_high|interval_note)\"\\s*:"
+    ],
+    "reason": "T3/W3-14: public report에 개인 확률·구간 키 자체 금지 (null 포함)",
+    "mask": false,
+    "scope": "public_report"
   }
 ]

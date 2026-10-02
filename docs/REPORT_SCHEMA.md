@@ -14,7 +14,7 @@
 [W2_REPORT_REFRESH.md](W2_REPORT_REFRESH.md)에 있다. 아래 2026-09-26 실측/상태는 당시 기록이며,
 현재 버전·release 판단에는 이 절과 기계 스키마를 적용한다.
 
-- 최종 리포트와 모든 정적 파일은 0.3, serve 입력은 별도 0.2. required sensitivity pair 및 driver_code 때문에 최종 버전을 올렸다.
+- 내부 최종 리포트는 0.3, 정적 리포트는 0.3 기반의 별도 public-static-0.1 계약, serve 입력은 별도 0.2. required sensitivity pair 및 driver_code 때문에 최종 버전을 올렸다.
 - factor.interpretation_sensitive는 boolean, sensitivity_label은 false일 때 "", true일 때 "해석 민감"이며 모두 필수.
   주 배경 contribution/direction/display/explanation을 계속 사용한다. sensitivity는 보조 경고이다.
 - release build는 adopted params_name/params_contract, canonical HGB, detect run_meta SHA256,
@@ -116,7 +116,7 @@
 | `close_date` | date | 예 | `current=open`이면 null, `closed`면 필수. as_of 이전이면 오류 |
 | `license_snapshot_date` | date | 예 | 인허가 원천 파일 기준일 |
 
-### 3-3. `risk` (serve 그대로)
+### 3-3. 내부 `risk` (serve 그대로; 공개 risk는 §13 W3-14)
 
 | 필드 | 타입 | null | 규칙 |
 |---|---|---|---|
@@ -316,7 +316,7 @@ B는 아직 없으며 코드에 승인 수단도 없다 — 정적 번들의 `pu
 | `store.status` | 없음 | 없음 | 신설 (기준일 영업 vs 현재) | W2-5 빌드 / 화면 |
 | `risk.peer_group` | "{gu} {biz_type}" | "…업력 유사 구간" | serve 기준 | 화면 |
 | `risk.calibrated` | false | true | serve 값 그대로, 화면 노출 불필요 | 화면 |
-| `risk.interval_note` | 있음 | 없음 | 필수, 신뢰구간 표현 금지 | 화면 |
+| `risk.interval_note` | 있음 | 없음 | 내부 필수; 공개 static에서는 W3-14로 제외 | 내부 QA |
 | `factors` 단위 | 요인 8개 + `factor_id` | 개별 변수, id 없음 | 요인 단위 | 화면 |
 | `factors[].peer_percentile` 방향 | 높을수록 위험 기여 큼 | 낮을수록 나쁨처럼 사용 | serve 기준 | 화면 |
 | `factors[].direction` | 부호만 (0.0에 "위험 증가" 가능) | — | `영향 미미` 추가 | PR #36 (R3) |
@@ -351,7 +351,7 @@ R1의 코드명은 위 초안(`outside_trdar` 등) 대신 서빙 쪽 `MISSING_RE
 3. `peer_group`에서 업력 조건을 뺀다 ("광진구 미용업").
 4. 표시 상태 4종(§4)을 코드 필드로 분기한다. `영향 미미`는 접는다.
 5. 비용 유형은 "판단 불가"로 표시하고 0%p로 그리지 않는다.
-6. 불확실성 구간은 `interval_note` 문구만 쓴다 ("신뢰구간" 표기 금지).
+6. 공개 화면에는 개인 확률·예측구간을 표시하지 않는다(T3/W3-14). 내부 QA의 구간 설명에는 "신뢰구간" 표기를 금지한다.
 7. 처방 카드에서 효과 수치·근거 등급을 뺀다 (W3 전 unavailable 상태).
 8. 정책: `related_factor`(이름) → `linked_factor_ids`, `eligibility` → `eligibility_text`, `unverifiable_conditions` 추가.
 9. `store.status.current`가 `closed`/`unknown`이면 "기준일 이후 폐업 신고됨/상태 확인 필요" 안내를 붙인다.
@@ -507,7 +507,7 @@ python -m src.serving.export_static --db outputs/serving/report.sqlite --min-cel
   search_index.json    search_index_file — 검색용 (위험 정보 없음)
   dongs.json           dong_list_file — 동 선택 목록 "{동} ({구})"
   dong_summary.json    dong_summary_file — 동×업종 등급 분포 (숨김 적용)
-  reports/{store_id}.json   점포별 최종 0.3 리포트 1건씩 (파일명은 store_id만, 상호·주소 없음)
+  reports/{store_id}.json   점포별 public-static-0.1 projection 1건씩 (파일명은 store_id만, 상호·주소 없음)
   manifest.json        static_manifest — 파일별 path·sha256·bytes·rows·schema_version·run_id (자기 자신 제외)
 ```
 
@@ -520,9 +520,38 @@ python -m src.serving.export_static --db outputs/serving/report.sqlite --min-cel
   하한값 `provisional`, 역산 가능한 숨김 칸(`recoverable_cells`), 한 등급이 100%인 공개 칸(속성 노출, `homogeneous_cells`).
 - 임시 디렉터리에 쓴 뒤 디스크에서 되읽어 `verify_bundle`로 검증하고 통과해야 교체한다:
   meta·manifest·인덱스·동 목록·동 요약의 스키마, 모든 파일의 run_id·score_origin·as_of = 정본, manifest 목록 = 디스크 파일·sha256 일치,
-  리포트 파일명 = store_id·0.2 검증, 리포트 store_id 집합 = 검색 인덱스 = 정본 점포 수(누락·중복 없음), 동 요약 역산 불가.
+  리포트 파일명 = store_id·public_report 검증, 리포트 store_id 집합 = 검색 인덱스 = 정본 점포 수(누락·중복 없음), 동 요약 역산 불가.
   실패하면 임시 디렉터리를 지우고 기존 번들은 그대로 둔다. 번들이 아닌 기존 폴더는 덮어쓰지 않는다.
 - 같은 정본·같은 인자면 모든 파일과 manifest가 바이트 단위로 같다 (시각 등 비결정 값 없음).
+
+
+### W3-14: 개인 확률·예측구간 공개 제외 (#49 T3)
+
+내부 serve 산출물과 SQLite 정본은 개인 확률·예측구간을 QA·재현성용으로 보존한다.
+내부 report의 schema 0.3 및 `validate_report` 계약은 유지한다. 공개 화면/정적 번들에는
+`probability_12m`, `ci_low`, `ci_high`, `interval_note`를 포함하지 않는다.
+
+`public_report.project_report`는 내부 검증 후 복사본의 risk를 명시적인 허용 목록
+`band`, `percentile`, `peer_group`, `model`, `calibrated`로 구성한다.
+`peer_median`도 확률 비교값이라 공개 risk에는 없다. 등급은 `low/mid/high`만 사용하고,
+percentile은 동종 비교 순위로서 개인 확률이 아니다. factors와 해석 민감 경고, policies,
+disclaimer, score_origin/as_of는 유지한다.
+
+스키마의 `$defs/public_report`·`public_risk`와 별도 `validate_public_report`가 공개 계약이다.
+네 금지 키는 null 값이어도 중첩 위치를 포함해 검증 실패다. 위험 필드에는 추가 키도 허용하지 않는다.
+정본이나 다른 필드에서 누출이 발견되면 export를 중단하며 원본을 수정하지 않는다.
+`_schema_version=0.3`을 유지하고 리포트에는 `_public_contract_version=public-static-0.1`,
+meta/manifest에는 `public_contract_version`을 기록한다. export 버전은 `w3-14-export-0.2`다.
+
+aggregate 성능 CI 및 meta의 `cut_mid/cut_high` 등급 기준은 개인 점포 확률과 별개이며
+이 변경으로 제거하지 않는다. 기존 공개 승인/식별정보/동 요약 게이트도 그대로 적용한다.
+#56 check_claims의 CL-19는 public report marker가 있는 JSON에만 네 금지 키를 검사해
+aggregate CI를 오탐하지 않는다. 공용 스키마 검증이 공개 계약의 최종 기준이다.
+
+외부 PC에서 진행 중인 모델·diagnose·serve 재생성은 다시 돌릴 필요가 없다. 해당 결과로
+기존 방식의 SQLite 정본을 만든 후, 이 버전으로 `export_static`만 다시 실행한다.
+이미 정본이 준비됐으면 DB 재빌드도 필요 없다. 기존 정적 번들의 직접 편집 대신 다시 export한다.
+합성 샘플의 내부 입력은 확률/구간을 보존하고, 추적하는 static 번들만 같은 projection으로 갱신한다.
 
 ### 크기 (2026-09-26 측정, 합성 28,832점포 — 요인 8개·정책 3건·온라인 스냅샷 포함)
 | 파일 | 크기 | gzip | 비고 |
@@ -549,7 +578,7 @@ const index = await (await fetch(`${base}/${meta.files.search_index}`)).json();
 // 1) 상호 → 2) 주소 → 3) 동 선택 (search_index.py 규칙: 정규화 상호 일치 단계, 여러 건이면 모두 목록으로)
 const hits = index.entries.filter(e => e.name_norm && e.name_norm.includes(normalizeName(query)));
 const url = `${base}/${meta.report_path_template.replace("{store_id}", encodeURIComponent(hits[0].store_id))}`;
-const report = await (await fetch(url)).json();        // 최종 0.3 리포트
+const report = await (await fetch(url)).json();        // public-static-0.1 리포트
 // 결과 없음 → dongs.json에서 동 선택 → dong_summary.json의 (gu, dong) 행 (note 문구 항상 표시, suppressed 행은 수치 없이)
 ```
 
@@ -576,5 +605,5 @@ python -m src.serving.synthetic_samples
 - 온라인 `driver_code`: #41 입력 계약은 정했다(§5, 2026-09-28). 남은 것 — #36의 코드 생성(후속), serve 입력 버전을 올릴지,
   코드가 모든 입력에 채워진 뒤 문구 표를 교차 검증 전용으로 줄일지, 최종 리포트에 코드를 노출할지.
 - band 표시명(낮음/주의/높음)과 컷오프 문구 — 화면 결정.
-- `ci_low`/`ci_high` 필드명 변경(`interval_low/high`) 여부 — 이름이 신뢰구간으로 읽힐 수 있으나 PR #36 호환을 위해 0.2에서는 유지.
+- 내부 `ci_low`/`ci_high` 이름은 재현성·PR #36 호환을 위해 유지한다. 공개 계약에서는 W3-14에 따라 제외한다.
 - 실제 데이터 웹 공개 범위 (§9).

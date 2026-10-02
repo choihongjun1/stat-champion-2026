@@ -344,3 +344,39 @@ def test_dong_summary_suppression():
     assert rv.validate_def("dong_summary_row", {**hidden, "n_stores": 3})
     assert rv.validate_def("dong_summary_row", {**hidden, "suppression_reason": None})
     assert rv.validate_def("dong_summary_row", {**row, "top_risk_biz_types": ["미용업"]})  # 업종 행에는 순위 없음
+
+# W3-14 public projection retains internal schema 0.3 and its semantic checks.
+def test_public_report_contract_is_separate_and_input_is_not_mutated():
+    from copy import deepcopy
+    from src.serving import public_report as pr
+    record = _report_basic()
+    before = deepcopy(record)
+    public = pr.project_report(record)
+    assert record == before
+    assert rv.validate_report(record) == []
+    assert pr.validate_public_report(public) == []
+    assert rv.validate_report(public)  # canonical contract still requires its probabilities
+    assert public['_schema_version'] == record['_schema_version'] == '0.3'
+    public['risk']['peer_group'] = '다른 비교군'
+    assert pr.validate_public_report(public)
+
+
+@pytest.mark.parametrize('key', ['probability_12m','ci_low','ci_high','interval_note'])
+def test_public_validator_rejects_reserved_key_at_depth(key):
+    from src.serving import public_report as pr
+    public = pr.project_report(_report_basic())
+    public['factors'][0]['values'][key] = None
+    assert any(key in e for e in pr.validate_public_report(public))
+
+
+def test_projection_fails_closed_for_nested_leak_and_invalid_internal_risk():
+    from src.serving import public_report as pr
+    record = _report_basic()
+    record['factors'][0]['values']['ci_low'] = 0.1
+    assert rv.validate_report(record) == []
+    with pytest.raises(ValueError, match='public report contract'):
+        pr.project_report(record)
+    record = _report_basic()
+    record['risk']['ci_low'] = 0.9
+    with pytest.raises(ValueError, match='internal report contract'):
+        pr.project_report(record)

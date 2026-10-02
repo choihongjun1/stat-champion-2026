@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/choihongjun1/stat-champion-2026/src/serving/report_schema.json",
   "title": "W2-5 store report",
-  "description": "점포 1곳의 결과 레코드 (프론트 정적 JSON·SQLite 정본 공통 계약). 필드 의미·nullable 근거는 docs/REPORT_SCHEMA.md. 구조로 표현할 수 없는 규칙(기여 합, 정렬, 정책-요인 연결 등)은 src/serving/report_validation.py가 검사한다.",
+  "description": "점포 1곳의 결과 레코드 (내부 SQLite 정본 계약; 정적 JSON은 $defs/public_report). 필드 의미·nullable 근거는 docs/REPORT_SCHEMA.md. 구조로 표현할 수 없는 규칙(기여 합, 정렬, 정책-요인 연결 등)은 src/serving/report_validation.py가 검사한다.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -1798,7 +1798,8 @@
         "dong_summary_blockers",
         "publication_approved",
         "publication_note",
-        "provenance"
+        "provenance",
+        "public_contract_version"
       ],
       "properties": {
         "_schema_version": {
@@ -1955,6 +1956,9 @@
               ]
             }
           }
+        },
+        "public_contract_version": {
+          "const": "public-static-0.1"
         }
       }
     },
@@ -1975,7 +1979,8 @@
         "dong_summary_blockers",
         "publication_approved",
         "publication_note",
-        "files"
+        "files",
+        "public_contract_version"
       ],
       "properties": {
         "_schema_version": {
@@ -2080,6 +2085,9 @@
               }
             }
           }
+        },
+        "public_contract_version": {
+          "const": "public-static-0.1"
         }
       }
     },
@@ -2184,6 +2192,161 @@
         "unobservable",
         "no_change",
         "presence"
+      ]
+    },
+    "public_risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "band",
+        "percentile",
+        "peer_group",
+        "model",
+        "calibrated"
+      ],
+      "properties": {
+        "band": {
+          "enum": [
+            "low",
+            "mid",
+            "high"
+          ]
+        },
+        "percentile": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/pct"
+            }
+          ],
+          "description": "같은 score_origin·자치구·업종 안 위험도 백분위, 높을수록 위험"
+        },
+        "peer_group": {
+          "type": "string",
+          "minLength": 1,
+          "description": "'{gu} {biz_type}' (업력 조건 없음)"
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "calibrated": {
+          "type": "boolean"
+        }
+      }
+    },
+    "public_report": {
+      "title": "W3-14 public static store report",
+      "description": "T3: 개인 확률·구간 없는 public-static-0.1 projection. 내부 계약 버전 0.3 유지.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "_schema_version",
+        "store_id",
+        "score_origin",
+        "as_of",
+        "store",
+        "risk",
+        "factors",
+        "unavailable_categories",
+        "prescriptions",
+        "online_presence",
+        "policy_matching",
+        "policies",
+        "disclaimer",
+        "_public_contract_version"
+      ],
+      "properties": {
+        "_schema_version": {
+          "const": "0.3"
+        },
+        "store_id": {
+          "$ref": "#/$defs/store_id"
+        },
+        "score_origin": {
+          "$ref": "#/$defs/quarter"
+        },
+        "as_of": {
+          "$ref": "#/$defs/date",
+          "description": "score_origin 분기 말일. 모든 feature의 as-of 기준 시점"
+        },
+        "store": {
+          "$ref": "#/$defs/store"
+        },
+        "risk": {
+          "$ref": "#/$defs/public_risk"
+        },
+        "factors": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 9,
+          "items": {
+            "$ref": "#/$defs/factor"
+          }
+        },
+        "unavailable_categories": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/category"
+          }
+        },
+        "prescriptions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/prescription"
+          }
+        },
+        "online_presence": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/online_presence"
+            }
+          ]
+        },
+        "policy_matching": {
+          "enum": [
+            "performed",
+            "not_performed"
+          ],
+          "description": "정책 원천으로 매칭을 실제로 계산했는지. not_performed면 policies는 빈 배열이며 '해당 정책 없음'이 아니다"
+        },
+        "policies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/policy_match"
+          }
+        },
+        "disclaimer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "_public_contract_version": {
+          "const": "public-static-0.1"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "policy_matching": {
+                "const": "not_performed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "policies": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
       ]
     }
   }

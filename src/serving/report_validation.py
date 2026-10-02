@@ -173,7 +173,7 @@ def quarter_end(quarter: str) -> str:
     return str(pd.Period(quarter, freq="Q").end_time.date())
 
 
-def semantic_errors(rec: dict) -> list[str]:
+def semantic_errors(rec: dict, *, check_private_risk: bool = True) -> list[str]:
     """스키마 통과를 전제로 레코드 안의 교차 규칙을 검사한다."""
     errs: list[str] = []
     store, risk, factors = rec["store"], rec["risk"], rec["factors"]
@@ -186,11 +186,11 @@ def semantic_errors(rec: dict) -> list[str]:
     if st["close_date"] is not None and st["close_date"] <= rec["as_of"]:
         errs.append("close_date가 as_of 이전이다 — as_of 당시 영업 점포만 리포트 대상")
 
-    if not risk["ci_low"] <= risk["probability_12m"] <= risk["ci_high"]:
+    if check_private_risk and not risk["ci_low"] <= risk["probability_12m"] <= risk["ci_high"]:
         errs.append("ci_low ≤ probability_12m ≤ ci_high 위반")
     if risk["peer_group"] != f"{store['gu']} {store['biz_type']}":
         errs.append(f"peer_group '{risk['peer_group']}' ≠ '{store['gu']} {store['biz_type']}'")
-    if any(w in risk["interval_note"] for w in INTERVAL_FORBIDDEN):
+    if check_private_risk and any(w in risk["interval_note"] for w in INTERVAL_FORBIDDEN):
         errs.append("interval_note에 신뢰구간 표현이 있다")
 
     ids = [f["factor_id"] for f in factors]

@@ -46,6 +46,8 @@ def load_config(rules_path, allowlist_path):
         ids.add(rid)
         if rule.get('severity') not in ('error', 'warn'):
             raise UsageError('invalid severity')
+        if rule.get('scope') not in (None, 'public_report'):
+            raise UsageError('invalid rule scope')
         if not isinstance(rule.get('reason'), str) or not rule['reason'].strip():
             raise UsageError('rule reason is required')
         if type(rule.get('mask')) is not bool or rule['mask'] != rid.startswith('ID-'):
@@ -225,6 +227,12 @@ def scan(paths, rules, allowlist, base=None):
             content += '\n' + re.sub(r'<[^>]*>', lambda m: '\n' * m.group().count('\n'), content)
         safe_content = redact(content, rules)
         for rule in rules:
+            # A public report marker limits key-only checks; aggregate CI metadata
+            # and internal QA records retain their separate contracts.
+            if rule.get('scope') == 'public_report' and not (
+                    path.suffix.lower() in {'.json', '.jsonl'}
+                    and re.search(r'"_public_contract_version"\s*:', content)):
+                continue
             seen = set()
             for pattern in rule['compiled']:
                 for match in pattern.finditer(content):

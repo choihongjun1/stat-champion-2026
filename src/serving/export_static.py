@@ -5,7 +5,7 @@ SQLite가 정본이고 이 번들은 파생본이다. 모델 추론·진단 계�
 
 두 가지를 구분한다 (DECISIONS 2026-09-26 W2-5 정적 내보내기):
 - **A. 기술적 계약 통과** (`technical_gate`): 정본 `release_blockers`가 비어 있음(최종 0.3 통과, adopted/S8, 배포용 빌드, 인허가 기준일 대조),
-  모든 리포트 0.3 검증, 검색·집계 불변식. A를 통과하지 못하면 번들을 만들지 않는다.
+  내부 리포트 0.3 및 public projection 검증, 검색·집계 불변식. A를 통과하지 못하면 번들을 만들지 않는다.
 - **B. 공개 승인** (`publication_approved`): 실명·주소·store_id·개별 위험도 결합 데이터의 공개 범위는 정해지지 않았다.
   이 모듈에는 승인 수단이 없고 값은 항상 false다. A 통과는 B가 아니다.
 
@@ -36,9 +36,10 @@ from src.serving import build_db as bd
 from src.serving import dong_summary as ds
 from src.serving import paths
 from src.serving import report_validation as rv
+from src.serving import public_report as pr
 from src.serving import search_index as si
 
-EXPORT_VERSION = "w2-5-export-0.1"
+EXPORT_VERSION = "w3-14-export-0.2"
 DEFAULT_OUT = config.REPO_ROOT / "outputs" / "serving" / "static_private"
 SAMPLE_ID_RE = re.compile(r"^SAMPLE-\d{3}$")
 SAMPLE_NAME_PREFIX = "(샘플)"
@@ -144,10 +145,15 @@ def render(conn: sqlite3.Connection, *, min_cell_n: int, min_cell_n_status: str,
         path = REPORT_PATH_TEMPLATE.format(store_id=rec["store_id"])
         if path in files:
             raise ExportError(f"상세 리포트 중복: {rec['store_id']}")
-        files[path] = _dump(rec, indent)
+        try:
+            public = pr.project_report(rec)
+        except ValueError as exc:
+            raise ExportError(str(exc)) from exc
+        files[path] = _dump(public, indent)
         rows[path] = 1
 
-    gate = {"technical_gate": {"passed": True, "blockers": []},
+    gate = {"public_contract_version": pr.CONTRACT_VERSION,
+            "technical_gate": {"passed": True, "blockers": []},
             "dong_summary_public_ready": not dong_blockers, "dong_summary_blockers": dong_blockers,
             "publication_approved": False,
             "publication_note": SYNTHETIC_NOTE if kind == "synthetic_sample" else PUBLICATION_NOTE}
@@ -220,7 +226,7 @@ def verify_bundle(bundle: Path, run: dict) -> list[str]:
         if f.get("run_id") != run["run_id"]:
             errs.append(f"manifest 파일 항목 run_id 불일치: {p}")
 
-    # 상세 리포트: 파일명 = store_id, 0.2 검증, 기준 시점, 검색 인덱스와 같은 집합
+    # 상세 리포트: 파일명 = store_id, public_report 검증, 기준 시점, 검색 인덱스와 같은 집합
     report_ids = []
     for p in (p for p in data if p.startswith("reports/")):
         fp = Path(p)
@@ -235,7 +241,7 @@ def verify_bundle(bundle: Path, run: dict) -> list[str]:
         report_ids.append(sid)
         if (rec.get("score_origin"), rec.get("as_of")) != (run["score_origin"], run["as_of"]):
             errs.append(f"{sid}: score_origin/as_of 불일치")
-        errs += [f"{sid}: {e}" for e in rv.validate_report(rec)[:3]]
+        errs += [f"{sid}: {e}" for e in pr.validate_public_report(rec)[:3]]
     if len(report_ids) != len(set(report_ids)):
         errs.append("상세 리포트 store_id 중복")
     index_ids = [e["store_id"] for e in index.get("entries", [])]
