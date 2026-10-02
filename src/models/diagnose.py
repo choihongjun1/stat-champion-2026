@@ -376,12 +376,13 @@ def _plain(v):
 def factors_json(long: pd.DataFrame, store_id: str, origin: str, values: dict | None = None, *,
                  with_sensitivity: bool = False) -> list[dict]:
     """values: {factor_id: {feature: 값}} — 화면이 "무엇을 보고 이렇게 판단했는지"를 함께 보여줄 수 있게 한다.
-    with_sensitivity: S8 "해석 민감" 여부(`interpretation_sensitive`)를 붙인다. #41 factor 스키마가
-    additionalProperties=false라 스키마에 이 필드를 추가하기 전까지 서빙(#36)은 기본값(False)으로 부른다."""
+    with_sensitivity: S8 interpretation_sensitive와 원천 sensitivity_label을 함께 붙인다.
+    최종 #41 report 0.3은 두 필드를 요구한다. 서빙은 S8일 때 기본으로 노출한다."""
     g = long[(long["store_id"] == store_id) & (long["origin"] == origin)].sort_values("contribution", ascending=False)
     values = values or {}
     extra = (lambda r: {"interpretation_sensitive": None if pd.isna(r.get("interpretation_sensitive"))
-                        else bool(r["interpretation_sensitive"])}) if with_sensitivity else (lambda r: {})
+                        else bool(r["interpretation_sensitive"]),
+                        "sensitivity_label": r.get("sensitivity_label", "")}) if with_sensitivity else (lambda r: {})
     return [{
         "category": r["category"], "name": r["factor"], "factor_id": r["factor_id"],
         "contribution": round(float(r["contribution"]), 4),

@@ -1,0 +1,3 @@
+# W2-5 synthetic sample bundles: manifest.json records sha256 of the exact bytes,
+# so never convert line endings (core.autocrlf would break the hashes on checkout).
+docs/samples/w2-5/** -text

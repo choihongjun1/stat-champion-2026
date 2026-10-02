@@ -1,0 +1,61 @@
+{
+  "_schema_version": "0.3",
+  "run_id": "db19de58907d48f2",
+  "score_origin": "2026Q2",
+  "as_of": "2026-06-30",
+  "export_version": "w2-5-export-0.1",
+  "data_kind": "synthetic_sample",
+  "n_stores": 1,
+  "technical_gate": {
+    "passed": true,
+    "blockers": []
+  },
+  "dong_summary_public_ready": false,
+  "dong_summary_blockers": [
+    "소표본 하한값 미확정 (min_cell_n=2, provisional)"
+  ],
+  "publication_approved": false,
+  "publication_note": "합성 샘플: 점포·상호·주소·위험도·요인 기여·정책은 모두 지어낸 값이며 실제 점포·실제 추정 결과·실제 통계가 아니다. 공개 승인 대상 데이터가 아니다.",
+  "files": [
+    {
+      "path": "dong_summary.json",
+      "sha256": "fdaad8d5b907d35ed429ca478d17af6e6458f4260e2fb5eadb214d4072c9055f",
+      "bytes": 1932,
+      "rows": 2,
+      "schema_version": "0.3",
+      "run_id": "db19de58907d48f2"
+    },
+    {
+      "path": "dongs.json",
+      "sha256": "f88d4a46cecbe0353b1e41dceb26441dddbcc891d2b8aa9aa7563669a081644f",
+      "bytes": 237,
+      "rows": 1,
+      "schema_version": "0.3",
+      "run_id": "db19de58907d48f2"
+    },
+    {
+      "path": "meta.json",
+      "sha256": "cfe3ea27def0cee29a5043a8205adfd87f4d112c3eb3c440edade07b5991d3ef",
+      "bytes": 1188,
+      "rows": 1,
+      "schema_version": "0.3",
+      "run_id": "db19de58907d48f2"
+    },
+    {
+      "path": "reports/SAMPLE-010.json",
+      "sha256": "cc70abec2f417568d94db630b495cb8543277ab6d989fdb4d3dd346aa78da704",
+      "bytes": 7083,
+      "rows": 1,
+      "schema_version": "0.3",
+      "run_id": "db19de58907d48f2"
+    },
+    {
+      "path": "search_index.json",
+      "sha256": "89c4551c2613217cb6f3e55af30f28ed822b3968d50524fdf72a779885f7a0ba",
+      "bytes": 524,
+      "rows": 1,
+      "schema_version": "0.3",
+      "run_id": "db19de58907d48f2"
+    }
+  ]
+}
