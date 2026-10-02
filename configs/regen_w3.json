@@ -322,7 +322,14 @@
       }
     ]
   },
-  "open_items": [
-    "공개 번들에서 probability_12m·ci_low·ci_high·interval_note 제외 여부: W3-14에서 결정(최홍준)"
+  "open_items": [],
+  "completed_items": [
+    {
+      "id": "W3-14",
+      "basis": "#49 T3",
+      "status": "implemented",
+      "public_contract_version": "public-static-0.1",
+      "note": "static export의 public projection에서 probability_12m/ci_low/ci_high/interval_note 및 확률 비교값 peer_median 제외. 내부 serve·SQLite 및 재생성 실행 설정 유지. 모델 재실행 불필요, 정적 export만 다시 실행."
+    }
   ]
 }

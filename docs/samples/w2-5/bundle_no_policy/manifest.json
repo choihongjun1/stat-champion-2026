@@ -3,9 +3,10 @@
   "run_id": "db19de58907d48f2",
   "score_origin": "2026Q2",
   "as_of": "2026-06-30",
-  "export_version": "w2-5-export-0.1",
+  "export_version": "w3-14-export-0.2",
   "data_kind": "synthetic_sample",
   "n_stores": 1,
+  "public_contract_version": "public-static-0.1",
   "technical_gate": {
     "passed": true,
     "blockers": []
@@ -35,16 +36,16 @@
     },
     {
       "path": "meta.json",
-      "sha256": "cfe3ea27def0cee29a5043a8205adfd87f4d112c3eb3c440edade07b5991d3ef",
-      "bytes": 1188,
+      "sha256": "f80b60d6793d10f99ba6a8da502d71bb3317cc0f83031f9320980d9af956f949",
+      "bytes": 1238,
       "rows": 1,
       "schema_version": "0.3",
       "run_id": "db19de58907d48f2"
     },
     {
       "path": "reports/SAMPLE-010.json",
-      "sha256": "cc70abec2f417568d94db630b495cb8543277ab6d989fdb4d3dd346aa78da704",
-      "bytes": 7083,
+      "sha256": "564c5e74add9d111f81b989368ce174b9db62bc023f8128f590a9ff336c03a36",
+      "bytes": 6877,
       "rows": 1,
       "schema_version": "0.3",
       "run_id": "db19de58907d48f2"

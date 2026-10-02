@@ -9,6 +9,7 @@ import pytest
 from src.data import config
 from src.serving import export_static as ex
 from src.serving import report_validation as rv
+from src.serving import public_report as pr
 from src.serving import search_index as si
 from src.serving import synthetic_samples as ss
 from tests.serving_synth import make_db, store
@@ -212,7 +213,8 @@ def test_samples_are_valid_synthetic_bundles():
         assert "합성 샘플" in meta["publication_note"]
         for p in sorted((b / "reports").glob("*.json")):
             rec = json.loads(p.read_text(encoding="utf-8"))
-            assert rv.validate_report(rec) == []
+            assert pr.validate_public_report(rec) == []
+            assert not pr.private_key_paths(rec)
             assert rec["store"]["name"].startswith("(샘플)") and rec["prescriptions"] == []
             assert all(f["explanation"].endswith("[합성 예시]") for f in rec["factors"])
             ids.append(rec["store_id"])
@@ -339,3 +341,56 @@ def test_band_cutoffs_contract_violations_stop_build(tmp_path, bad, msg):
     with pytest.raises(bd.BuildError, match=msg):
         _build_with_meta(tmp_path, json.dumps(meta))
     assert not (tmp_path / "rel.sqlite").exists()
+
+# W3-14: SQLite canonical risk survives export, while public reports use a separate contract.
+def test_public_projection_preserves_canonical_db_and_non_probability_fields(tmp_path, rel_db):
+    import sqlite3
+    from src.serving import build_db as bd
+    before = rel_db.read_bytes()
+    with sqlite3.connect(rel_db) as conn:
+        canonical = {r['store_id']: r for r in bd.iter_reports(conn)}
+        rows_before = conn.execute('SELECT * FROM risk ORDER BY store_id').fetchall()
+    out = tmp_path / 'public'
+    ex.export(rel_db, out, min_cell_n=5)
+    for path in (out / 'reports').glob('*.json'):
+        report = json.loads(path.read_text(encoding='utf-8'))
+        original = canonical[report['store_id']]
+        assert not pr.private_key_paths(report)
+        assert set(report['risk']) == set(pr.RISK_FIELDS)
+        assert report['risk']['band'] == original['risk']['band']
+        assert 'peer_median' not in report['risk']
+        for key in ('factors', 'policies', 'disclaimer', 'score_origin', 'as_of'):
+            assert report[key] == original[key]
+        assert all('interpretation_sensitive' in f and 'sensitivity_label' in f for f in report['factors'])
+        assert rv.validate_report(original) == []
+        assert pr.PRIVATE_KEYS <= original['risk'].keys()
+    with sqlite3.connect(rel_db) as conn:
+        assert conn.execute('SELECT * FROM risk ORDER BY store_id').fetchall() == rows_before
+    assert rel_db.read_bytes() == before
+    meta = json.loads((out / 'meta.json').read_text(encoding='utf-8'))
+    assert set(meta['band_cutoffs']) == {'cut_mid','cut_high'}
+    assert meta['public_contract_version'] == pr.CONTRACT_VERSION
+
+
+@pytest.mark.parametrize('key', sorted(pr.PRIVATE_KEYS))
+@pytest.mark.parametrize('location', ['risk', 'factor_values', 'online_presence'])
+def test_bundle_rejects_private_keys_even_with_updated_hash(bundle, key, location):
+    import hashlib
+    path = next((bundle / 'reports').glob('*.json'))
+    rec = json.loads(path.read_text(encoding='utf-8'))
+    target = rec['risk'] if location == 'risk' else (
+        rec['factors'][0]['values'] if location == 'factor_values' else rec.setdefault('online_presence', {}))
+    # An arbitrary nested object is still prohibited, irrespective of its schema validity.
+    if target is None:
+        rec['online_presence'] = target = {}
+    target[key] = None
+    payload = json.dumps(rec, ensure_ascii=False).encode('utf-8')
+    path.write_bytes(payload)
+    manifest_path = bundle / 'manifest.json'
+    manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+    for entry in manifest['files']:
+        if entry['path'] == path.relative_to(bundle).as_posix():
+            entry['sha256'] = hashlib.sha256(payload).hexdigest()
+            entry['bytes'] = len(payload)
+    manifest_path.write_text(json.dumps(manifest), encoding='utf-8')
+    assert any('private probability/interval key' in e for e in ex.verify_bundle(bundle, _run_of(bundle)))
