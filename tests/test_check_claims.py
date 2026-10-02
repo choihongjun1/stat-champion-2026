@@ -318,3 +318,90 @@ def test_zero_scanned_files_exit_3(tmp_path, capsys, kind, output_format):
     assert '검사한 파일이 없습니다' in output
     if output_format == 'json':
         assert json.loads(output)['summary']['scanned_files'] == 0
+
+@pytest.mark.parametrize('text,rid',[
+    ('상호: 검증용가상식당', 'ID-05'),
+    ('{"store_id":"case-17","name":"검증용가상식당"}', 'ID-05'),
+    ('{"name":"검증용가상식당","store_id":"case-17"}', 'ID-05'),
+    ('서울특별시 마포구 검증로 123-4', 'ID-06'),
+    ('마포구 검증동 123', 'ID-06'),
+    ('{"address":"검증용 상세주소"}', 'ID-06'),
+    ('store_id: LIC-123456', 'ID-01'),
+    ('sr_123456789', 'ID-01'),
+    ('사업자등록번호: 1234567890', 'ID-02'),
+    ('01012345678', 'ID-03'),
+    ('02 1234 5678', 'ID-03'),
+    ('+82-10-1234-5678', 'ID-03'),
+    ('38%', 'CL-04'),
+    ('{"probability_12m":0.38,"ci_low":0.29,"ci_high":0.47}', 'CL-04'),
+    ('오탐-폐업 상관', 'CL-09'),
+    ('정책: 온라인 관련 지원 정보', 'CL-17'),
+    ('개별 점포 효과', 'CL-18'),
+    ('위험 3%p 감소', 'CL-18'),
+])
+def test_w3_publication_regressions(tmp_path, text, rid):
+    assert rid in {f['rule_id'] for f in findings(tmp_path, text)['findings']}
+
+
+@pytest.mark.parametrize('text',[
+    '향후 12개월 상대 위험 수준. 블로그 언급 수. 자격 조건이 맞는 지원사업.',
+    '서울특별시 마포구 / 2026-10-02 / 1234567890 / 112.6% / 18.8',
+    '{"store_id":"SAMPLE-001","name":"(샘플) 가상식당","address":"(샘플) 가상주소"}',
+    '{"store_id":"SYN-001","name":"비식별 실제 사례 A","address":null}',
+])
+def test_safe_public_text_and_synthetic_values(tmp_path, text):
+    assert not findings(tmp_path, text)['findings']
+
+
+def test_sample_id_does_not_exempt_other_identifiers(tmp_path):
+    result = findings(tmp_path, '{"store_id":"SAMPLE-001","name":"검증용가상식당",'
+                               '"address":"마포구 검증로 123","phone":"010-1234-5678"}')
+    assert {'ID-03','ID-05','ID-06'} <= {f['rule_id'] for f in result['findings']}
+
+
+@pytest.mark.parametrize('relative,text,rid',[
+    ('app/out/index.html','안전\n효과 <b>확인</b>', 'CL-01'),
+    ('app/out/index.htm','폐업&nbsp;확률', 'CL-03'),
+    ('bundle/report.json',json.dumps({'label':'폐업 확률'}), 'CL-03'),
+    ('bundle/manifest.json','{"store_id":"SR_123456789"}', 'ID-01'),
+    ('submission/report.md','상호: 검증용가상식당', 'ID-05'),
+    ('docs/public.md','마포구 검증로 123', 'ID-06'),
+])
+def test_public_formats_and_encodings(tmp_path, relative, text, rid):
+    result = findings(tmp_path, text, relative)
+    matches = [f for f in result['findings'] if f['rule_id'] == rid]
+    assert matches
+    assert all(f['line'] <= text.count('\n') + 1 for f in matches)
+
+
+@pytest.mark.parametrize('text',[
+    '상호: 검증용가상식당 효과 확인',
+    '마포구 검증로 123 효과 확인',
+    '{"store_id":"case-17","name":"검증용가상식당"}',
+])
+def test_new_identifiers_are_redacted(tmp_path, text):
+    output = json.dumps(findings(tmp_path, text), ensure_ascii=False)
+    for secret in ['검증용가상식당','검증로','case-17']:
+        assert secret not in output
+
+@pytest.mark.parametrize('text,rid',[
+    ('{"address_road":"검증용 상세주소"}', 'ID-06'),
+    ('{"address_jibun":"검증용 상세주소"}', 'ID-06'),
+    ('관리번호: 2026-000123', 'ID-07'),
+    ('{"row_key":"abcd1234"}', 'ID-07'),
+    ('PNU: 1234567890123456789', 'ID-07'),
+])
+def test_additional_export_identifier_fields(tmp_path, text, rid):
+    assert rid in {f['rule_id'] for f in findings(tmp_path, text)['findings']}
+
+
+def test_multitoken_business_name_is_fully_masked(tmp_path):
+    result = findings(tmp_path, '상호: 검증용 가상 식당')
+    assert '식당' not in json.dumps(result, ensure_ascii=False)
+
+
+def test_report_schema_nested_store_name(tmp_path):
+    result = findings(tmp_path, '{"store_id":"SAMPLE-001","store":{"biz_type":"일반음식점",'
+                               '"name":"검증용가상식당"}}', 'report.json')
+    assert 'ID-05' in {f['rule_id'] for f in result['findings']}
+    assert '검증용가상식당' not in json.dumps(result, ensure_ascii=False)

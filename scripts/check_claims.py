@@ -5,6 +5,7 @@ import argparse
 from collections import Counter
 from fnmatch import fnmatchcase
 import json
+import html
 import os
 from pathlib import Path
 import re
@@ -13,7 +14,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 EXTENSIONS = {'.md', '.txt', '.json', '.jsonl', '.csv', '.ts', '.tsx', '.js',
-              '.jsx', '.html', '.py', '.yaml', '.yml'}
+              '.jsx', '.html', '.htm', '.svg', '.py', '.yaml', '.yml'}
 EXCLUDED = {'.git', 'node_modules', '.next', '.venv', '__pycache__', 'outputs'}
 
 
@@ -211,6 +212,17 @@ def scan(paths, rules, allowlist, base=None):
             finding(label, 0, 0, dict(id='IO-DECODE', severity='warn', reason='UTF-8 decoding failed'), '', '')
             continue
         scanned += 1
+        source_line_count = content.count('\n') + 1
+        # Scan rendered text too: escaped JSON and HTML markup must not hide claims.
+        # Preserve newlines; columns refer to this normalized text, not source bytes.
+        if path.suffix.lower() in {'.json', '.jsonl', '.js', '.jsx', '.ts', '.tsx', '.html', '.htm', '.svg'}:
+            content = re.sub(r'\\u([0-9a-fA-F]{4})',
+                             lambda m: chr(int(m.group(1), 16)).replace('\n', ' ').replace('\r', ' '), content)
+        if path.suffix.lower() in {'.html', '.htm', '.svg'}:
+            content = re.sub(r'&(?:#[xX][0-9a-fA-F]+|#\d+|[a-zA-Z][a-zA-Z0-9]+);',
+                             lambda m: html.unescape(m.group()).replace('\n', ' ').replace('\r', ' '), content)
+            # Retain raw markup (including attribute values) as well as visible text.
+            content += '\n' + re.sub(r'<[^>]*>', lambda m: '\n' * m.group().count('\n'), content)
         safe_content = redact(content, rules)
         for rule in rules:
             seen = set()
@@ -233,7 +245,7 @@ def scan(paths, rules, allowlist, base=None):
                             end += 1
                     # Redact before slicing so a boundary never leaks part of an identifier.
                     context = safe_content[max(line_start, start - 20):min(line_end, end + 20)]
-                    finding(label, content.count('\n', 0, start) + 1, start - line_start + 1,
+                    finding(label, content.count('\n', 0, start) % source_line_count + 1, start - line_start + 1,
                             rule, content[start:end], context)
     findings.sort(key=lambda f: (f['file'], f['line'], f['column'], f['rule_id']))
     return dict(findings=findings, summary=dict(scanned_files=scanned, skipped=dict(sorted(skipped.items())),
