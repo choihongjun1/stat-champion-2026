@@ -152,7 +152,13 @@ def render(conn: sqlite3.Connection, *, min_cell_n: int, min_cell_n_status: str,
             "publication_approved": False,
             "publication_note": SYNTHETIC_NOTE if kind == "synthetic_sample" else PUBLICATION_NOTE}
     band_cutoffs = json.loads(run["band_cutoffs_json"])
-    meta = {**head, "data_kind": kind, "n_stores": run["n_stores"],
+    source = json.loads(run["serve_meta_json"])
+    background = source.get("background", {}).get("backgrounds", {})
+    provenance = {k: source.get(k) for k in ("params_name", "model_class", "params_contract")}
+    provenance.update(s8_rule_version=source.get("s8_rule", {}).get("rule_version"),
+                      primary_seed=background.get("primary", {}).get("seed"),
+                      sensitivity_seed=background.get("sensitivity", {}).get("seed"))
+    meta = {**head, "provenance": provenance, "data_kind": kind, "n_stores": run["n_stores"],
             "band_cutoffs": {k: band_cutoffs[k] for k in ("cut_mid", "cut_high")},  # base_rate는 내보내지 않는다
             "policy_matching": run["policy_matching"], "report_path_template": REPORT_PATH_TEMPLATE,
             "files": dict(FILES), **gate}

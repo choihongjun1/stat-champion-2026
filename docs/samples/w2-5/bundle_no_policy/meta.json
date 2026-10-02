@@ -1,8 +1,16 @@
 {
-  "_schema_version": "0.2",
-  "run_id": "03c079174cbae7d6",
+  "_schema_version": "0.3",
+  "run_id": "db19de58907d48f2",
   "score_origin": "2026Q2",
   "as_of": "2026-06-30",
+  "provenance": {
+    "params_name": "adopted",
+    "model_class": "sklearn.ensemble.HistGradientBoostingClassifier",
+    "params_contract": "adopted",
+    "s8_rule_version": "S8-2026-10-01",
+    "primary_seed": 20260931,
+    "sensitivity_seed": 20261001
+  },
   "data_kind": "synthetic_sample",
   "n_stores": 1,
   "band_cutoffs": {

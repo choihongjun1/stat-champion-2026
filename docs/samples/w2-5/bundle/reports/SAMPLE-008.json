@@ -1,5 +1,5 @@
 {
-  "_schema_version": "0.2",
+  "_schema_version": "0.3",
   "store_id": "SAMPLE-008",
   "score_origin": "2026Q2",
   "as_of": "2026-06-30",
@@ -47,7 +47,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "store_profile",
@@ -64,7 +67,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "trdar_vitality",
@@ -81,7 +87,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "peer_competition",
@@ -98,7 +107,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "district",
@@ -115,7 +127,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "peer_sales",
@@ -132,7 +147,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "trdar_population",
@@ -149,7 +167,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "online_attention",
@@ -166,7 +187,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": "presence",
+      "interpretation_sensitive": true,
+      "sensitivity_label": "해석 민감"
     }
   ],
   "unavailable_categories": [

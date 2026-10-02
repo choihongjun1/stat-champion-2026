@@ -20,7 +20,7 @@ import pandas as pd
 from jsonschema import Draft202012Validator
 
 SCHEMA_PATH = Path(__file__).with_name("report_schema.json")
-SCHEMA_VERSION = "0.2"
+SCHEMA_VERSION = "0.3"
 
 # factor_id → (name, category, actionability). 진단 요인 매핑표(DECISIONS 2026-09-25 W2-3, PR #34)의 사본.
 FACTOR_CONTRACT: dict[str, tuple[str, str, str]] = {
@@ -125,13 +125,13 @@ def online_driver_errors(factors: list[dict]) -> list[str]:
     """온라인 요인 driver가 알려진 템플릿인지 (serve 입력·최종 리포트 공통)."""
     return [f"online_attention: 알 수 없는 driver 문구 '{f['driver']}' (PR #36 online_driver_text 템플릿과 다름)"
             for f in factors if f["factor_id"] == "online_attention" and f["driver"] is not None
-            and classify_online_driver(f["driver"]) is None]
+            and f.get("driver_code") is None and classify_online_driver(f["driver"]) is None]
 
 
 def online_driver_class(f: dict) -> str | None:
     """정책 연결 판정용 온라인 근거 분류. driver_code가 있으면 코드(신규 serve 입력), 없으면 driver 문구 분류
-    (구버전 입력·최종 리포트 — 최종 리포트에는 driver_code가 없다). 알 수 없으면 None → 연결하지 않는다(fail closed).
-    두 값이 모두 있으면 입력 검증(driver_code_errors)에서 같다는 것을 이미 확인한다."""
+    (구버전 개발 입력). 알 수 없으면 None → 연결하지 않는다(fail closed).
+    최신 코드가 있으면 화면 문구를 독립적으로 재분류하지 않는다."""
     code = f.get("driver_code")
     if code is not None:
         return code
@@ -139,8 +139,7 @@ def online_driver_class(f: dict) -> str | None:
 
 
 def driver_code_errors(factors: list[dict]) -> list[str]:
-    """serve 입력 driver_code 교차 검증. 코드는 온라인 요인에만 있고, 있으면 허용 enum이어야 하며
-    driver 문구 분류와 같아야 한다 — 다르면 어느 쪽도 채택하지 않고 입력을 거부한다."""
+    """driver_code는 온라인 전용 6종 enum. upstream 코드를 정본으로 쓰며 문구는 재분류하지 않는다."""
     errs = []
     for f in factors:
         code = f.get("driver_code")
@@ -153,15 +152,6 @@ def driver_code_errors(factors: list[dict]) -> list[str]:
         if code not in ONLINE_DRIVER_CODES:
             errs.append(f"online_attention: 허용되지 않는 driver_code '{code}'")
             continue
-        text = f.get("driver")
-        if text is None:
-            errs.append(f"online_attention: driver 문구 없이 driver_code '{code}'만 있다 — 교차 검증할 수 없다")
-            continue
-        cls = classify_online_driver(text)
-        if cls is None:
-            errs.append(f"online_attention: driver 문구 '{text}'를 분류할 수 없어 driver_code '{code}'를 확인할 수 없다")
-        elif cls != code:
-            errs.append(f"online_attention: driver_code '{code}' ≠ 문구 분류 '{cls}' ('{text}')")
     return errs
 
 
@@ -220,6 +210,7 @@ def semantic_errors(rec: dict) -> list[str]:
         if f["driver"] is not None and f["factor_id"] != "online_attention":
             errs.append(f"{f['factor_id']}: driver는 온라인 요인에만 있다")
     errs += online_driver_errors(factors)
+    errs += driver_code_errors(factors)
 
     present = {f["category"] for f in factors}
     both = present & set(rec["unavailable_categories"])

@@ -16,3 +16,6 @@ shapely==2.1.2
 lifelines==0.30.3
 # JSON Schema validation of the W2-5 report contract (src/serving/report_validation.py)
 jsonschema==4.26.0
+
+# online presence collection HTTP calls (src/data/collect_online_presence.py, collect_blog_monthly.py)
+requests==2.33.1

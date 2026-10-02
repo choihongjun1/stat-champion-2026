@@ -10,6 +10,7 @@ import pandas as pd
 from src.data.names import normalize_name
 from src.serving import build_db as bd
 from src.serving import report_validation as rv
+from src.serving.release_contract import synthetic_provenance
 
 AS_OF = "2026-06-30"
 PROB = {"low": 0.05, "mid": 0.16, "high": 0.3}
@@ -34,6 +35,8 @@ def _factor(fid, c, version):
          "peer_percentile": 50, "actionability": act,
          "explanation": f"{name} 요인이 예측 위험도를 약 {abs(c) * 100:.1f}%p 움직이는 쪽으로 기여했습니다.",
          "driver": None, "display": True, "display_note": None, "data_missing": False, "values": {}}
+    if version != "0.1":
+        f.update(interpretation_sensitive=False, sensitivity_label="", driver_code=rv.classify_online_driver(f.get("driver")) if fid == "online_attention" else None)
     if version != "0.1":
         f["missing_reason"], f["hold_reason"] = None, None
     return f
@@ -67,8 +70,8 @@ def write_inputs(d, stores, version="0.2", updated="2026-09-10 12:00:00", extra_
                 rec["score_origin"] = "2026Q2"
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     (d / "serve_meta.json").write_text(json.dumps(
-        {"score_origin": "2026Q2", "as_of": AS_OF, "n_stores": len(stores), "detect_run": "detect_v0_enriched",
-         "band_cutoffs": {"cut_mid": 0.1493, "cut_high": 0.2142}}), encoding="utf-8")
+        {**synthetic_provenance(), "score_origin": "2026Q2", "as_of": AS_OF, "n_stores": len(stores), "detect_run": "detect_v0_enriched",
+         "band_cutoffs": {"cut_mid": 0.1493, "cut_high": 0.2142, "base_rate": 0.12}}), encoding="utf-8")
     return d
 
 

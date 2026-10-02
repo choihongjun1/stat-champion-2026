@@ -1,5 +1,5 @@
 {
-  "_schema_version": "0.2",
+  "_schema_version": "0.3",
   "store_id": "SAMPLE-009",
   "score_origin": "2026Q2",
   "as_of": "2026-06-30",
@@ -47,7 +47,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "online_attention",
@@ -58,13 +61,16 @@
       "direction": "위험 증가",
       "peer_percentile": null,
       "explanation": "이 점포는 온라인 언급(블로그) 데이터가 없어(관측 불가) 이 요인은 진단하지 않습니다. [합성 예시]",
-      "driver": null,
+      "driver": "관측 불가(검색 결과 상한)",
       "values": {},
       "display": false,
       "data_missing": true,
       "missing_reason": "online_unobservable",
       "hold_reason": "data_missing",
-      "display_note": "합성 예시 — 표시 보류"
+      "display_note": "합성 예시 — 표시 보류",
+      "driver_code": "unobservable",
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "store_profile",
@@ -81,7 +87,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "peer_sales",
@@ -98,7 +107,10 @@
       "data_missing": true,
       "missing_reason": "sales_unpublished",
       "hold_reason": "data_missing",
-      "display_note": "합성 예시 — 표시 보류"
+      "display_note": "합성 예시 — 표시 보류",
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "trdar_vitality",
@@ -115,7 +127,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "peer_competition",
@@ -132,7 +147,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "district",
@@ -149,7 +167,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "trdar_population",
@@ -166,7 +187,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     }
   ],
   "unavailable_categories": [

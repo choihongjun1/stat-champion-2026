@@ -15,6 +15,7 @@ import pytest
 from src.data import config
 from src.serving import build_db as bd
 from src.serving import report_validation as rv
+from src.serving.release_contract import synthetic_provenance
 
 AS_OF = "2026-06-30"
 A, B, C, X = "GR_3040000-101-2023-00001", "SR_3130000-104-2020-00002", "BT_3220000-215-2019-00003", \
@@ -53,6 +54,8 @@ def _f(fid, c, version, *, display=True, data_missing=False, missing_reason=None
                          else f"{name} 요인이 예측 위험도를 약 {abs(c) * 100:.1f}%p 움직이는 쪽으로 기여했습니다."),
          "driver": driver, "display": display, "display_note": None if display else "내부 메모",
          "data_missing": data_missing, "values": {"x": 1.0}}
+    if version != "0.1":
+        f.update(interpretation_sensitive=False, sensitivity_label="", driver_code=rv.classify_online_driver(f.get("driver")) if fid == "online_attention" else None)
     if version != "0.1":
         f["missing_reason"] = missing_reason
         f["hold_reason"] = hold_reason or ("data_missing" if data_missing else None)
@@ -121,8 +124,8 @@ def inputs(tmp_path):
         recs = records if records is not None else _records(version)
         (d / "reports.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in recs),
                                          encoding="utf-8")
-        meta = {"score_origin": "2026Q2", "as_of": AS_OF, "n_stores": len(recs), "detect_run": "detect_v0_enriched",
-                "band_cutoffs": {"cut_mid": 0.1493, "cut_high": 0.2142}, "licenses_sha256": "0" * 64,
+        meta = {**synthetic_provenance(), "score_origin": "2026Q2", "as_of": AS_OF, "n_stores": len(recs), "detect_run": "detect_v0_enriched",
+                "band_cutoffs": {"cut_mid": 0.1493, "cut_high": 0.2142, "base_rate": 0.12}, "licenses_sha256": "0" * 64,
                 **(meta_update or {})}
         (d / "serve_meta.json").write_text(json.dumps(meta), encoding="utf-8")
         kw = {"licenses_path": _licenses(d / "licenses.parquet")}
@@ -169,7 +172,7 @@ def test_v0_1_input_builds_structure_but_final_not_ready(inputs, tmp_path):
     assert _q(out, "SELECT COUNT(*) FROM factors WHERE missing_reason IS NOT NULL OR hold_reason IS NOT NULL")[0][0] == 0
     assert _q(out, "SELECT COUNT(*) FROM store_policies")[0][0] == 0
     # 데이터 없음·검토 대기 요인이 있는 점포 B, 반올림 부근 기여가 있는 점포 A는 최종 검증을 통과할 수 없다
-    assert run["n_final_invalid"] == 2
+    assert run["n_final_invalid"] == 3  # legacy factors lack required S8 sensitivity pair
     reps = _reports(out)
     assert all(r["policy_matching"] == "not_performed" and r["policies"] == [] for r in reps.values())
 
@@ -181,7 +184,7 @@ def test_v0_2_input_passes_final_contract(inputs, tmp_path):
     assert run["policy_matching"] == "performed" and run["n_policies"] == 4
     assert run["n_online_presence"] == 1 and run["n_online_presence_ignored"] == 1
     assert run["score_origin"] == "2026Q2" and run["license_snapshot_date"] == "2026-09-11"
-    assert json.loads(run["band_cutoffs_json"]) == {"cut_mid": 0.1493, "cut_high": 0.2142}
+    assert json.loads(run["band_cutoffs_json"]) == {"cut_mid": 0.1493, "cut_high": 0.2142, "base_rate": 0.12}
     reps = _reports(out)
     for r in reps.values():
         assert rv.validate_report(r) == []
@@ -236,7 +239,7 @@ def test_failed_build_keeps_previous_canonical(inputs, tmp_path):
     before = hashlib.sha256(out.read_bytes()).hexdigest()
     bad = _records("0.2")
     bad[0]["factors"][2]["direction"] = "위험 증가"  # 0.0004 → '영향 미미'여야 한다 (최종 검증에서 실패)
-    with pytest.raises(bd.BuildError, match="최종 0.2"):
+    with pytest.raises(bd.BuildError, match="최종 0.3"):
         _build(inputs, out, version="0.2", records=bad)
     assert hashlib.sha256(out.read_bytes()).hexdigest() == before
     assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".report.sqlite.tmp")] == []
@@ -394,7 +397,7 @@ def test_release_build_requirements(tmp_path):
         make_db(tmp_path, SYNTH, purpose="release", snapshot=None, name="a.sqlite")
     with pytest.raises(bd.BuildError, match="대조"):
         make_db(tmp_path, SYNTH, purpose="release", updated=None, name="b.sqlite")
-    with pytest.raises(bd.BuildError, match="최종 0.2 검증 통과"):
+    with pytest.raises(bd.BuildError, match="sensitivity pair required"):
         make_db(tmp_path, SYNTH, purpose="release", version="0.1", name="c.sqlite")
     assert not (tmp_path / "c.sqlite").exists()
     run = _runs(make_db(tmp_path, SYNTH, purpose="release", name="d.sqlite"))
@@ -452,6 +455,7 @@ def test_unknown_online_driver_text_is_rejected(inputs, tmp_path):
     """driver를 부분 문자열로 추측하지 않는다 — 템플릿에 없는 문구는 입력 검증에서 멈춘다."""
     recs = _records("0.2")
     recs[0]["factors"][0]["driver"] = "블로그 언급이 줄어드는 추세"
+    recs[0]["factors"][0].pop("driver_code", None)
     with pytest.raises(bd.BuildError, match="알려진 템플릿"):
         _build(inputs, tmp_path / "r.sqlite", version="0.2", records=recs)
 
@@ -463,6 +467,7 @@ def test_final_report_rejects_online_link_with_unobservable_driver(inputs, tmp_p
     assert rv.validate_report(rec) == []
     f = next(x for x in rec["factors"] if x["factor_id"] == "online_attention")
     f["driver"] = "관측 불가(검색 결과 상한)"
+    f["driver_code"] = "unobservable"
     assert any("연결할 수 없는 요인" in e for e in rv.validate_report(rec))
 
 
@@ -484,6 +489,8 @@ def _online_factor(cls, *, code=True, display=True, c=0.02, text=None):
            hold_reason=None if display else "online_review")
     if code is not False:
         f["driver_code"] = cls if code is True else code
+    else:
+        f.pop("driver_code", None)
     return f
 
 
@@ -513,18 +520,19 @@ def test_driver_code_outside_enum_is_rejected(bad):                             
 
 @pytest.mark.parametrize("code, cls", [("absent", "unobservable"), ("lapse", "presence"), ("decline", "no_change"),
                                        ("absent", "presence")])
-def test_driver_code_text_mismatch_is_rejected(code, cls):                         # 4
+def test_driver_code_is_canonical_over_display_text(code, cls):
     errs = _input_errs([_online_factor(cls, code=code)])
-    assert any("≠ 문구 분류" in e for e in errs)
+    assert errs == []
+    assert rv.online_driver_class(_online_factor(cls, code=code)) == code
 
 
-def test_driver_code_only_on_online_factor_and_needs_text():
+def test_driver_code_only_on_online_factor():
     t = _f("tenure", 0.01, "0.2")
     t["driver_code"] = "absent"
     assert _input_errs([t])                                                          # 비온라인 요인에는 금지
     t["driver_code"] = None
     assert _input_errs([t]) == []                                                    # null은 코드 없음
-    assert _input_errs([_online_factor("absent", text=None) | {"driver": None}])            # 문구 없이 코드만 → 거부
+    assert _input_errs([_online_factor("absent") | {"driver": None}]) == []
 
 
 @pytest.mark.parametrize("cls, linked", [("unobservable", False), ("presence", False), ("no_change", False),  # 5·6·7
@@ -557,11 +565,12 @@ def test_unclassifiable_text_fails_closed(inputs, tmp_path):                    
     assert rv.online_driver_class(f) is None and _linked([f]) == []                  # 연결하지 않는다 (absent로 대체 안 함)
     recs = _records("0.2")
     recs[0]["factors"][0]["driver"] = "블로그 언급이 줄어드는 추세"
+    recs[0]["factors"][0].pop("driver_code", None)
     with pytest.raises(bd.BuildError):                                               # 빌드는 입력 검증에서 멈춘다
         _build(inputs, tmp_path / "r.sqlite", version="0.2", records=recs)
 
 
-def test_driver_code_stored_internally_not_in_final_report(inputs, tmp_path):
+def test_driver_code_preserved_in_db_and_final_report(inputs, tmp_path):
     recs = _records("0.2")
     recs[0]["factors"][0]["driver_code"] = "lapse"                                   # 문구 '마지막 … 이후 14개월'
     out = tmp_path / "r.sqlite"
@@ -571,7 +580,7 @@ def test_driver_code_stored_internally_not_in_final_report(inputs, tmp_path):
         == [("lapse",)]
     reps = _reports(out)
     assert all(rv.validate_report(r) == [] for r in reps.values())
-    assert "driver_code" not in json.dumps(reps, ensure_ascii=False)
+    assert reps[A]["factors"][0]["driver_code"] == "lapse"
     legacy = _reports(_build_legacy(inputs, tmp_path))
     assert {k: r["policies"] for k, r in reps.items()} == {k: r["policies"] for k, r in legacy.items()}
 
@@ -582,12 +591,12 @@ def _build_legacy(inputs, tmp_path):
     return out
 
 
-def test_mismatched_driver_code_stops_build(inputs, tmp_path):
+def test_canonical_driver_code_controls_policy_links(inputs, tmp_path):
     recs = _records("0.2")
-    recs[0]["factors"][0]["driver_code"] = "absent"                                  # 문구는 lapse
-    with pytest.raises(bd.BuildError, match="driver_code"):
-        _build(inputs, tmp_path / "r.sqlite", version="0.2", records=recs)
-    assert not (tmp_path / "r.sqlite").exists()
+    recs[0]["factors"][0]["driver_code"] = "unobservable"  # display text remains lapse
+    _build(inputs, tmp_path / "r.sqlite", version="0.2", records=recs, policies=True)
+    report = _reports(tmp_path / "r.sqlite")[A]
+    assert all("online_attention" not in p["linked_factor_ids"] for p in report["policies"])
 
 
 def test_db_without_driver_code_column_is_still_readable(inputs, tmp_path):

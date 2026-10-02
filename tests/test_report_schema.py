@@ -33,6 +33,8 @@ def _factor(fid, contribution, *, pp=50, display=True, data_missing=False, missi
         "display": display, "data_missing": data_missing, "missing_reason": missing_reason,
         "hold_reason": hold_reason or ("data_missing" if data_missing else None),
         "display_note": None if display else "내부 메모",
+        "driver_code": rv.classify_online_driver(driver) if fid == "online_attention" else None,
+        "interpretation_sensitive": False, "sensitivity_label": "",
     }
 
 
@@ -60,7 +62,7 @@ def _report_basic():
         _factor("store_profile", -0.011, values={"biz_type": "일반음식점", "area": 40.0, "has_coord": True}),
     ]
     return {
-        "_schema_version": "0.2", "store_id": "SAMPLE-001", "score_origin": "2026Q2", "as_of": "2026-06-30",
+        "_schema_version": "0.3", "store_id": "SAMPLE-001", "score_origin": "2026Q2", "as_of": "2026-06-30",
         "store": {
             "biz_type": "일반음식점", "gu": "광진구", "dong": "샘플동", "name": "(샘플) 일반음식점 A",
             "address_road": "서울특별시 광진구 샘플로 1", "address_jibun": "서울특별시 광진구 샘플동 1",
@@ -275,7 +277,7 @@ def _serve_v0_1():
     out["_schema_version"] = "0.1"
     out["store"] = {k: rec["store"][k] for k in ("biz_type", "gu", "name", "address_road", "address_jibun",
                                                  "dong", "license_date")}
-    out["factors"] = [{**{k: v for k, v in f.items() if k not in ("missing_reason", "hold_reason")},
+    out["factors"] = [{**{k: v for k, v in f.items() if k not in ("missing_reason", "hold_reason", "interpretation_sensitive", "sensitivity_label", "driver_code")},
                        # 0.1은 부호만 본다 (반올림된 0.0도 '위험 감소'/'위험 증가' 중 하나)
                        "direction": "위험 증가" if f["contribution"] > 0 else "위험 감소"}
                       for f in rec["factors"]]

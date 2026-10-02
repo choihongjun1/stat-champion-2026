@@ -10,7 +10,7 @@
   그 실행은 `runs.final_contract = 'not_ready'`로 기록한다 (정적 배포 불가).
 - 임시 파일에 한 트랜잭션으로 쓰고 모든 검증을 통과한 뒤에만 정본 경로로 교체한다. 실패하면 기존 정본은 그대로다.
 - 출력 경로가 저장소 안이면 git이 무시하는 경로여야 한다 (실제 점포 결과를 커밋하지 않는다, D2).
-- `--purpose release`(공개 배포용)는 최종 0.2 검증 통과, 인허가 기준일 입력, 그 날짜가 원천 데이터갱신일자 최댓값 이후임을
+- `--purpose release`(공개 배포용)는 최종 0.3 검증 통과, 인허가 기준일 입력, 그 날짜가 원천 데이터갱신일자 최댓값 이후임을
   요구한다. 기본 `dev`는 개발·구조 확인용이며 공개 배포 대상이 아니다 (`release_blockers`).
 - 이미 `final_contract = passed`인 정본은 통과하지 못한 재빌드로 덮어쓰지 않는다 (`--allow-downgrade`로만 허용).
 
@@ -35,13 +35,14 @@ import pandas as pd
 from src.data import config
 from src.serving import paths
 from src.serving import report_validation as rv
+from src.serving.release_contract import operational_errors
 
-BUILDER_VERSION = "w2-5-build-0.1"
-# serve 출력 버전 → 입력 정의. serve 0.2 (PR #36 d6cfeb9, R1~R5 반영)만 최종 리포트 0.2가 된다
+BUILDER_VERSION = "w2-5-build-0.3"
+# serve 0.2 + S8 pair만 최종 0.3 대상. 구버전 입력은 개발 호환용이다.
 INPUT_DEFS = {"0.1": "serve_record_v0_1", "0.2": "serve_record_v0_2"}
 FINAL_READY_INPUTS = {"0.2"}
 NOT_READY_NOTE = ("구버전 serve 입력 0.1에는 missing_reason·hold_reason·'영향 미미'가 없다 (REPORT_SCHEMA R1~R3). "
-                  "설명문에서 추측하지 않고 NULL로 두었으므로 최종 0.2 검증을 통과할 수 없다")
+                  "설명문에서 추측하지 않고 NULL로 두었으므로 최종 0.3 검증을 통과할 수 없다")
 DEFAULT_OUT = config.REPO_ROOT / "outputs" / "serving" / "report.sqlite"
 DEFAULT_LICENSES = config.OUTPUT_DIR / "licenses_3gu.parquet"
 LICENSE_COLS = ["store_id", "business_type", "gu", "dong", "name_raw", "name_norm", "road_addr_raw", "addr_raw",
@@ -136,6 +137,8 @@ CREATE TABLE factors (
   hold_reason TEXT,
   display_note TEXT,
   driver_code TEXT,
+  interpretation_sensitive INTEGER,
+  sensitivity_label TEXT,
   PRIMARY KEY (store_id, factor_id),
   UNIQUE (store_id, rank)
 );
@@ -247,7 +250,7 @@ def read_jsonl(path: Path) -> list[dict]:
     return out
 
 
-def validate_serve_input(records: list[dict], serve_meta: dict) -> str:
+def validate_serve_input(records: list[dict], serve_meta: dict, *, purpose: str = "dev") -> str:
     """serve 입력 계약 검증. 반환: 입력 schema 버전."""
     if not records:
         raise BuildError("reports.jsonl이 비어 있다")
@@ -264,7 +267,7 @@ def validate_serve_input(records: list[dict], serve_meta: dict) -> str:
     errs = [f"{r['store_id']}: {e}" for r in records for e in rv.online_driver_errors(r["factors"])]
     _fail("serve 입력의 온라인 driver 문구가 알려진 템플릿이 아니다 — 정책 연결 조건을 판정할 수 없다", errs)
     errs = [f"{r['store_id']}: {e}" for r in records for e in rv.driver_code_errors(r["factors"])]
-    _fail("serve 입력 driver_code 계약 위반 (온라인 요인 전용·허용 enum·driver 문구 분류와 일치)", errs)
+    _fail("serve 입력 driver_code 계약 위반 (온라인 요인 전용·허용 enum)", errs)
 
     for key in ("score_origin", "as_of", "n_stores", "band_cutoffs"):
         if key not in serve_meta:
@@ -283,7 +286,13 @@ def validate_serve_input(records: list[dict], serve_meta: dict) -> str:
     errs += [f"{r['store_id']}: score_origin {r['score_origin']} ≠ {s}"
              for r in records if "score_origin" in r and r["score_origin"] != s]
     _fail("기준 시점 불일치", errs)
+    if purpose == "release":
+        validate_operational_contract(records, serve_meta)
     return version
+
+
+def validate_operational_contract(records, meta) -> None:
+    _fail("adopted/S8 release contract", operational_errors(records, meta))
 
 
 def validate_band_cutoffs(cut) -> None:
@@ -431,7 +440,7 @@ def match_policies(store: dict, factors: list[dict], policies: list[dict], as_of
 
 
 # ---------------------------------------------------------------------------
-# 최종 0.2 레코드 조립 (SQLite → dict). export(다음 단계)도 이 함수를 쓴다.
+# 최종 0.3 레코드 조립 (SQLite → dict). export(다음 단계)도 이 함수를 쓴다.
 def _rows(conn, sql, args=()):
     cur = conn.execute(sql, args)
     cols = [d[0] for d in cur.description]
@@ -456,6 +465,9 @@ def assemble_report(conn, store_id: str, run: dict | None = None) -> dict:
         "values": json.loads(f["values_json"]), "display": bool(f["display"]),
         "data_missing": bool(f["data_missing"]), "missing_reason": f["missing_reason"],
         "hold_reason": f["hold_reason"], "display_note": f["display_note"],
+        "driver_code": f.get("driver_code") if f.get("driver_code") is not None else (rv.classify_online_driver(f["driver"]) if f["factor_id"] == "online_attention" else None),
+        "interpretation_sensitive": None if f.get("interpretation_sensitive") is None else bool(f["interpretation_sensitive"]),
+        "sensitivity_label": f.get("sensitivity_label"),
     } for f in _rows(conn, "SELECT * FROM factors WHERE store_id = ? ORDER BY rank", (store_id,))]
     prescriptions = [{
         "id": p["prescription_id"], "title": p["title"], "related_factor_ids": json.loads(p["related_factor_ids_json"]),
@@ -527,15 +539,21 @@ def guard_output_path(out: Path) -> None:
 
 
 def release_blockers(run: dict) -> list[str]:
-    """이 정본으로 공개 배포 산출물을 만들 수 없는 이유 (빈 목록이면 공개 가능)."""
+    """이 정본의 기술적 release blocker. 빈 목록도 공개 승인을 뜻하지 않는다."""
     out = []
     if run["final_contract"] != "passed":
-        out.append(f"최종 0.2 계약 미통과 (final_contract={run['final_contract']})")
+        out.append(f"최종 0.3 계약 미통과 (final_contract={run['final_contract']})")
     if run["build_purpose"] != "release":
         out.append(f"개발용 빌드 (build_purpose={run['build_purpose']})")
     if run["license_snapshot_check"] != "consistent":
         out.append(f"인허가 기준일 미확인 (basis={run['license_snapshot_date_basis']}, "
                    f"check={run['license_snapshot_check']})")
+    try:
+        validate_operational_contract([], json.loads(run.get("serve_meta_json", "{}")))
+    except BuildError as e:
+        out.append(str(e))
+    if run.get("output_schema_version") != rv.SCHEMA_VERSION:
+        out.append("현재 최종 schema 0.3으로 재빌드 필요")
     return out
 
 
@@ -567,7 +585,7 @@ def build(reports_path: Path, serve_meta_path: Path, licenses_path: Path, out_pa
 
     records = read_jsonl(reports_path)
     serve_meta = json.loads(Path(serve_meta_path).read_text(encoding="utf-8"))
-    version = validate_serve_input(records, serve_meta)
+    version = validate_serve_input(records, serve_meta, purpose=purpose)
     as_of, score_origin = serve_meta["as_of"], serve_meta["score_origin"]
     store_ids = [r["store_id"] for r in records]
     position = {sid: i for i, sid in enumerate(store_ids)}
@@ -616,13 +634,14 @@ def build(reports_path: Path, serve_meta_path: Path, licenses_path: Path, out_pa
                              (sid, k["probability_12m"], k["ci_low"], k["ci_high"], k["interval_note"], k["band"],
                               k["percentile"], k["peer_group"], k["peer_median"], k["model"], int(k["calibrated"])))
                 conn.executemany(
-                    "INSERT INTO factors VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO factors VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     [(sid, f["factor_id"], i, f["name"], f["category"], f["actionability"], f["contribution"],
                       f["direction"], f["peer_percentile"], f["explanation"], f["driver"], _j(f["values"]),
                       int(f["display"]), int(f["data_missing"]),
                       f.get("missing_reason"), f.get("hold_reason"),  # 0.1 입력에는 키가 없다 → NULL (추측 금지)
                       f["display_note"],
-                      f.get("driver_code")) for i, f in enumerate(r["factors"])])  # 내부 보존용, 최종 리포트에 넣지 않는다
+                      f.get("driver_code") if f.get("driver_code") is not None else (rv.classify_online_driver(f.get("driver")) if f["factor_id"] == "online_attention" else None),
+                      _b(f.get("interpretation_sensitive")), f.get("sensitivity_label")) for i, f in enumerate(r["factors"])])  # 원천 코드와 sensitivity pair를 최종 0.3에도 보존
             conn.executemany(
                 "INSERT INTO policies VALUES (?,?,?,?,?,?,?,?,?,?)",
                 [(p["id"], p["name"], p["operator"], p["link"], p["announce_year"], p["collected_at"],
@@ -662,22 +681,22 @@ def build(reports_path: Path, serve_meta_path: Path, licenses_path: Path, out_pa
             }
             conn.execute(f"INSERT INTO runs ({','.join(run)}) VALUES ({','.join('?' * len(run))})", tuple(run.values()))
 
-            # 최종 0.2 검증 — 정본에서 다시 조립한 레코드로 한다
+            # 최종 0.3 검증 — 정본에서 다시 조립한 레코드로 한다
             invalid = {}
             for rec in iter_reports(conn):
                 errs = rv.validate_report(rec)
                 if errs:
                     invalid[rec["store_id"]] = errs
-            if version in FINAL_READY_INPUTS:
-                _fail("최종 0.2 리포트 검증 실패", [f"{sid}: {e[0]}" for sid, e in invalid.items()])
+            if version in FINAL_READY_INPUTS and all("interpretation_sensitive" in f and "sensitivity_label" in f for r in records for f in r["factors"]):
+                _fail("최종 0.3 리포트 검증 실패", [f"{sid}: {e[0]}" for sid, e in invalid.items()])
                 final, note = "passed", None
             else:
-                final, note = "not_ready", NOT_READY_NOTE
+                final, note = "not_ready", NOT_READY_NOTE if version == "0.1" else "구버전 serve 0.2에 sensitivity 필드 없음 — 최신 S8 serve 출력으로 재빌드"
             conn.execute("UPDATE runs SET final_contract = ?, final_contract_note = ?, n_final_invalid = ?",
                          (final, note, len(invalid)))
             run.update(final_contract=final, final_contract_note=note, n_final_invalid=len(invalid))
             if purpose == "release" and final != "passed":
-                raise BuildError(f"공개 배포용 빌드는 최종 0.2 검증 통과가 필요하다 — {note}")
+                raise BuildError(f"공개 배포용 빌드는 최종 0.3 검증 통과가 필요하다 — {note}")
         conn.close()
         existing = _existing_final_contract(out_path)
         if existing == "passed" and final != "passed" and not allow_downgrade:
@@ -718,10 +737,10 @@ def main(argv=None) -> None:
     print(f"  run_id {run['run_id']} · score_origin {run['score_origin']} · 점포 {run['n_stores']:,} · "
           f"입력 schema {run['input_schema_version']}")
     print(f"  정책 매칭 {run['policy_matching']} (정책 {run['n_policies']}) · 온라인 존재감 {run['n_online_presence']:,}")
-    print(f"  최종 0.2 계약: {run['final_contract']} (검증 실패 {run['n_final_invalid']:,})"
+    print(f"  최종 0.3 계약: {run['final_contract']} (검증 실패 {run['n_final_invalid']:,})"
           + (f"\n  {run['final_contract_note']}" if run["final_contract_note"] else ""))
     blockers = release_blockers(run)
-    print("  공개 배포: " + ("가능" if not blockers else "불가 — " + " / ".join(blockers)))
+    print("  기술적 release 계약: " + ("통과 (공개 승인 아님)" if not blockers else "불가 — " + " / ".join(blockers)))
 
 
 if __name__ == "__main__":

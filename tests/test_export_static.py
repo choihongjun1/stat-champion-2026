@@ -54,7 +54,7 @@ def test_normal_export(bundle):
     assert "band" not in json.dumps(idx["entries"], ensure_ascii=False)
     paths = [f["path"] for f in manifest["files"]]
     assert paths == sorted(paths) and "manifest.json" not in paths
-    assert all(f["run_id"] == meta["run_id"] and f["schema_version"] == "0.2" for f in manifest["files"])
+    assert all(f["run_id"] == meta["run_id"] and f["schema_version"] == "0.3" for f in manifest["files"])
     # 파일명·경로에 상호·주소가 없다 (store_id만)
     assert all(not any(ch in p for ch in "가상점포 ") for p in paths)
 
@@ -280,7 +280,8 @@ def _serve_meta_like_pr36(tmp_path, n_stores):
     cut = {"cut_mid": 0.1493378246, "cut_high": 0.2142019871, "base_rate": 0.1244481612}  # suggest_cutoffs 키 (값은 합성)
     pd.DataFrame([cut]).to_csv(tmp_path / "band_cutoffs.csv", index=False)
     cut_read = pd.read_csv(tmp_path / "band_cutoffs.csv").iloc[0].to_dict()           # numpy.float64 값
-    meta = {"score_origin": "2026Q2", "as_of": "2026-06-30", "n_stores": n_stores, "primary_feature_set": "enriched",
+    from src.serving.release_contract import synthetic_provenance
+    meta = {**synthetic_provenance(), "score_origin": "2026Q2", "as_of": "2026-06-30", "n_stores": n_stores, "primary_feature_set": "enriched",
             "train_origins": ["2021Q1", "2025Q1"], "n_train_rows": 1000, "band_cutoffs": cut_read, "n_boot": 20,
             "n_background": 16, "detect_run": "outputs/models/detect_v0_enriched", "detect_master_sha256": "0" * 64,
             "master": "outputs/master/master_base.parquet", "master_sha256": "0" * 64,

@@ -22,7 +22,7 @@
   ],
   "properties": {
     "_schema_version": {
-      "const": "0.2"
+      "const": "0.3"
     },
     "store_id": {
       "$ref": "#/$defs/store_id"
@@ -413,7 +413,10 @@
         "data_missing",
         "missing_reason",
         "hold_reason",
-        "display_note"
+        "display_note",
+        "interpretation_sensitive",
+        "sensitivity_label",
+        "driver_code"
       ],
       "properties": {
         "factor_id": {
@@ -506,11 +509,78 @@
             "null"
           ],
           "description": "내부용 문장. 화면 분기에 쓰지 않는다"
+        },
+        "interpretation_sensitive": {
+          "type": "boolean"
+        },
+        "sensitivity_label": {
+          "enum": [
+            "",
+            "해석 민감"
+          ]
+        },
+        "driver_code": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/online_driver_code"
+            }
+          ],
+          "description": "선택. 없거나 null이면 코드 없음(구버전 입력) — driver 문구 분류로 판정"
         }
       },
       "allOf": [
         {
           "$ref": "#/$defs/factor_display_state"
+        },
+        {
+          "if": {
+            "required": [
+              "interpretation_sensitive"
+            ],
+            "properties": {
+              "interpretation_sensitive": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "sensitivity_label": {
+                "const": "해석 민감"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "sensitivity_label": {
+                "const": ""
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "factor_id": {
+                "not": {
+                  "const": "online_attention"
+                }
+              }
+            },
+            "required": [
+              "factor_id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "driver_code": {
+                "type": "null"
+              }
+            }
+          }
         }
       ]
     },
@@ -1410,6 +1480,15 @@
                   }
                 ],
                 "description": "선택. 없거나 null이면 코드 없음(구버전 입력) — driver 문구 분류로 판정"
+              },
+              "interpretation_sensitive": {
+                "type": "boolean"
+              },
+              "sensitivity_label": {
+                "enum": [
+                  "",
+                  "해석 민감"
+                ]
               }
             },
             "allOf": [
@@ -1436,8 +1515,42 @@
                     }
                   }
                 }
+              },
+              {
+                "if": {
+                  "required": [
+                    "interpretation_sensitive"
+                  ],
+                  "properties": {
+                    "interpretation_sensitive": {
+                      "const": true
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "sensitivity_label": {
+                      "const": "해석 민감"
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "sensitivity_label": {
+                      "const": ""
+                    }
+                  }
+                }
               }
-            ]
+            ],
+            "dependentRequired": {
+              "interpretation_sensitive": [
+                "sensitivity_label"
+              ],
+              "sensitivity_label": [
+                "interpretation_sensitive"
+              ]
+            }
           }
         },
         "unavailable_categories": {
@@ -1488,7 +1601,7 @@
       ],
       "properties": {
         "_schema_version": {
-          "const": "0.2"
+          "const": "0.3"
         },
         "run_id": {
           "type": "string",
@@ -1567,7 +1680,7 @@
       ],
       "properties": {
         "_schema_version": {
-          "const": "0.2"
+          "const": "0.3"
         },
         "run_id": {
           "type": "string",
@@ -1645,7 +1758,7 @@
       ],
       "properties": {
         "_schema_version": {
-          "const": "0.2"
+          "const": "0.3"
         },
         "run_id": {
           "type": "string",
@@ -1684,11 +1797,12 @@
         "dong_summary_public_ready",
         "dong_summary_blockers",
         "publication_approved",
-        "publication_note"
+        "publication_note",
+        "provenance"
       ],
       "properties": {
         "_schema_version": {
-          "const": "0.2"
+          "const": "0.3"
         },
         "run_id": {
           "type": "string",
@@ -1791,6 +1905,56 @@
         "publication_note": {
           "type": "string",
           "minLength": 1
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "params_name",
+            "model_class",
+            "params_contract",
+            "s8_rule_version",
+            "primary_seed",
+            "sensitivity_seed"
+          ],
+          "properties": {
+            "params_name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "model_class": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "params_contract": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "s8_rule_version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "primary_seed": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "sensitivity_seed": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
         }
       }
     },
@@ -1815,7 +1979,7 @@
       ],
       "properties": {
         "_schema_version": {
-          "const": "0.2"
+          "const": "0.3"
         },
         "run_id": {
           "type": "string",
@@ -1908,7 +2072,7 @@
                 "minimum": 0
               },
               "schema_version": {
-                "const": "0.2"
+                "const": "0.3"
               },
               "run_id": {
                 "type": "string",

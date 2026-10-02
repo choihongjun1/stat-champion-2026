@@ -1,19 +1,38 @@
 # W2-5 결과 스키마 (REPORT_SCHEMA)
 
-- 상태: **schema 0.2 초안** (2026-09-26). 기계 판독 정의는 `src/serving/report_schema.json`(JSON Schema 2020-12),
+- 상태: **schema 0.3** (2026-10-02). 기계 판독 정의는 `src/serving/report_schema.json`(JSON Schema 2020-12),
   스키마로 표현할 수 없는 교차 규칙은 `src/serving/report_validation.py`가 검사한다. 이 문서와 두 파일이 다르면 코드가 틀린 것으로 보고 같은 PR에서 고친다.
 - 근거: DECISIONS 2026-09-26 "W2-5 결과 스키마·서빙 구조", PR #36 `reports.jsonl`(schema 0.1, 모델 출력의 기준),
   PR #37 `SCHEMA_DIFF.md`(화면 요구사항), PR #38 `FACTOR_POLICY_LINKS.md`(정책 연결 규칙), Issue #29(동 리포트), Issue #35(예측용 master).
 - 범위: 점포 리포트 레코드, 빌드 입력(서빙 출력·정책 원천·온라인 스냅샷), 검색 인덱스 행, 동 요약 행의 **형식**과 SQLite 정본 빌드(§11).
   검색 인덱스·동 요약(§12), 정적 JSON 번들(§13)까지 구현했다. 실명 점포 데이터의 공개 배포는 하지 않는다(§9).
 
-## 0. 현재 상태와 의존성 (2026-09-26)
+
+## 2026-10-02 현재 계약 (이전 날짜의 의존성 기록 갱신)
+
+최신 main `d572819`의 #36/#51/#53/#55를 반영했다. 상세 비교·migration·#48 후속·명령은
+[W2_REPORT_REFRESH.md](W2_REPORT_REFRESH.md)에 있다. 아래 2026-09-26 실측/상태는 당시 기록이며,
+현재 버전·release 판단에는 이 절과 기계 스키마를 적용한다.
+
+- 최종 리포트와 모든 정적 파일은 0.3, serve 입력은 별도 0.2. required sensitivity pair 및 driver_code 때문에 최종 버전을 올렸다.
+- factor.interpretation_sensitive는 boolean, sensitivity_label은 false일 때 "", true일 때 "해석 민감"이며 모두 필수.
+  주 배경 contribution/direction/display/explanation을 계속 사용한다. sensitivity는 보조 경고이다.
+- release build는 adopted params_name/params_contract, canonical HGB, detect run_meta SHA256,
+  S8-2026-10-01 stratified 256 두 operational 배경·seed 20260931/20261001·rows/index 해시,
+  s8_summary/cutoff_provenance와 정확한 band_cutoffs 3키(cut_mid/cut_high/base_rate)를 요구한다.
+- 기존 runs.serve_meta_json에 모든 provenance를 보존, static meta.provenance에는 설정명/클래스/계약명/S8 버전/두 seed만 노출한다.
+- 옛 serve 0.2에 sensitivity가 없으면 dev 입력만 허용하고 final_contract=not_ready. 옛 DB의 없는 컬럼은 null로 개발 조립,
+  release/static은 재빌드 필요. 기존 0.2 정적 파일을 직접 고치지 않는다.
+- #36 R1~R3, driver 생산자, #35 score 코드, #44 처리는 main에서 이미 구현됐다. 실데이터 산출물은 외부 PC에서 재생성 중이다.
+- min_cell_n은 provisional, export의 명시적 --min-cell-n은 필수. 공개 승인 기본 false, 공개/추적 경로 방어는 유지한다.
+
+## 0. 이전 상태와 의존성 (2026-09-26)
 
 - **정본과 파생본**: SQLite(`outputs/serving/report.sqlite`)가 로컬 정본이고, 정적 JSON 번들은 정본에서만 만드는 파생본이다(§1·§11·§13).
 - **입력·출력 버전**: PR #36 serve 출력 **0.2**(커밋 `d6cfeb9`, R1~R5 반영)가 W2-5 빌드 입력(`serve_record_v0_2`)이다.
-  최종 리포트도 0.2지만 **버전 번호만 같고 다른 구조**다(serve 0.2에는 prescriptions·policies·online_presence·policy_matching이 없다) —
+  최종 리포트는 0.3지만 **버전과 구조 모두 다른 계약**다(serve 0.2에는 prescriptions·policies·online_presence·policy_matching이 없다) —
   입력과 최종 계약은 별도 정의로 검증한다. 구버전 serve 0.1은 개발용 호환만 남고 정본이 `final_contract = not_ready`가 된다(§8·§10·§11).
-  PR #36 가린 샘플 23건(0.2)은 입력 검증·정본 빌드·최종 0.2 검증을 모두 통과했다(인허가는 가린 store 블록으로 만든 합성 입력, §11).
+  당시 PR #36 가린 샘플 23건(0.2)은 입력 검증·정본 빌드·당시 최종 0.2 검증을 통과했다. 현재 0.3에서는 S8 pair가 필요하다.
 - **실제 2026Q2 점포 리포트는 Issue #35(예측용 `master_score`)에 의존한다.** 이 PR은 실제 serve 실행·실제 전체 파이프라인을 돌리지 않았다.
   테스트는 합성 데이터, PR #36 가린 샘플(0.1 입력 검증, 저장소 밖에서 수동 확인), 인허가 기반 점포 수 실측으로만 했다.
 - **정책 연결 규칙은 PR #38 `FACTOR_POLICY_LINKS.md` 초안을 따른다. PR #38은 아직 병합되지 않았다** — 규칙이 바뀌면 `build_db.match_policies`를 함께 고친다.
@@ -39,7 +58,7 @@
 
 ```
 {
-  "_schema_version": "0.2",
+  "_schema_version": "0.3",
   "store_id": "GR_…",               // 공개 샘플은 SAMPLE-NNN
   "score_origin": "2026Q2",
   "as_of": "2026-06-30",            // score_origin 분기 말일
@@ -66,7 +85,7 @@
 
 | 필드 | 타입 | null | 출처 | 규칙 |
 |---|---|---|---|---|
-| `_schema_version` | `"0.2"` | 아니오 | build | 계약 버전. serve 입력은 `"0.1"` |
+| `_schema_version` | `"0.3"` | 아니오 | build | 계약 버전. serve 입력은 `"0.2"` |
 | `store_id` | string | 아니오 | serve | `{GR\|SR\|BT}_{관리번호}` / 샘플 `SAMPLE-NNN` / 더미 `DUMMY-…` |
 | `score_origin` | `YYYYQn` | 아니오 | build | serve 실행의 `serve_meta.json` `score_origin`. 우선 대상 2026Q2 |
 | `as_of` | date | 아니오 | serve | `score_origin`의 분기 말일과 같아야 한다 (검증) |
@@ -131,6 +150,9 @@
 | `missing_reason` | enum | 예 | serve | 아래 §4. serve 0.2 코드값을 그대로 보존 (0.1에는 없음, R1) |
 | `hold_reason` | enum | 예 | serve | 아래 §4. serve 0.2 코드값을 그대로 보존 (0.1에는 없음, R2) |
 | `display_note` | string | 예 | serve | 내부용 문장. 화면 분기·문구에 쓰지 않는다 |
+| `interpretation_sensitive` | boolean | 아니오 | serve | 두 S8 배경의 방향 또는 display 차이, 주 배경 값은 유지 |
+| `sensitivity_label` | `""`/`"해석 민감"` | 아니오 | serve | false → "", true → "해석 민감" |
+| `driver_code` | 6종 enum | 예 | serve | 온라인 정본 코드, 다른 요인 null. 문구 재분류 없음 |
 
 ## 4. 표시 상태 구분
 
@@ -198,36 +220,11 @@ W2-7 정책 원천(`$defs/policy_source`, FACTOR_POLICY_LINKS.md §3)을 입력�
 | `check_note` | string | 예 | 확인 필요 안내 문구 |
 
 - 요인 연결은 인과 주장이 아니다. 화면 문구는 "이 요인과 관련된 지원사업"이며 효과를 약속하지 않는다.
-- **온라인 요인(`online_attention`) 추가 조건** (FACTOR_POLICY_LINKS.md §2, PR #38 초안): driver가 온라인 노출 부족일 때만 연결한다.
-  driver는 PR #36 `diagnose.online_driver_text`가 (feature, 값)으로 만드는 **고정 템플릿 문구**라서, 템플릿 전체 일치로 분류한다
-  (`report_validation.classify_online_driver`, 부분 문자열 검색 아님). 템플릿에 없는 문구는 serve 입력·최종 리포트 검증 오류다.
-
-  | driver 템플릿 (N은 정수) | 분류 | 연결 |
-  |---|---|---|
-  | 최근 6개월 블로그 언급이 그 전 6개월보다 N건 줄어듦 | decline | 연결 |
-  | 마지막 블로그 언급 이후 N개월 (N > 3) | lapse | 연결 |
-  | 블로그 언급 이력 없음 / 최근 12개월 블로그 언급 없음 / 최근 12개월·3개월 블로그 언급 0건 | absent | 연결 |
-  | 관측 불가(검색 결과 상한) | unobservable | 연결 안 함 |
-  | 최근 1년 블로그 언급 수 변화 없음 | no_change | 연결 안 함 |
-  | 최근 12개월·3개월 블로그 언급 N건 (N > 0) / …있음 / 과거 블로그 언급 이력 있음 / 이번 달에도 블로그 언급 있음 / 마지막 블로그 언급 이후 N개월 (N ≤ 3) / …N건 늘어남 | presence | 연결 안 함 |
-
-  N ≤ 3개월 경계는 #36 `online_signal_is_presence`와 같다.
-- **`driver`와 `driver_code`** (2026-09-28, PR #41 코멘트의 1단계):
-  - `driver`: 화면용 설명 문구. serve 입력·최종 리포트 모두 그대로 유지한다.
-  - `driver_code`: serve 입력 온라인 요인의 **선택** 필드, 정책 연결 판정용 구조화 코드. 허용값 = 위 표의 분류
-    `decline`·`lapse`·`absent`·`unobservable`·`no_change`·`presence` (`$defs/online_driver_code`). 없거나 null이면 코드 없음.
-    **온라인 요인(`online_attention`) 전용**이며 다른 요인에서는 없거나 null이어야 한다.
-  - **판정**: 코드가 있으면 코드 기준, 없으면(구버전 입력) 문구 분류(`_ONLINE_DRIVER_PATTERNS`)로 판정한다
-    (`report_validation.online_driver_class`). 연결 대상은 `decline`·`lapse`·`absent`뿐이고, `unobservable`(일부 feature 결측 등으로
-    근거를 해석할 수 없음)은 **언급 없음(`absent`)으로 취급하지 않는다**. 분류할 수 없으면 연결하지 않는다(fail closed, `absent`로 대체 안 함).
-  - **불일치 거부**: 코드가 있으면 driver 문구가 있어야 하고 그 분류와 같아야 한다. 다르거나, 문구가 없거나, 문구를 분류할 수 없으면
-    어느 쪽도 채택하지 않고 serve 입력 검증에서 빌드를 멈춘다. 코드 없는 입력의 모르는 문구도 기존처럼 입력 검증에서 멈춘다.
-  - **최종 리포트 0.2에는 `driver_code`를 노출하지 않는다** (최종 factor 정의는 닫혀 있고 바뀌지 않았다). 정본 SQLite `factors.driver_code`에
-    원천 값을 내부 보존하며, 이 컬럼이 없는 예전 정본도 그대로 조립된다. 최종 리포트 검증은 문구 분류로 같은 판정을 다시 한다
-    (입력에서 코드 = 문구 분류를 확인했으므로 결과가 같다).
-  - **#36 후속 계약**: #36 serve가 온라인 요인 factor마다 `driver_code`(위 enum, `driver` 문구의 분류와 같은 값)를 채운다.
-    serve 입력 버전(0.2)은 선택 필드 추가라 올리지 않았다 — 올릴지는 #36과 함께 정한다. #36이 코드를 채운 뒤 #41의 문구 표는
-    교차 검증·구버전 호환용으로만 남는다.
+- **온라인 요인 정책 연결:** `driver_code`가 정본이다. 허용 enum은 decline/lapse/absent/unobservable/no_change/presence.
+  코드가 있으면 driver 문구를 독립적으로 분류하지 않는다. 표시되고 기여가 양수인 decline/lapse/absent만 연결한다.
+  unobservable은 absent가 아니다. 코드가 없는 구버전 개발 입력에만 전체 템플릿 일치 fallback을 쓴다.
+  모르는 fallback 문구는 입력에서 거부한다. release 입력에는 온라인 code가 필수이며 다른 요인에서는 null이다.
+  최종 0.3 JSON에도 driver_code를 보존한다. driver는 화면 문구 그대로이고 코드와 문구 간 재분류 검증은 하지 않는다.
 - 업력 조건은 `store.license_date`와 `as_of`로 계산한다 (진단 업력대와 같은 경계, FACTOR_POLICY_LINKS.md §3).
   업력(개월) = as_of와 인허가일의 연·월 차이(라벨·master `age_months`와 같은 식), `tenure_months_min`·`max`는 경계 포함.
   인허가일이 없으면 업력을 추정하지 않고 `check_required`로 두며 `unverifiable_conditions`에 "업력 조건 (인허가일 정보 없음)"을 넣는다.
@@ -284,7 +281,7 @@ W3 DML 분석 전에는 효과 수치를 만들지 않는다. schema 0.2는 **�
 
 ### 빌드 입력 `serve_record_v0_2` / `serve_record_v0_1`
 - `serve_record_v0_2`: PR #36 serve 출력 0.2 (`d6cfeb9`). `score_origin`·`missing_reason`·`hold_reason` 필수, `영향 미미` 허용,
-  표시 상태 규칙(`factor_display_state`) 적용. factor의 선택 필드 `driver_code`(온라인 요인 전용, §5)를 명시한다. 최상위 키를 닫아 최종 리포트(같은 0.2)를 입력으로 넣으면 거부한다. 이 입력만 최종 0.2 대상이다.
+  표시 상태 규칙(`factor_display_state`) 적용. factor의 선택 필드 `driver_code`(온라인 요인 전용, §5)를 명시한다. 최상위 키를 닫아 최종 리포트(0.3)를 입력으로 넣으면 거부한다. 최신 S8 pair가 있는 입력만 최종 0.3 대상이다.
 - `serve_record_v0_1`: 구버전 0.1. 개발용 호환만 유지하며 정본은 `not_ready`가 된다.
 - (이전 초안의 `serve_record_v0_1_1`은 PR #36이 실제로 0.2를 내보내면서 이 정의로 바꿨다 — DECISIONS 2026-09-26 "W2-5 입력 계약을 PR #36 serve 0.2에 맞춤".)
 
@@ -301,7 +298,7 @@ B는 아직 없으며 코드에 승인 수단도 없다 — 정적 번들의 `pu
 - 저장소: 실명·주소·store_id와 위험도가 연결된 실제 결과는 커밋하지 않는다. 가린 샘플(`SAMPLE-NNN`, 상호·주소 가림, 면적·인허가일 뭉갬)만 둔다.
 - 실제 데이터의 웹 공개 범위는 별도 결정한다. 정적 JSON 배포 전 게이트(다음 단계 구현):
   1. 정본이 `--purpose release`로 만들어졌고 `release_blockers(run)`이 비어 있음
-     (최종 0.2 검증 통과, 인허가 기준일 입력 + 원천 데이터갱신일자와 대조 완료)
+     (최종 0.3 검증 통과, 인허가 기준일 입력 + 원천 데이터갱신일자와 대조 완료)
   2. 모든 리포트가 `validate_report` 통과 (스키마 + 교차 규칙)
   3. 검색 인덱스에 위험 관련 키 없음, 동 요약의 소표본 칸 숨김·역산 불가, 하한값 `decided`
   4. 공개 범위 결정 전에는 실명 리포트 파일을 배포 디렉터리에 만들지 않는다
@@ -376,7 +373,7 @@ python -m src.serving.build_db --serve-dir outputs/serve/<run> --license-snapsho
 | `--policies` | 없음 | W2-7 정책 원천 JSON (`policy_source` 배열 또는 `{"policies": [...]}`). 없으면 매칭하지 않고 `policy_matching = not_performed` |
 | `--online-presence` | 없음 | `online_presence_source` JSONL. 없으면 모든 점포의 `online_presence = null` |
 | `--license-snapshot-date` | 없음 | 인허가 원천 파일 기준일. 주지 않으면 `store.status.license_snapshot_date = null` |
-| `--purpose` | `dev` | `release`면 기준일 필수, 기준일이 원천 데이터갱신일자 최댓값 이후인지 대조 가능해야 하며, 최종 0.2 검증 통과가 필수 |
+| `--purpose` | `dev` | `release`면 기준일 필수, 기준일이 원천 데이터갱신일자 최댓값 이후인지 대조 가능해야 하며, 최종 0.3 검증 통과가 필수 |
 | `--allow-downgrade` | 꺼짐 | 기존 정본이 `final_contract=passed`면 통과하지 못한 결과로 덮어쓰지 않는다. 의도한 경우에만 켠다 |
 | `--out` | `outputs/serving/report.sqlite` | 정본 경로. git 작업 트리(이 저장소·다른 저장소) 안이면 그 저장소에서 git 무시 대상이어야 하고 `docs`·`app`·`public`·`dist`·`site`·`www` 경로는 금지. git 작업 트리 밖은 허용 (`src/serving/paths.py`) |
 
@@ -396,7 +393,7 @@ python -m src.serving.build_db --serve-dir outputs/serve/<run> --license-snapsho
 2. 인허가 결합: 인허가 테이블 store_id 유일, reports의 모든 점포가 인허가에 있음(1:1), serve가 붙인 store 필드가 있으면 인허가 값과 일치,
    인허가일 ≤ as_of, 폐업일이 있으면 > as_of (as_of 당시 영업 점포).
 3. 정책 원천·온라인 입력: 각 스키마 통과, id·store_id 중복 없음, 업력 min ≤ max.
-4. 최종 0.2: 정본에서 다시 조립한 레코드(`assemble_report`)를 `validate_report`로 검사.
+4. 최종 0.3: 정본에서 다시 조립한 레코드(`assemble_report`)를 `validate_report`로 검사.
    - serve 0.2 입력 → 한 건이라도 실패하면 빌드 실패, 통과하면 `runs.final_contract = passed`.
    - 구버전 0.1 입력 → R1~R3 값이 없으므로(NULL, 추측하지 않음) `runs.final_contract = not_ready`, 실패 건수만 기록. **정적 배포 대상이 아니다.**
    - 위험도·기여·등급·설명문은 serve 값을 그대로 옮기며 다시 계산하거나 고치지 않는다.
@@ -404,7 +401,7 @@ python -m src.serving.build_db --serve-dir outputs/serve/<run> --license-snapsho
 ### PR #36 가린 샘플 통합 확인 (2026-09-26, `d6cfeb9`, 저장소 밖 수동 실행)
 `docs/samples/serve_2025Q2_trial/sample_reports.jsonl` 23건(serve 0.2, score_origin 2025Q2). 가린 샘플은 실제 인허가와 결합할 수 없어
 **인허가 입력은 가린 store 블록을 그대로 옮긴 합성 테이블**을 썼다 — 실제 인허가 결합 검증이 아니다.
-입력 스키마 23/23 통과 → `--purpose release` 정본 빌드 성공(`final_contract=passed`, 최종 검증 실패 0) → 최종 0.2 검증 오류 0 →
+당시 입력 스키마 23/23 통과 → 당시 `--purpose release` 정본 빌드 성공(`final_contract=passed`, 최종 검증 실패 0) → 당시 최종 0.2 검증 오류 0 →
 serve와 정본 리포트의 risk·factors(기여·방향·설명문·코드)·unavailable_categories·disclaimer 차이 0건. 보존된 보류 코드:
 `data_missing`+`out_of_trdar`/`sales_unpublished`/`online_unobservable`, `online_review`. 정적 번들 내보내기도 통과했고
 `data_kind=real`로 분류됐다(가린 실제 모형 출력은 합성 샘플이 아니다). 테스트 `test_pr36_masked_samples_match_input_contract`는
@@ -510,7 +507,7 @@ python -m src.serving.export_static --db outputs/serving/report.sqlite --min-cel
   search_index.json    search_index_file — 검색용 (위험 정보 없음)
   dongs.json           dong_list_file — 동 선택 목록 "{동} ({구})"
   dong_summary.json    dong_summary_file — 동×업종 등급 분포 (숨김 적용)
-  reports/{store_id}.json   점포별 최종 0.2 리포트 1건씩 (파일명은 store_id만, 상호·주소 없음)
+  reports/{store_id}.json   점포별 최종 0.3 리포트 1건씩 (파일명은 store_id만, 상호·주소 없음)
   manifest.json        static_manifest — 파일별 path·sha256·bytes·rows·schema_version·run_id (자기 자신 제외)
 ```
 
@@ -552,7 +549,7 @@ const index = await (await fetch(`${base}/${meta.files.search_index}`)).json();
 // 1) 상호 → 2) 주소 → 3) 동 선택 (search_index.py 규칙: 정규화 상호 일치 단계, 여러 건이면 모두 목록으로)
 const hits = index.entries.filter(e => e.name_norm && e.name_norm.includes(normalizeName(query)));
 const url = `${base}/${meta.report_path_template.replace("{store_id}", encodeURIComponent(hits[0].store_id))}`;
-const report = await (await fetch(url)).json();        // 최종 0.2 리포트
+const report = await (await fetch(url)).json();        // 최종 0.3 리포트
 // 결과 없음 → dongs.json에서 동 선택 → dong_summary.json의 (gu, dong) 행 (note 문구 항상 표시, suppressed 행은 수치 없이)
 ```
 

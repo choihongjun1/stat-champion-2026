@@ -26,6 +26,7 @@ from src.data.names import normalize_name
 from src.serving import build_db as bd
 from src.serving import export_static as ex
 from src.serving import report_validation as rv
+from src.serving.release_contract import synthetic_provenance
 
 DEFAULT_OUT = config.REPO_ROOT / "docs" / "samples" / "w2-5"
 SCORE_ORIGIN, AS_OF = "2026Q2", "2026-06-30"
@@ -106,6 +107,8 @@ def _factor(fid: str, spec) -> dict:
     else:
         c = spec
     driver = None
+    if fid == "online_attention" and kind == "missing":
+        driver = "관측 불가(검색 결과 상한)"
     if fid == "online_attention" and kind != "missing":
         driver = ("최근 12개월 블로그 언급 40건" if kind == "hold" else
                   "마지막 블로그 언급 이후 14개월" if c > 0 else "최근 12개월 블로그 언급 6건")
@@ -121,7 +124,10 @@ def _factor(fid: str, spec) -> dict:
             expl = expl[:-len(TAG)] + f" 주된 근거: {driver}.{TAG}"
     return {"category": cat, "name": name, "factor_id": fid, "contribution": c, "direction": rv.direction_of(c),
             "peer_percentile": None if kind == "missing" else 55, "actionability": act, "explanation": expl,
-            "driver": driver, "display": kind == "normal",
+            "driver": driver, "driver_code": rv.classify_online_driver(driver) if fid == "online_attention" else None,
+            "interpretation_sensitive": fid == "online_attention" and kind == "normal",
+            "sensitivity_label": "해석 민감" if fid == "online_attention" and kind == "normal" else "",
+            "display": kind == "normal",
             "display_note": None if kind == "normal" else "합성 예시 — 표시 보류",
             "data_missing": kind == "missing", "missing_reason": reason,
             "hold_reason": {"hold": "online_review", "missing": "data_missing"}.get(kind), "values": {}}
@@ -160,8 +166,8 @@ def write_inputs(d: Path, samples: list, with_policies: bool) -> dict:
     (d / "reports.jsonl").write_text("".join(json.dumps(_record(s), ensure_ascii=False) + "\n" for s in samples),
                                      encoding="utf-8", newline="\n")
     (d / "serve_meta.json").write_text(json.dumps({
-        "score_origin": SCORE_ORIGIN, "as_of": AS_OF, "n_stores": len(samples), "detect_run": "sample_synthetic",
-        "band_cutoffs": {"cut_mid": 0.1493, "cut_high": 0.2142}}), encoding="utf-8", newline="\n")
+        **synthetic_provenance(), "score_origin": SCORE_ORIGIN, "as_of": AS_OF, "n_stores": len(samples), "detect_run": "sample_synthetic",
+        "band_cutoffs": {"cut_mid": 0.1493, "cut_high": 0.2142, "base_rate": 0.12}}), encoding="utf-8", newline="\n")
     online = [{"store_id": f"SAMPLE-{s[0]:03d}", "online_presence": _online(s[12])} for s in samples if s[12]]
     (d / "online.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in online),
                                     encoding="utf-8", newline="\n")
