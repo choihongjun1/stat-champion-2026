@@ -4,8 +4,8 @@
 온라인 존재감 스냅샷)을 합쳐 로컬 정본 SQLite를 만든다. 계약: `docs/REPORT_SCHEMA.md`.
 
 - 모델 코드(`src/models/`)는 import하지 않는다. 입력은 `reports.jsonl` 형식에만 의존한다 (DECISIONS 2026-09-26 D9).
-- 입력 검증(serve 출력 0.2 = `serve_record_v0_2`, 구버전 0.1 = `serve_record_v0_1`)과 최종 리포트 0.2 검증을 분리한다.
-  serve 0.2와 최종 리포트 0.2는 버전 번호만 같고 다른 구조다. serve 0.2의 missing_reason·hold_reason 코드는 그대로 보존한다.
+- 입력 검증(serve 출력 0.2 = `serve_record_v0_2`, 구버전 0.1 = `serve_record_v0_1`)과 최종 리포트 0.3 검증을 분리한다.
+  serve 0.2와 최종 리포트 0.3은 별도 계약이다. serve의 missing_reason·hold_reason·S8 pair는 그대로 보존한다.
   구버전 0.1 입력에는 이 값들과 '영향 미미'가 없다 — 설명문에서 추측하지 않고 NULL로 두며
   그 실행은 `runs.final_contract = 'not_ready'`로 기록한다 (정적 배포 불가).
 - 임시 파일에 한 트랜잭션으로 쓰고 모든 검증을 통과한 뒤에만 정본 경로로 교체한다. 실패하면 기존 정본은 그대로다.

@@ -587,7 +587,7 @@
     "prescription": {
       "type": "object",
       "additionalProperties": false,
-      "description": "schema 0.2에서는 unavailable 상태만 허용한다 — W3 DML 전까지 효과 수치를 만들지 않는다",
+      "description": "schema 0.3에서는 unavailable 상태만 허용한다 — W3 DML 전까지 효과 수치를 만들지 않는다",
       "required": [
         "id",
         "title",
@@ -1325,7 +1325,7 @@
     },
     "serve_record_v0_2": {
       "type": "object",
-      "description": "PR #36 serve 출력 0.2 (d6cfeb9, R1~R5 반영) — W2-5 빌드 입력. 최종 리포트 0.2와 버전 번호만 같고 구조가 다르다 (최종 리포트의 prescriptions·policies·online_presence·policy_matching이 없다). 최종 리포트를 입력으로 넣지 못하도록 최상위 키를 닫는다",
+      "description": "PR #36 serve 출력 0.2 — 최종 리포트 0.3과 별도 계약인 W2-5 빌드 입력. 최종 리포트의 prescriptions·policies·online_presence·policy_matching이 없으며 최상위 키를 닫는다. release는 최신 S8 sensitivity pair를 요구한다",
       "required": [
         "_schema_version",
         "store_id",
@@ -1887,7 +1887,7 @@
               "maxItems": 0
             }
           },
-          "description": "기술적 계약 통과(최종 0.2·provenance·스키마·불변식). 공개 승인과 별개"
+          "description": "기술적 계약 통과(최종 0.3·provenance·스키마·불변식). 공개 승인과 별개"
         },
         "dong_summary_public_ready": {
           "type": "boolean"
@@ -2022,7 +2022,7 @@
               "maxItems": 0
             }
           },
-          "description": "기술적 계약 통과(최종 0.2·provenance·스키마·불변식). 공개 승인과 별개"
+          "description": "기술적 계약 통과(최종 0.3·provenance·스키마·불변식). 공개 승인과 별개"
         },
         "dong_summary_public_ready": {
           "type": "boolean"

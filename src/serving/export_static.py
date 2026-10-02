@@ -4,8 +4,8 @@ SQLite가 정본이고 이 번들은 파생본이다. 모델 추론·진단 계�
 `search_index.build_index`·`dong_summary.build_summary`를 그대로 쓴다.
 
 두 가지를 구분한다 (DECISIONS 2026-09-26 W2-5 정적 내보내기):
-- **A. 기술적 계약 통과** (`technical_gate`): 정본 `release_blockers`가 비어 있음(최종 0.2 통과, 배포용 빌드, 인허가 기준일 대조),
-  모든 리포트 0.2 검증, 검색·집계 불변식. A를 통과하지 못하면 번들을 만들지 않는다.
+- **A. 기술적 계약 통과** (`technical_gate`): 정본 `release_blockers`가 비어 있음(최종 0.3 통과, adopted/S8, 배포용 빌드, 인허가 기준일 대조),
+  모든 리포트 0.3 검증, 검색·집계 불변식. A를 통과하지 못하면 번들을 만들지 않는다.
 - **B. 공개 승인** (`publication_approved`): 실명·주소·store_id·개별 위험도 결합 데이터의 공개 범위는 정해지지 않았다.
   이 모듈에는 승인 수단이 없고 값은 항상 false다. A 통과는 B가 아니다.
 
