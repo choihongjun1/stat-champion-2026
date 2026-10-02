@@ -20,7 +20,7 @@ if str(ROOT) not in sys.path:
 from src.serving import build_db as bd
 from src.serving import paths, report_validation as rv
 
-RULE_VERSION = 'T5-H2-2026-10-02-0.1'
+RULE_VERSION = 'T5-H2-2026-10-03-0.2'
 SEEDS = {'A': 20261004, 'B': 20261005, 'C': 20261006}
 NO_CASE = '적합한 비식별 실제 사례 없음'
 GU = {'광진구', '마포구', '영등포구'}
@@ -57,8 +57,7 @@ class Candidate:
     band: str
     sensitive: bool
     displayed_factors: int
-    tailored_matched: int
-    common_only: bool
+    tailored_policy_count: int
 
 
 def displayed_factor_count(factors):
@@ -83,7 +82,6 @@ def candidates_from_reports(reports, approved_store_ids, approved_policy_ids, po
         require(report['store']['gu'] in GU and report['store']['biz_type'] in BIZ,
                 'unsupported public category')
         tailored = 0
-        shown = []
         for match in report['policies']:
             pid = match['id']
             require(pid in source, 'matched policy absent from frozen source')
@@ -95,13 +93,13 @@ def candidates_from_reports(reports, approved_store_ids, approved_policy_ids, po
                     'policy matching evidence differs from store category')
             if pid not in approved_policy_ids:
                 continue
-            shown.append(bool(expected))
-            tailored += match['match_status'] == 'matched' and bool(expected)
+            # Both schema-supported statuses display a card. Status describes
+            # eligibility verification, not whether the policy is tailored.
+            tailored += bool(expected)
         result.append(Candidate(sid, report['store']['gu'], report['store']['biz_type'],
                                 report['risk']['band'],
                                 any(f['interpretation_sensitive'] for f in report['factors']),
-                                displayed_factor_count(report['factors']), tailored,
-                                bool(shown) and not any(shown)))
+                                displayed_factor_count(report['factors']), tailored))
     require(approved_store_ids <= seen, 'review contains unknown store references')
     return result
 
@@ -122,14 +120,16 @@ def choose_cases(candidates):
 
     pool, stage = [], '없음'
     for band, count, name in [('high', 2, '기본'), ('high', 1, '대안1'), ('mid', 2, '대안2')]:
-        pool = [c for c in candidates if c.band == band and c.tailored_matched >= count]
+        pool = [c for c in candidates if c.band == band and c.tailored_policy_count >= count]
         if pool:
             stage = name
             break
-    pick('A', pool, lambda c: (-c.tailored_matched, c.sensitive, -c.displayed_factors, c.store_id), stage)
-    pool = [c for c in candidates if c.store_id not in used and c.band == 'high'
-            and c.tailored_matched == 0 and c.common_only]
+    pick('A', pool, lambda c: (-c.tailored_policy_count, c.sensitive, -c.displayed_factors, c.store_id), stage)
+    high = [c for c in candidates if c.store_id not in used and c.band == 'high']
+    minimum = min((c.tailored_policy_count for c in high), default=None)
+    pool = [c for c in high if c.tailored_policy_count == minimum]
     pick('B', pool, lambda c: (c.sensitive, -c.displayed_factors, c.store_id), '기본')
+    selected['B']['tailored_policy_count_min'] = minimum
     pool = [c for c in candidates if c.store_id not in used and c.band == 'low']
     a = selected['A']['candidate']
     same = [c for c in pool if a and c.biz_type == a.biz_type]
@@ -209,6 +209,8 @@ def output_documents(selection, provenance, commit):
         row = dict(case=label, label=f'비식별 실제 사례 {label}', gu=c.gu if c else None,
                    biz_type=c.biz_type if c else None, band=c.band if c else None,
                    status='선택' if c else NO_CASE, **{k:item[k] for k in ('rule_stage','candidate_count','top_count','seed')})
+        if label == 'B':
+            row['tailored_policy_count_min'] = item['tailored_policy_count_min']
         public['cases'].append(row)
         private['cases'].append({**row,'store_id':c.store_id if c else None})
     return private, public
@@ -234,7 +236,13 @@ def validate_public_output(public):
             'invalid public policy count')
     require([c['case'] for c in public['cases']] == ['A','B','C'], 'invalid public case labels')
     for c in public['cases']:
-        require(set(c) == {'case','label','gu','biz_type','band','status','rule_stage','candidate_count','top_count','seed'},
+        fields = {'case','label','gu','biz_type','band','status','rule_stage','candidate_count','top_count','seed'}
+        if c['case'] == 'B':
+            fields.add('tailored_policy_count_min')
+            minimum = c.get('tailored_policy_count_min')
+            require((type(minimum) is int and minimum >= 0 and c['status'] == '선택')
+                    or (minimum is None and c['status'] == NO_CASE), 'invalid public tailored minimum')
+        require(set(c) == fields,
                 'invalid public case fields')
         require(c['label'] == '비식별 실제 사례 '+c['case'] and c['seed'] == SEEDS[c['case']], 'invalid public case seed')
         require(c['gu'] in GU | {None} and c['biz_type'] in BIZ | {None}

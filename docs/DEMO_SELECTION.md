@@ -1,7 +1,7 @@
 # W3-15 시연 사례 선택 (H2/H3)
 
-Issue #49의 기존 T5(5945674299), 보완 제안(5949343653) 및 사용자 H2/H3 요청을 그대로 코드에 고정했다.
-규칙 버전은 T5-H2-2026-10-02-0.1이다. 팀 확인/게시 전 준비용이며 결과를 보고 규칙을 바꾸지 않는다.
+Issue #49의 기존 T5(5945674299), 보완 제안(5949343653), 손유성 수정 제안(5955352405) 및 사용자 요청을 코드에 고정했다.
+규칙 버전은 T5-H2-2026-10-03-0.2이다. 팀 확인/게시 전 준비용이며 결과를 보고 규칙을 바꾸지 않는다.
 H2 게시 초안은 [T5_SUPPLEMENT_COMMENT.md](drafts/T5_SUPPLEMENT_COMMENT.md)에 있고 실제 게시하지 않았다.
 
 ## 정책 경로와 현재 blocker
@@ -10,7 +10,10 @@ main의 build_db는 --policies로 명시한 JSON 배열 또는 policies 배열 �
 기본값은 None이며 정책 입력이 없으면 policy_matching=not_performed이다.
 모델 serve는 이 원천을 읽지 않는다. 매칭은 build_db, 정적 export는 SQLite에 저장된 매칭 결과를 읽는다.
 현재 main/로컬 checkout에는 실제 정책 원천이나 그 파일의 고정 경로가 없다.
-따라서 실제 경로·현재 건수·해시·확인일은 미검증이며 #54의 18→16 정정과 일치한다고 단정할 수 없다.
+따라서 실제 경로·현재 건수·해시·확인일은 미검증이다. 16건은 #49/#54 기록상 잠정값이다.
+최종 정책 파일·모집 상태 파일·해시·확인일은 #49 수정 제안상 10/4 오후 제공 예정이다.
+파일 수신 후 경로·sha256·checked_at·실제 건수와 B 최소 맞춤 정책 수를 확인해야 H2를 최종 확정할 수 있다.
+파일 수신 전 실제 해시를 계산하거나 실제 사례를 선택하지 않으며 B의 실제 최소값도 미확정이다.
 collected_at은 원천의 수집일이고 serving as_of는 점포 기준 분기 말일이다.
 현행 policy_source에는 apply_status/checked_at이 없어 수집일만으로 모집 상태 재확인을 대신할 수 없다.
 
@@ -42,18 +45,25 @@ WAL/journal이 남아 있는 DB는 확정 snapshot으로 보지 않고 중단한
 
 ## 고정 규칙과 helper 정의
 
-- 맞춤: 원천 conditions.gu 또는 conditions.biz_type이 null이 아니고 매칭 결과 matched_by의 gu/biz_type 증거와 일치.
-  matched만 개수에 넣고 check_required는 넣지 않는다. 위험요인 linked_factor_ids로 맞춤을 판정하지 않는다.
+- 맞춤 정책 수(tailored_policy_count): 공개 가능·모집 중으로 검수된 표시 정책 중 원천 conditions.gu 또는
+  conditions.biz_type이 점포와 맞고 매칭 결과 matched_by의 gu/biz_type 증거와 일치하는 정책 수.
+  두 조건이 모두 있는 정책도 1건으로 센다. matched와 check_required 모두 포함한다.
+  matched는 데이터로 확인 가능한 자격 조건까지 모두 확인됨을 뜻한다.
+  check_required는 업종·지역 조건이 맞는 사업이지만 나머지 조건은 공고에서 확인 필요함을 뜻한다.
+  화면에는 “조건 확인 필요”로 설명한다. matched 수로 동률을 가리지 않고 이 상태만으로 점포를 제외하지 않는다.
+  위험요인 linked_factor_ids로 맞춤을 판정하거나 정책을 인과적으로 연결하지 않는다.
 - 공통: 위 두 조건이 모두 null인 사업. 업력 조건은 별개이며 맞춤 사업 수에 넣지 않는다.
-  B는 표시 가능 정책이 1건 이상이고 표시되는 모든 정책이 공통이어야 한다.
-  맞춤 check_required가 표시되는 점포는 “공통만”이 아니므로 B에서 제외한다.
+  B에 “공통만 표시” 또는 특정 맞춤 정책 수 조건을 추가하지 않는다.
 - 표시 가능 진단 요인 수: factors에서 display=true인 수. 기존 스키마의 display⇔hold_reason=null 계약을 사용한다.
 - interpretation_sensitive: 모든 factors 중 하나라도 true이면 점포를 true로 판정한다.
   설명 안정성 우선이며 위험도 우열은 아니다.
-- A: high+맞춤 matched≥2 → high+≥1 → mid+≥2 → 없음.
+- A: high+맞춤≥2 → high+≥1 → mid+≥2 → 없음.
   맞춤 수 내림차순, 민감 false, 표시 요인 수 내림차순.
-- B: A 제외, high+맞춤 matched=0+공통만 표시 → 없음.
-  민감 false, 표시 요인 수 내림차순.
+- B: A 제외 후 공개 가능한 high 후보의 tailored_policy_count 최소값을 계산하고 그 최소값 후보만 사용.
+  0건이 존재하면 0건만 사용하고, 아니면 1·2건 등 실제 최소값을 사용한다. 1건을 하드코딩하지 않는다.
+  민감 false, 표시 요인 수 내림차순. high 후보가 없으면 없음.
+  실제 적용된 최소값은 B 행의 tailored_policy_count_min에 기록하고 후보가 없으면 null이다.
+  최종 정책 파일 수신 전 실제 최소값과 B 최종 확인은 미확정이다.
 - C: A/B 제외, low 중 A와 같은 업종 우선. 없으면 업종 무관(대안1), 없으면 없음.
   민감 false만 우선한다. C에 요인 수 우선순위를 추가하지 않는다.
 - 마지막 동률은 비공개 점포 참조의 문자열 오름차순으로 정렬하고 상위 min(10,후보 수) 중 독립 Random(seed).choice로 1곳.
@@ -74,6 +84,8 @@ WAL/journal이 남아 있는 DB는 확정 snapshot으로 보지 않고 중단한
   입력 해시 앞 16자, 정책 확인일/수집일·건수, 규칙 버전, 생성 commit. 점포 참조·상호·상세주소·확률/구간은 포함하지 않는다.
   이 요약은 public report 자체가 아니므로 별도 demo-selection-public-0.1 allowlist validator를 적용한다.
   #59 공개 report 원칙과 #56 claims 검사 취지를 보존하며 공개 report로 위장하지 않는다.
+  B 행에만 tailored_policy_count_min(0 이상 정수 또는 후보 없음의 null)을 허용한다.
+  private 행에도 같은 최소값을 기록한다. 변경된 선택 의미는 rule_version 0.2로 구분한다.
 - 공개 요약의 hash prefix는 로컬 private provenance의 전체값 앞 16자와 일치한다. commit은 공개 코드의 Git revision이다.
 - policy hash mismatch는 DB 열기/선택/출력 전에 종료 코드 2. DB 정책 hash 또는 검수 hash/확인일 불일치도 중단.
 - 같은 증거의 반복 실행은 같은 결과. 기존 출력과 다른 증거/결과를 자동 덮어쓰지 않는다.

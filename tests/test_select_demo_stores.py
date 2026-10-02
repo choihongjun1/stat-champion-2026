@@ -15,8 +15,8 @@ from tests.serving_synth import store, write_inputs
 from tests.test_report_schema import _report_basic
 
 
-def c(n, band='high', tailored=2, sensitive=False, factors=2, biz='일반음식점', common=False):
-    return sel.Candidate(f'SYN-DEMO-{n:03d}','마포구',biz,band,sensitive,factors,tailored,common)
+def c(n, band='high', tailored=2, sensitive=False, factors=2, biz='일반음식점'):
+    return sel.Candidate(f'SYN-DEMO-{n:03d}','마포구',biz,band,sensitive,factors,tailored)
 
 
 def chosen(pool, label='A'):
@@ -37,11 +37,24 @@ def test_a_rule_and_fallbacks(pool,stage,number):
     assert bool(row['candidate'])==bool(number)
 
 
-@pytest.mark.parametrize('common,expected',[(True,True),(False,False)])
-def test_b_requires_actual_common_policy_only(common,expected):
-    row=chosen([c(1,tailored=0,common=common)],'B')
-    assert bool(row['candidate'])==expected
-    assert row['rule_stage']==('기본' if expected else '없음')
+@pytest.mark.parametrize('minimum',[0,1,2,4])
+def test_b_uses_actual_high_minimum(minimum):
+    pool=[c(1,tailored=minimum+2),c(2,tailored=minimum),
+          c(3,tailored=minimum+1),c(4,band='low',tailored=0)]
+    row=chosen(pool,'B')
+    assert row['candidate']==pool[1]
+    assert row['tailored_policy_count_min']==minimum
+    assert row['candidate_count']==1 and row['rule_stage']=='기본'
+
+
+def test_b_excludes_a_before_minimum_and_has_explicit_empty_value():
+    pool=[c(1,tailored=2)]
+    row=chosen(pool,'B')
+    assert row['candidate'] is None and row['tailored_policy_count_min'] is None
+    assert row['rule_stage']=='없음'
+    result=sel.choose_cases(pool+[c(2,tailored=2)])
+    assert result['A']['candidate']!=result['B']['candidate']
+    assert result['B']['tailored_policy_count_min']==2
 
 
 def test_c_prefers_a_industry_and_falls_back():
@@ -59,16 +72,16 @@ def test_priority_before_random_top_ten():
     assert chosen(stable+[c(99,factors=1)])['candidate'] in stable
     many=[c(i,tailored=3,sensitive=True,factors=1) for i in range(1,11)]
     assert chosen(many+[c(99,tailored=2,sensitive=False,factors=99)])['candidate'] in many
-    b=[c(i,tailored=0,common=True,factors=3) for i in range(1,11)]
-    assert chosen(b+[c(99,tailored=0,common=True,sensitive=True,factors=99)],'B')['candidate'] in b
-    assert chosen(b+[c(99,tailored=0,common=True,factors=1)],'B')['candidate'] in b
+    b=[c(i,tailored=0,factors=3) for i in range(1,11)]
+    assert chosen(b+[c(99,tailored=0,sensitive=True,factors=99)],'B')['candidate'] in b
+    assert chosen(b+[c(99,tailored=0,factors=1)],'B')['candidate'] in b
     low=[c(i,band='low',sensitive=False) for i in range(1,11)]
     assert chosen(low+[c(99,band='low',sensitive=True)],'C')['candidate'] in low
 
 
 def test_stable_top10_reproducibility_and_case_rng_independence():
     a=[c(i) for i in range(1,21)]
-    b=[c(i,tailored=0,common=True) for i in range(21,41)]
+    b=[c(i,tailored=0) for i in range(21,41)]
     low=[c(i,band='low',tailored=0) for i in range(41,61)]
     result=sel.choose_cases(a+b+low)
     assert result==sel.choose_cases(list(reversed(a+b+low)))
@@ -137,6 +150,69 @@ def execute(frozen):
     return sel.read_frozen_inputs(db,policy,review,sel.sha256_file(policy),'2026-10-01')
 
 
+@pytest.mark.parametrize('status',['matched','check_required'])
+@pytest.mark.parametrize('common_status',['matched','check_required'])
+def test_tailored_counts_both_statuses_but_not_common(frozen,status,common_status):
+    db,policy,path,review=frozen
+    original_pool,_=execute(frozen)
+    with sel.sqlite3.connect(db) as conn:
+        for pid,value in [('biz',status),('district',status),('common',common_status)]:
+            needs_check=value=='check_required'
+            conn.execute('UPDATE store_policies SET match_status=?, unverifiable_conditions_json=?, check_note=? WHERE policy_id=?',
+                         (value,json.dumps(['합성 확인 조건'] if needs_check else []),
+                          '합성 확인 필요' if needs_check else None,pid))
+    review['db_sha256']=sel.sha256_file(db)
+    path.write_text(json.dumps(review),encoding='utf-8')
+    pool,_=execute(frozen)
+    assert pool==original_pool
+    assert sel.choose_cases(pool)==sel.choose_cases(original_pool)
+    assert sorted(c.tailored_policy_count for c in pool)==[0,2,2]
+    assert chosen(pool)['rule_stage']=='기본'
+    assert chosen(pool,'B')['tailored_policy_count_min']==0
+
+
+@pytest.mark.parametrize('extra',[0,1,3])
+def test_changed_synthetic_policy_source_changes_b_minimum(tmp_path,extra):
+    data=write_inputs(tmp_path/'input',[
+        store(1,'마포구','샘플동','일반음식점',band='high'),
+        store(2,'광진구','샘플동','미용업',band='high')])
+    source=policies()
+    for i in range(extra):
+        policy=deepcopy(source[1])
+        policy['id']=f'synthetic_extra_{i}'
+        policy['conditions']['biz_type']=['일반음식점','미용업']
+        policy['unverifiable_conditions']=['합성 확인 조건']
+        source.append(policy)
+    policy_path=data/'policies.json'
+    policy_path.write_text(json.dumps(source,ensure_ascii=False),encoding='utf-8')
+    db=tmp_path/'report.sqlite'
+    bd.build(data/'reports.jsonl',data/'serve_meta.json',data/'licenses.parquet',db,
+             policies_path=policy_path,purpose='release',license_snapshot_date='2026-09-11')
+    with sel.sqlite3.connect(db) as conn:
+        reports=list(bd.iter_reports(conn))
+    pool=sel.candidates_from_reports(reports,{r['store_id'] for r in reports},
+                                     {p['id'] for p in source},source)
+    row=chosen(pool,'B')
+    assert row['candidate'].biz_type=='미용업'
+    assert row['tailored_policy_count_min']==extra
+
+
+@pytest.mark.parametrize('minimum',[0,1,4,None])
+def test_public_b_minimum_contract(minimum):
+    provenance=dict(rule_version=sel.RULE_VERSION,db_sha256='a'*64,policies_sha256='b'*64,review_sha256='c'*64,
+                    policy_checked_at='2026-10-01',policy_count=3,policy_collected_at=['2026-10-01'],policy_path='private')
+    pool=[] if minimum is None else [c(1,tailored=minimum+2),c(2,tailored=minimum)]
+    private,public=sel.output_documents(sel.choose_cases(pool),provenance,'d'*40)
+    sel.validate_public_output(public)
+    assert public['cases'][1]['tailored_policy_count_min']==minimum
+    assert private['cases'][1]['tailored_policy_count_min']==minimum
+    for invalid in (-1,True,'1'):
+        altered=deepcopy(public)
+        altered['cases'][1]['tailored_policy_count_min']=invalid
+        with pytest.raises(sel.SelectionError,match='tailored minimum'):
+            sel.validate_public_output(altered)
+
+
 def test_readonly_sqlite_and_public_private_contract(frozen,tmp_path):
     db,policy,review_path,_=frozen
     before=db.read_bytes()
@@ -200,9 +276,8 @@ def test_review_provenance_and_publication_evidence(frozen,change):
         if change in ('guard','claims','closed','unknown'):
             assert result['A']['candidate'] is None
         else:
-            assert result['A']['rule_stage']=='대안1'
-            # check_required tailored policy remains displayed: not a common-only B.
-            assert not next(c for c in pool if c.biz_type=='일반음식점').common_only
+            assert result['A']['rule_stage']=='기본'
+            assert result['A']['candidate'].tailored_policy_count==2
 
 
 def test_cli_uses_future_regen_freeze_and_safe_errors(frozen,tmp_path,capsys):
