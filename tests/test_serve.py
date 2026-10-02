@@ -80,7 +80,8 @@ def test_reports_jsonl_schema(detect_run, tmp_path):
         assert (f["hold_reason"] is None) == f["display"]  # display=false ⇔ hold_reason 있음
         assert (f["missing_reason"] is None) == (not f["data_missing"])
         assert f["direction"] in {"위험 증가", "위험 감소", "영향 미미"}
-        assert "interpretation_sensitive" not in f  # #41 factor 스키마(additionalProperties=false) 호환
+        assert isinstance(f["interpretation_sensitive"], bool)
+        assert f["sensitivity_label"] == ("해석 민감" if f["interpretation_sensitive"] else "")
     k = r["risk"]
     assert k["ci_low"] <= k["probability_12m"] <= k["ci_high"]
     meta_d = json.loads((detect_run["ddir"] / "run_meta.json").read_text(encoding="utf-8"))
@@ -274,7 +275,7 @@ def test_serve_uses_s8_backgrounds_and_keeps_probability_and_band(detect_run, tm
     d = pd.read_parquet(tmp_path / "o1" / "diagnosis.parquet")
     assert set(diagnose.SENSITIVITY_COLS) <= set(d.columns)
     assert d["interpretation_sensitive"].dtype == bool
-    assert sm["diagnosis"]["same_model_as_risk"] and not sm["diagnosis"]["sensitivity_exposed_in_reports"]
+    assert sm["diagnosis"]["same_model_as_risk"] and sm["diagnosis"]["sensitivity_exposed_in_reports"]
     # 무작위 배경(비교용)과 위험 확률·등급이 같다 — 배경은 설명만 바꾼다
     rnd = _serve(detect_run, tmp_path / "o2", background_manifest=None, random_background=4)
     assert np.array_equal(risk["probability_12m"].to_numpy(), rnd["probability_12m"].to_numpy())

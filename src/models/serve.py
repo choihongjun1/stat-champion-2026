@@ -30,9 +30,8 @@
 
 출력 (`outputs/serve/<origin>_<feature set>/`)
 - `risk_scores.parquet`, `diagnosis.parquet`, `diagnosis_by_category.parquet`
-- `reports.jsonl` — 점포당 1줄, W2-5 결과 스키마의 risk + factors 블록. S8 `interpretation_sensitive`는
-  #41 factor 스키마(additionalProperties=false)가 받기 전까지 넣지 않는다(`--expose-sensitivity`로만) —
-  diagnosis.parquet에는 항상 있다.
+- `reports.jsonl` — 점포당 1줄, serve 입력 0.2. S8일 때 interpretation_sensitive/sensitivity_label을
+  기본으로 포함한다(최종 W2-5 report 0.3 계약). 무작위 개발 배경에는 sensitivity pair가 없다.
 - `serve_meta.json` — 입력 sha256, 학습 구간, 모형 설정(params_name), 같은 run 검사, S8 배경, 컷오프, 소요 시간
 
 실행:
@@ -211,12 +210,12 @@ def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *,
         online_path: Path | None = None, online_score_path: Path | None = None,
         licenses_path: Path | None = None, qa_path: Path | None = None, background_manifest: Path | None = None,
         random_background: int | None = None, diagnose_meta: Path | None = None,
-        allow_non_adopted_params: bool = False, expose_sensitivity: bool = False,
+        allow_non_adopted_params: bool = False, expose_sensitivity: bool = True,
         n_boot: int = 20, seed: int = 20260925) -> pd.DataFrame:
     """background_manifest: S8 manifest(기본 `background.DEFAULT_MANIFEST`, 없으면 멈춤) — 두 배경으로 진단(#53).
     random_background: 정수를 주면 manifest 대신 학습 구간 무작위 그 개수 하나로만(시험용, 해석 민감 없음, 비운영).
     diagnose_meta: 별도로 돌린 diagnose의 diagnose_meta.json — 같은 탐지 실행인지 확인(다르면 멈춤).
-    expose_sensitivity: reports.jsonl factor에 interpretation_sensitive를 넣는다(#41 스키마 갱신 후)."""
+    expose_sensitivity: S8 reports factor에 sensitivity pair를 넣는다(기본 True, False는 개발 호환용)."""
     t0 = time.time()
     out_dir.mkdir(parents=True, exist_ok=True)
     if licenses_path is not None and not Path(licenses_path).exists():
@@ -342,7 +341,7 @@ def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *,
                          "model": r.model, "calibrated": bool(r.calibrated)},
                 "factors": diagnose.factors_json(by_store[r.store_id], r.store_id, r.origin,
                                                  res["values"](r.store_id, r.origin),
-                                                 with_sensitivity=expose_sensitivity),
+                                                 with_sensitivity=expose_sensitivity and s8 is not None),
                 "unavailable_categories": unavailable,
                 "disclaimer": DISCLAIMER,
             }
@@ -362,9 +361,9 @@ def run(master_path: Path, score_path: Path, detect_dir: Path, out_dir: Path, *,
                                   + (["diagnose_meta"] if diag_check else [])},
         "diagnosis": {"model_params_source": "serve 위험도 모형과 같은 객체 (detect run_meta.params)",
                       "same_model_as_risk": True, "diagnose_meta_check": diag_check,
-                      "sensitivity_exposed_in_reports": expose_sensitivity,
-                      "sensitivity_note": None if expose_sensitivity else
-                      "interpretation_sensitive는 diagnosis.parquet에만 — #41 factor 스키마 갱신 후 reports에 노출"},
+                      "sensitivity_exposed_in_reports": expose_sensitivity and s8 is not None,
+                      "sensitivity_note": None if expose_sensitivity and s8 is not None else
+                      "개발용 출력: sensitivity pair 없음, release report 빌드 불가"},
         "s8_rule": {k: bg_prov.get(k) for k in ("rule_ref", "rule_version", "method", "n_background", "comparison")},
         "s8_summary": s8,
         "band_definition": run_meta.get("band_definition"),
@@ -423,7 +422,7 @@ def main(argv=None) -> None:
     ap.add_argument("--allow-non-adopted-params", action="store_true",
                     help="params_name≠adopted·legacy run_meta도 허용 (개발·과거 재현용, 운영 출력 아님)")
     ap.add_argument("--expose-sensitivity", action="store_true",
-                    help="reports.jsonl factor에 interpretation_sensitive 포함 (#41 스키마 갱신 후)")
+                    help="호환 옵션: S8 reports에 sensitivity pair는 이제 기본 포함")
     ap.add_argument("--out", type=Path, default=None)
     a = ap.parse_args(argv)
     licenses = a.licenses
@@ -440,7 +439,7 @@ def main(argv=None) -> None:
         online_score_path=a.online_score, licenses_path=licenses, qa_path=a.qa,
         background_manifest=None if a.random_background is not None else a.background_manifest,
         random_background=a.random_background, diagnose_meta=a.diagnose_meta,
-        allow_non_adopted_params=a.allow_non_adopted_params, expose_sensitivity=a.expose_sensitivity,
+        allow_non_adopted_params=a.allow_non_adopted_params, expose_sensitivity=True,
         n_boot=a.n_boot)
 
 
