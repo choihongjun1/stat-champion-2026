@@ -1,7 +1,7 @@
 {
   "_submission_contract_version": "submission-static-0.1",
   "source_schema_version": "0.3",
-  "run_id": "21e533cf991d3c3a",
+  "run_id": "28d181e6cb896d1f",
   "score_origin": "2026Q2",
   "as_of": "2026-06-30",
   "data_kind": "synthetic",
@@ -51,7 +51,7 @@
     "s8_rule_version": "S8-2026-10-01",
     "primary_seed": 20260931,
     "sensitivity_seed": 20261001,
-    "source_db_sha256_12": "1e07e17513a5",
+    "source_db_sha256_12": "3588a471fcef",
     "policies_sha256_12": "d608088a4bc1",
     "policies_apply_sha256_12": "f03e4d6b972d",
     "policy_checked_at": "2026-10-03"

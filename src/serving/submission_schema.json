@@ -36,7 +36,7 @@
     "submission_policy": {
       "type": "object",
       "additionalProperties": false,
-      "description": "W2-7 정책 원천(policy_source)을 W2-5 빌드에서 점포에 매칭한 결과 (FACTOR_POLICY_LINKS.md §4)",
+      "description": "Public policy facts and structured matching state; internal review prose is excluded.",
       "required": [
         "id",
         "name",
@@ -47,9 +47,8 @@
         "collected_at",
         "match_status",
         "matched_by",
-        "unverifiable_conditions",
+        "unverified_condition_count",
         "linked_factor_ids",
-        "check_note",
         "apply_status",
         "apply_end",
         "checked_at"
@@ -106,22 +105,9 @@
             ]
           }
         },
-        "unverifiable_conditions": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
         "linked_factor_ids": {
           "type": "array",
           "maxItems": 0
-        },
-        "check_note": {
-          "type": [
-            "string",
-            "null"
-          ]
         },
         "apply_status": {
           "enum": [
@@ -149,6 +135,10 @@
               "type": "null"
             }
           ]
+        },
+        "unverified_condition_count": {
+          "type": "integer",
+          "minimum": 0
         }
       },
       "allOf": [
@@ -162,15 +152,15 @@
           },
           "then": {
             "properties": {
-              "unverifiable_conditions": {
-                "minItems": 1
+              "unverified_condition_count": {
+                "minimum": 1
               }
             }
           },
           "else": {
             "properties": {
-              "unverifiable_conditions": {
-                "maxItems": 0
+              "unverified_condition_count": {
+                "const": 0
               }
             }
           }

@@ -40,6 +40,7 @@ FORBIDDEN_KEYS = frozenset({
     "close_date", "license_snapshot_date", "online_presence", "prescriptions",
     "probability_12m", "ci_low", "ci_high", "interval_note", "peer_median", "model", "calibrated",
     "contribution", "peer_percentile", "values", "driver", "explanation", "display_note",
+    "unverifiable_conditions", "check_note",
 })
 
 
@@ -87,6 +88,22 @@ def project_factor(f: dict) -> dict:
     }
 
 
+# Only public policy facts cross this boundary; internal review prose stays private.
+PUBLIC_POLICY_FIELDS = (
+    "id", "name", "operator", "link", "eligibility_text", "announce_year", "collected_at",
+    "match_status", "matched_by",
+)
+
+
+def project_policy(policy: dict, application: dict | None = None) -> dict:
+    public = {key: json.loads(json.dumps(policy[key], ensure_ascii=False)) for key in PUBLIC_POLICY_FIELDS}
+    public["unverified_condition_count"] = len(policy["unverifiable_conditions"])
+    public["linked_factor_ids"] = []
+    application = application or dict(apply_status="unknown", apply_end=None, checked_at=None)
+    public.update({key: application[key] for key in ("apply_status", "apply_end", "checked_at")})
+    return public
+
+
 def project_case(record: dict, *, label: str, data_kind: str, rule_stage: str, n_candidates: int | None,
                  seed: int | None, policy_apply: dict | None = None) -> dict:
     """내부 report 0.3 레코드 → 제출용 사례 1건. 원 레코드를 먼저 0.3 계약으로 검증하고, 결과를 제출 계약으로 검증한다.
@@ -96,6 +113,8 @@ def project_case(record: dict, *, label: str, data_kind: str, rule_stage: str, n
         raise ValueError("internal report contract: " + " / ".join(errors[:3]))
     if rule_stage not in RULE_STAGES or rule_stage == "none":
         raise ValueError(f"사례를 만들 수 있는 규칙 단계가 아니다: {rule_stage}")
+    if policy_apply is not None and any(p["id"] not in policy_apply for p in record["policies"]):
+        raise ValueError("incomplete policy application join")
     case = {
         "_submission_contract_version": CONTRACT_VERSION,
         "source_schema_version": record["_schema_version"],
@@ -107,16 +126,10 @@ def project_case(record: dict, *, label: str, data_kind: str, rule_stage: str, n
         "factors": [project_factor(f) for f in record["factors"]],
         "unavailable_categories": list(record["unavailable_categories"]),
         "policy_matching": record["policy_matching"],
-        "policies": json.loads(json.dumps(record["policies"], ensure_ascii=False)),
+        "policies": [project_policy(p, (policy_apply or {}).get(p["id"])) for p in record["policies"]],
         "selection": {"rule_stage": rule_stage, "n_candidates": n_candidates, "seed": seed},
         "disclaimer": record["disclaimer"],
     }
-    if policy_apply is not None and any(p["id"] not in policy_apply for p in case["policies"]):
-        raise ValueError("incomplete policy application join")
-    for policy in case["policies"]:
-        policy["linked_factor_ids"] = []
-        policy.update((policy_apply or {}).get(policy["id"],
-                      dict(apply_status="unknown", apply_end=None, checked_at=None)))
     errors = validate_case(case)
     if errors:
         raise ValueError("submission contract: " + " / ".join(errors[:3]))
@@ -159,8 +172,6 @@ def validate_case(case: dict) -> list[str]:
     errs += validate_def("submission_case", case)
     if errs:
         return errs
-    errs += [f"policies/{i}: {e}" for i, p in enumerate(case["policies"]) for e in rv.validate_def("policy_match", {k: v for k, v in p.items()
-                          if k not in {"apply_status", "apply_end", "checked_at"}})]
     if len({p['id'] for p in case['policies']}) != len(case['policies']):
         errs.append("duplicate submission policy id")
     if case["public_id"] != f"CASE-{case['case_label']}":

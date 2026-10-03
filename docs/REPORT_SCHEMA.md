@@ -675,3 +675,9 @@ Submission cards add apply_status/apply_end/checked_at via policy id from polici
 and force linked_factor_ids=[]. Internal report 0.3 is unchanged. Public provenance uses both source hash prefixes.
 Submission consumer SHOULD NOT display summary_text directly; use level_text + direction.
 See [SUBMISSION_BUNDLE.md](SUBMISSION_BUNDLE.md) for final 28-policy gates, direct #64 input and synthetic samples.
+
+Submission policy review projection excludes `unverifiable_conditions` and `check_note`.
+The existing `match_status` is retained; `unverified_condition_count` is the number of internal
+unverifiable conditions (zero for `matched`, positive for `check_required`). Official policy facts
+and application dates remain public. Submission consumers can render the #54 guidance from this
+structured state/count and `checked_at`; the data layer does not copy internal review sentences.

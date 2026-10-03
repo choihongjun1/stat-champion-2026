@@ -1,27 +1,27 @@
 {
   "_submission_contract_version": "submission-static-0.1",
-  "run_id": "21e533cf991d3c3a",
+  "run_id": "28d181e6cb896d1f",
   "score_origin": "2026Q2",
   "as_of": "2026-06-30",
   "files": [
     {
       "path": "cases/CASE-A.json",
-      "sha256_12": "6220343a3b24",
-      "bytes": 6725
+      "sha256_12": "b88e0b40b4c7",
+      "bytes": 6532
     },
     {
       "path": "cases/CASE-B.json",
-      "sha256_12": "4afd33b0f1fd",
-      "bytes": 7276
+      "sha256_12": "dd80e697036a",
+      "bytes": 7059
     },
     {
       "path": "cases/CASE-C.json",
-      "sha256_12": "f8bc1eca5b23",
-      "bytes": 7306
+      "sha256_12": "c0063493a5da",
+      "bytes": 7089
     },
     {
       "path": "meta.json",
-      "sha256_12": "2b7f6e0557bf",
+      "sha256_12": "93dd8634a726",
       "bytes": 2402
     }
   ]

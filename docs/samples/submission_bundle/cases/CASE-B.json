@@ -163,9 +163,8 @@
       "matched_by": [
         "gu"
       ],
-      "unverifiable_conditions": [],
+      "unverified_condition_count": 0,
       "linked_factor_ids": [],
-      "check_note": null,
       "apply_status": "open",
       "apply_end": null,
       "checked_at": "2026-10-03"
@@ -183,9 +182,8 @@
         "biz_type",
         "tenure"
       ],
-      "unverifiable_conditions": [],
+      "unverified_condition_count": 0,
       "linked_factor_ids": [],
-      "check_note": null,
       "apply_status": "open",
       "apply_end": "2026-10-16",
       "checked_at": "2026-10-03"
@@ -200,11 +198,8 @@
       "collected_at": "2026-09-20",
       "match_status": "check_required",
       "matched_by": [],
-      "unverifiable_conditions": [
-        "연매출 3억 원 이하"
-      ],
+      "unverified_condition_count": 1,
       "linked_factor_ids": [],
-      "check_note": "데이터로 확인할 수 없는 조건이 있어 자동 매칭하지 않음: 연매출 3억 원 이하",
       "apply_status": "open",
       "apply_end": null,
       "checked_at": "2026-10-03"
