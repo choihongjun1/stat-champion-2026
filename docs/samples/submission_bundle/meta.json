@@ -1,0 +1,73 @@
+{
+  "_submission_contract_version": "submission-static-0.1",
+  "source_schema_version": "0.3",
+  "run_id": "28d181e6cb896d1f",
+  "score_origin": "2026Q2",
+  "as_of": "2026-06-30",
+  "data_kind": "synthetic",
+  "scope": "제출용 비식별 사례 번들: 비식별 실제 사례 A/B/C(T5) 상세와 공통 meta만 담는다. 전체 점포 리포트·검색 인덱스·동 요약은 제출 범위가 아니다(R5).",
+  "excluded": [
+    "전체 점포 상세 리포트(static_private)",
+    "검색 인덱스",
+    "동 요약(R5·소표본 하한 미확정)",
+    "상호·주소·법정동·store_id·인허가일·영업 상태",
+    "개인 확률·예측구간·동종 중앙값(T3)",
+    "요인 기여값·원 feature 값·근거 문구",
+    "처방·온라인 존재감"
+  ],
+  "cases": [
+    {
+      "case_label": "A",
+      "public_id": "CASE-A",
+      "selection_status": "selected",
+      "rule_stage": "base",
+      "n_candidates": 3,
+      "seed": 20261004,
+      "path": "cases/CASE-A.json"
+    },
+    {
+      "case_label": "B",
+      "public_id": "CASE-B",
+      "selection_status": "selected",
+      "rule_stage": "base",
+      "n_candidates": 3,
+      "seed": 20261005,
+      "path": "cases/CASE-B.json"
+    },
+    {
+      "case_label": "C",
+      "public_id": "CASE-C",
+      "selection_status": "selected",
+      "rule_stage": "base",
+      "n_candidates": 3,
+      "seed": 20261006,
+      "path": "cases/CASE-C.json"
+    }
+  ],
+  "provenance": {
+    "params_name": "adopted",
+    "model_class": "sklearn.ensemble.HistGradientBoostingClassifier",
+    "params_contract": "adopted",
+    "s8_rule_version": "S8-2026-10-01",
+    "primary_seed": 20260931,
+    "sensitivity_seed": 20261001,
+    "source_db_sha256_12": "3588a471fcef",
+    "policies_sha256_12": "d608088a4bc1",
+    "policies_apply_sha256_12": "f03e4d6b972d",
+    "policy_checked_at": "2026-10-03"
+  },
+  "policy_matching": "performed",
+  "technical_gate": {
+    "passed": true,
+    "checks": [
+      "release_blockers 없음",
+      "내부 report 0.3 검증",
+      "submission-static-0.1 검증",
+      "금지 키 0",
+      "store_id·상호·주소 바이트 검사",
+      "check_claims(--fail-on warn 기준) 발견 0"
+    ]
+  },
+  "publication_approved": false,
+  "publication_note": "공개 승인 아님: 제출 계약(technical_gate) 통과는 기술 검증일 뿐이다. 제출 여부는 팀이 결정한다."
+}
