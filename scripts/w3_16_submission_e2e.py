@@ -3,7 +3,7 @@
     python scripts/w3_16_submission_e2e.py --out app/out --dump-dir <out 밖 폴더> \
         --db outputs/serving/report_with_policies.sqlite \
         --cases outputs/w3_demo/private/demo_cases_for_export.json \
-        --submission outputs/w3_submission/final --checker <main의 scripts/check_claims.py> [--render]
+        --submission outputs/w3_submission/final [--checker scripts/check_claims.py] [--render]
 
 검사 (어느 하나라도 실패·미검사면 exit 1, 사용 오류 2):
   A. 화면 텍스트 — --render면 Playwright(설치된 Chrome)로 /, /case/CASE-{A,B,C}/를 실제로 렌더링하고
@@ -13,7 +13,7 @@
      대상: out/, 렌더 텍스트·DOM·캡처 sidecar, 제출 디렉터리. --fail-on warn.
   C. 식별자 역검색 — 정본 DB의 전체 store_id(원 관리번호 형태 포함)와 선택 사례의 상호·주소·법정동·인허가일을
      out/ 전 파일(HTML·JS·JSON·RSC·정적 자산 바이트), 렌더 텍스트·DOM, 캡처 PNG 텍스트 청크, 제출 디렉터리에서 찾는다.
-  D. 번들 무결성 — out/submission과 제출 디렉터리 바이트 일치, manifest 재계산, 금지 키, linked_factor_ids=[],
+  D. 번들 무결성 — out/submission과 제출 디렉터리 바이트 일치, manifest 재계산, submission_schema.json 검증, 금지 키, linked_factor_ids=[],
      private 파일이 out/에 없는지.
 
 비공개 값(상호·주소·store_id)은 결과 파일·표준 출력에 쓰지 않는다 — 건수와 마스킹한 위치만 남긴다.
@@ -34,6 +34,8 @@ import sys
 import threading
 import zlib
 
+ROOT = Path(__file__).resolve().parents[1]
+SCHEMA = ROOT / "src/serving/submission_schema.json"
 ROUTES = ["/", "/case/CASE-A/", "/case/CASE-B/", "/case/CASE-C/"]
 CHECK_REQUIRED_COPY = "저희가 알 수 없어요. 공고에서 한 번 확인해 주세요."
 MATCHED_COPY = "사장님 가게 정보로 보면 신청 조건에 맞아요."
@@ -265,6 +267,23 @@ def reverse_search(db: Path, cases_file: Path, scan: dict[str, list[Path]]) -> d
     return result
 
 
+def schema_errors(submission: Path) -> int | None:
+    """main에 병합된 #65 submission_schema.json으로 meta·manifest·사례 파일을 검증한 오류 수 (검사 불가면 None → 실패)"""
+    try:
+        from jsonschema import Draft202012Validator
+    except ModuleNotFoundError:
+        return None
+    schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+    def errors(defname: str, obj) -> int:
+        sub = {"$schema": schema.get("$schema"), "$defs": schema["$defs"], "$ref": f"#/$defs/{defname}"}
+        return sum(1 for _ in Draft202012Validator(sub).iter_errors(obj))
+    load = lambda p: json.loads(p.read_text(encoding="utf-8"))
+    n = errors("submission_meta", load(submission / "meta.json")) + errors("submission_manifest", load(submission / "manifest.json"))
+    for p in sorted((submission / "cases").glob("CASE-*.json")):
+        n += errors("submission_case", load(p))
+    return n
+
+
 def bundle_integrity(out: Path, submission: Path, private_dir: Path | None) -> dict:
     res: dict = {"failures": []}
     src = {p.relative_to(submission).as_posix(): sha(p) for p in files(submission)}
@@ -300,6 +319,9 @@ def bundle_integrity(out: Path, submission: Path, private_dir: Path | None) -> d
     res["linked_factor_ids_nonempty"] = linked_nonempty
     meta = json.loads((submission / "meta.json").read_text(encoding="utf-8"))
     res["publication_approved"] = meta.get("publication_approved")
+    res["schema_errors"] = schema_errors(submission)
+    if res["schema_errors"] != 0:
+        res["failures"].append("schema")
     if private_dir and private_dir.is_dir():
         priv_hashes = {sha(p) for p in files(private_dir)}
         priv_names = {p.name for p in files(private_dir)}
@@ -328,7 +350,7 @@ def main(argv=None) -> int:
     ap.add_argument("--db", type=Path, required=True)
     ap.add_argument("--cases", type=Path, required=True, help="비공개 선택 결과(store_id 포함). 읽기만 한다")
     ap.add_argument("--submission", type=Path, required=True)
-    ap.add_argument("--checker", type=Path, required=True, help="authoritative scripts/check_claims.py (main)")
+    ap.add_argument("--checker", type=Path, default=ROOT / "scripts/check_claims.py", help="authoritative check_claims (기본: 이 저장소 main의 scripts/check_claims.py)")
     ap.add_argument("--private-dir", type=Path)
     ap.add_argument("--render", action="store_true")
     ap.add_argument("--channel", default="chrome", help="Playwright가 쓸 설치된 브라우저 (chrome/msedge)")
