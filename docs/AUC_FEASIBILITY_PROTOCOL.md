@@ -52,3 +52,35 @@ Run `python scripts/benchmark_auc_improvement.py --master <master> --baseline-di
 Omit `--online` for the separate base-only control study. Do not adapt settings after final results.
 The output directory must be empty; all outputs are aggregates. Numeric artifacts may be
 copied to a user deliverable directory; never copy row-level inputs or predictions into Git.
+
+## Authorized full-population confirmation (2026-10-04)
+
+The full-population follow-up supersedes the earlier sample-size restriction ONLY for
+`python -m experiments.full_population`. The original bounded runner remains unchanged.
+Use all eligible master rows/history, the hash-matching enriched online table and the
+same label, min_train_origins=4, embargo=4, 2024Q1-Q4 validation and 2025Q1-Q2 final.
+No sampling or new hyperparameter/feature search is performed. The existing validation
+winner is frozen: CatBoost-ordinal + temporal+B (46 features), compared against adopted
+HGB enriched baseline (25 features). Configurations and seed match #68 unchanged.
+No optional third model is needed for this primary confirmation.
+
+Independent full-population monthly online reaggregation, future-feature/target mutation
+invariance, train-only categorical vocabularies, hashes, reference population counts and
+label rates gate training. No geometry/QA/ER/current-rank missingness indicators are added.
+Area missingness remains experiment-only. Future reconstruction/collection bias remains
+an inherited limitation; these temporal guards do not establish prospective validity.
+
+Checkpoint each model/origin atomically under worktree outputs/experiments/auc_full_population.
+Resume requires identical input/source/config/version fingerprint. Complete origins are never
+refit; an uncertain interrupted origin fails closed rather than silently repeating final
+assessment. Metrics and predefined biz_type subgroup AUCs are aggregates only; predictions
+and identifiers are not written. No pooled AUC is introduced (original protocol uses macro AUC).
+Peak RAM is process-lifetime peak working set, not a per-fit incremental measurement.
+
+The descriptive conclusion rule is fixed before full evaluation: REPRODUCED requires
+positive phase deltas, CatBoost wins in at least 5 of 6 origins, and each phase retains at
+least 50% of the sampled improvement. PARTIALLY_REPRODUCED covers positive delta in at
+least one phase without meeting that criterion; otherwise NOT_REPRODUCED. This is an
+operational description, not a statistical significance test or a production adoption rule.
+Failed/incomplete runs are RUN_INCOMPLETE and do not receive a performance conclusion.
+All production model/cutoff/calibration/serving/selection/submission paths are unchanged.
