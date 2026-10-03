@@ -225,8 +225,8 @@
       }
     },
     "format": "{:.4f}",
-    "status": "재생성 후 생성",
-    "rule_ref": "S9",
+    "status": "확정",
+    "rule_ref": "S9 · H1 run 최종 지정(#49, 2026-10-03)",
     "forbidden_alias": [
       "N-AUC-POOLED-PRE"
     ]
@@ -292,8 +292,8 @@
       ]
     },
     "format": "{:.4f}",
-    "status": "재생성 후 생성",
-    "rule_ref": "S10",
+    "status": "확정",
+    "rule_ref": "S10 · H1 run 최종 지정(#49, 2026-10-03)",
     "ci": {
       "low": {
         "type": "json",
@@ -383,5 +383,125 @@
     "status": "확정",
     "rule_ref": "A4",
     "source": "src/data/config.py:193–194; W1 기록값은 검증용 설명이며 추출 결과를 고정하지 않음"
+  },
+  {
+    "id": "N-AUC-MEAN10-DEFAULT",
+    "label": "이전 파라미터(DEFAULT) 10-origin 평균 AUC",
+    "metric": "enriched feature set의 origin별 AUC를 무가중 산술평균; F1 비교 전용(서빙·진단에 쓰지 않음)",
+    "window": "OOF 2023Q1–2025Q2",
+    "sample": "이전 파라미터 DEFAULT(--params default) enriched OOF, 10개 origin",
+    "stage": "detect",
+    "artifact": "models/detect_v0_default/oof_metrics_by_origin.csv",
+    "extract": {
+      "type": "csv_agg",
+      "filter": {
+        "feature_set": "enriched"
+      },
+      "column": "auc",
+      "agg": "mean",
+      "expected_rows": 10,
+      "expected_values": {
+        "origin": [
+          "2023Q1",
+          "2023Q2",
+          "2023Q3",
+          "2023Q4",
+          "2024Q1",
+          "2024Q2",
+          "2024Q3",
+          "2024Q4",
+          "2025Q1",
+          "2025Q2"
+        ]
+      }
+    },
+    "format": "{:.4f}",
+    "status": "확정",
+    "rule_ref": "S9 비교(R1-4); H1 run 최종 지정(#49, 2026-10-03)",
+    "forbidden_alias": [
+      "N-AUC-MEAN10"
+    ]
+  },
+  {
+    "id": "N-SHORT-AUC-DIFF",
+    "label": "상호 2자 이하 − 3자 이상 10-origin 평균 AUC 차이 (기술 통계)",
+    "metric": "집단별 10-origin 평균 AUC의 차이; 기술 통계이며 원인을 뜻하지 않음; 점포 클러스터 부트스트랩 95% CI",
+    "window": "OOF 2023Q1–2025Q2",
+    "sample": "채택 모형 enriched OOF, 상호 정규화 길이 집단(2자 이하 / 3자 이상)",
+    "stage": "detect",
+    "artifact": "models/short_name_appendix.json",
+    "extract": {
+      "type": "json",
+      "path": [
+        "difference",
+        "mean_origin_auc"
+      ]
+    },
+    "format": "{:.4f}",
+    "status": "확정",
+    "rule_ref": "S1(#44 A안 부록)",
+    "ci": {
+      "low": {
+        "type": "json",
+        "path": [
+          "difference",
+          "mean_origin_auc_uncertainty",
+          "ci95",
+          0
+        ]
+      },
+      "high": {
+        "type": "json",
+        "path": [
+          "difference",
+          "mean_origin_auc_uncertainty",
+          "ci95",
+          1
+        ]
+      }
+    },
+    "source": "src/analysis/short_name_appendix.py (ce72e33)"
+  },
+  {
+    "id": "N-BAND-HIGH-SHARE",
+    "label": "검증 구간 높음 등급 비율",
+    "metric": "검증 구간 점포×분기 중 high 등급 비율",
+    "window": "고정 보정 test 창 2025Q1–2025Q2",
+    "sample": "채택 모형 enriched test OOF",
+    "stage": "detect",
+    "artifact": "models/detect_v0_enriched/band_profile.csv",
+    "extract": {
+      "type": "csv_cell",
+      "filter": {
+        "band": "high"
+      },
+      "column": "share",
+      "expected_rows": 1
+    },
+    "format": "{:.4f}",
+    "status": "확정",
+    "rule_ref": "S10",
+    "source": "src/models/bands.py:138-159"
+  },
+  {
+    "id": "N-BAND-HIGH-OBSRATE",
+    "label": "검증 구간 높음 등급 관측 폐업 비율",
+    "metric": "검증 구간 high 등급의 관측 폐업 비율",
+    "window": "고정 보정 test 창 2025Q1–2025Q2",
+    "sample": "채택 모형 enriched test OOF",
+    "stage": "detect",
+    "artifact": "models/detect_v0_enriched/band_profile.csv",
+    "extract": {
+      "type": "csv_cell",
+      "filter": {
+        "band": "high"
+      },
+      "column": "obs_rate",
+      "expected_rows": 1
+    },
+    "format": "{:.4f}",
+    "status": "확정",
+    "rule_ref": "S10",
+    "source": "src/models/bands.py:138-159"
   }
 ]

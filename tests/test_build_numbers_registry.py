@@ -157,7 +157,7 @@ def test_cli_invalid_config_exit_2(tmp_path):
 
 def test_initial_definitions_load_without_artifacts():
     entries = registry.load_definitions(SCRIPT.parents[1] / "configs/numbers_w3.json")
-    assert len(entries) == 13
+    assert len(entries) == 17
     lookup = {x["id"]: x for x in entries}
     assert lookup["N-DML-56-ATE"]["extract"]["path"] == ["results", {"sample": "56 주"}, "analyses", "1_main", "ate"]
     assert lookup["N-45-DIFF8"]["extract"]["filter"]["scope"] == "선택값=고정값 origin 8개 (2023Q3~2025Q2)"
@@ -262,3 +262,28 @@ def test_initial_alias_pairs(tmp_path):
     synthetic = [definition(id, forbidden_alias=lookup[id]["forbidden_alias"]) for id in ids]
     _, failures, warnings = registry.build_registry(synthetic, tmp_path)
     assert failures == 0 and len(warnings) == 2
+
+
+def test_h1_final_and_added_entries_extract_from_synthetic_artifacts(tmp_path):
+    entries = registry.load_definitions(SCRIPT.parents[1] / "configs/numbers_w3.json")
+    lookup = {e["id"]: e for e in entries}
+    assert lookup["N-AUC-MEAN10"]["status"] == "확정" and lookup["N-LIFT-HIGH"]["status"] == "확정"
+    assert lookup["N-AUC-MEAN10-DEFAULT"]["forbidden_alias"] == ["N-AUC-MEAN10"]
+    ids = ("N-AUC-MEAN10-DEFAULT", "N-SHORT-AUC-DIFF", "N-BAND-HIGH-SHARE", "N-BAND-HIGH-OBSRATE")
+    origins = lookup["N-AUC-MEAN10-DEFAULT"]["extract"]["expected_values"]["origin"]
+    (tmp_path / "models/detect_v0_default").mkdir(parents=True)
+    (tmp_path / "models/detect_v0_enriched").mkdir(parents=True)
+    pd.DataFrame({"origin": origins * 2, "auc": [.6] * 10 + [.9] * 10,
+                  "feature_set": ["enriched"] * 10 + ["base"] * 10}).to_csv(tmp_path / "models/detect_v0_default/oof_metrics_by_origin.csv", index=False)
+    pd.DataFrame({"band": ["low", "mid", "high"], "n": [8, 1, 1], "share": [.8, .1, .1],
+                  "obs_rate": [.05, .1, .3]}).to_csv(tmp_path / "models/detect_v0_enriched/band_profile.csv", index=False)
+    (tmp_path / "models/short_name_appendix.json").write_text(json.dumps({"difference": {
+        "mean_origin_auc": -.04, "mean_origin_auc_uncertainty": {"ci95": [-.07, -.02]}}}), encoding="utf-8")
+    pd.DataFrame({"origin": origins, "auc": [.7] * 10, "feature_set": "enriched"}).to_csv(tmp_path / "models/detect_v0_enriched/oof_metrics_by_origin.csv", index=False)
+    table, failures, warnings = registry.build_registry([{**lookup["N-AUC-MEAN10"], "forbidden_alias": []}] + [lookup[i] for i in ids], tmp_path)
+    assert failures == 0 and warnings == []
+    rows = table.set_index("id")
+    assert rows.loc["N-AUC-MEAN10-DEFAULT", "표시값"] == "0.6000"
+    assert rows.loc["N-SHORT-AUC-DIFF", "표시값"] == "-0.0400" and rows.loc["N-SHORT-AUC-DIFF", "CI"] == "[-0.0700, -0.0200]"
+    assert rows.loc["N-BAND-HIGH-SHARE", "표시값"] == "0.1000"
+    assert rows.loc["N-BAND-HIGH-OBSRATE", "표시값"] == "0.3000"
