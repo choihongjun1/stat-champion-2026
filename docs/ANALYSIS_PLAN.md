@@ -1,5 +1,8 @@
 # Analysis Plan
 
+2026-10-03 별도 실험: `AUC_FEASIBILITY_PROTOCOL.md`에 고정한 소/중규모 offline
+AUC feasibility benchmark를 허용한다. production 채택이나 H4 변경은 포함하지 않는다.
+
 > 이 문서는 현재 분석 방향의 기준 문서다. 데이터 확인 후 방법이 변경되면 `DECISIONS.md`에 이유를 기록하고 이 문서를 갱신한다.
 
 ## 1. Detect — 폐업 위험 탐지

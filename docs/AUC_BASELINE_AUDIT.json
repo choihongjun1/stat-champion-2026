@@ -1,0 +1,44 @@
+{
+  "base": {
+    "mean": 0.6092674620841781,
+    "std_ddof0": 0.012336743004954086,
+    "minimum": 0.5868203115171877,
+    "maximum": 0.6248999674476471,
+    "n": 295095,
+    "origins": [
+      "2023Q1",
+      "2023Q2",
+      "2023Q3",
+      "2023Q4",
+      "2024Q1",
+      "2024Q2",
+      "2024Q3",
+      "2024Q4",
+      "2025Q1",
+      "2025Q2"
+    ]
+  },
+  "enriched": {
+    "mean": 0.6270572377632317,
+    "std_ddof0": 0.013461067052679057,
+    "minimum": 0.6056463073720498,
+    "maximum": 0.6455413681862583,
+    "n": 295095,
+    "origins": [
+      "2023Q1",
+      "2023Q2",
+      "2023Q3",
+      "2023Q4",
+      "2024Q1",
+      "2024Q2",
+      "2024Q3",
+      "2024Q4",
+      "2025Q1",
+      "2025Q2"
+    ]
+  },
+  "verification": "Original OOF hash/rows and adopted-config origin AUC recomputed successfully; master hash/n/event rates and macro summaries match.",
+  "maturity_cutoff_values": [
+    1
+  ]
+}
