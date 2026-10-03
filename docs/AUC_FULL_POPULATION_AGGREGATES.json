@@ -1,0 +1,440 @@
+{
+  "metrics": [
+    {
+      "phase": "validation",
+      "model": "HGB",
+      "feature_set": "baseline",
+      "mean_auc": 0.6180005662993752,
+      "min_auc": 0.6091800149598359,
+      "max_auc": 0.6280975244733886,
+      "std_auc_ddof0": 0.008148405467985488
+    },
+    {
+      "phase": "validation",
+      "model": "CatBoost-ordinal",
+      "feature_set": "temporal+B",
+      "mean_auc": 0.6223893189194867,
+      "min_auc": 0.6137034961842243,
+      "max_auc": 0.6306049377573976,
+      "std_auc_ddof0": 0.007316965803491492
+    },
+    {
+      "phase": "final",
+      "model": "HGB",
+      "feature_set": "baseline",
+      "mean_auc": 0.6391409328634532,
+      "min_auc": 0.6327404975406482,
+      "max_auc": 0.6455413681862583,
+      "std_auc_ddof0": 0.006400435322805043
+    },
+    {
+      "phase": "final",
+      "model": "CatBoost-ordinal",
+      "feature_set": "temporal+B",
+      "mean_auc": 0.6445567384002618,
+      "min_auc": 0.6351288244292711,
+      "max_auc": 0.6539846523712526,
+      "std_auc_ddof0": 0.009427913970990742
+    }
+  ],
+  "comparisons": [
+    {
+      "phase": "validation",
+      "origin": "2024Q1",
+      "delta": 0.0025074132840089414,
+      "winner": "CatBoost-ordinal"
+    },
+    {
+      "phase": "validation",
+      "origin": "2024Q2",
+      "delta": 0.004523481224388393,
+      "winner": "CatBoost-ordinal"
+    },
+    {
+      "phase": "validation",
+      "origin": "2024Q3",
+      "delta": 0.005819611113176748,
+      "winner": "CatBoost-ordinal"
+    },
+    {
+      "phase": "validation",
+      "origin": "2024Q4",
+      "delta": 0.00470450485887175,
+      "winner": "CatBoost-ordinal"
+    },
+    {
+      "phase": "validation",
+      "origin": "macro",
+      "delta": 0.004388752620111458,
+      "delta_variance_ddof0": 1.4261612494590693e-06,
+      "delta_min": 0.0025074132840089414,
+      "delta_max": 0.005819611113176748,
+      "candidate_wins": 4,
+      "origins": 4,
+      "sampled_delta": 0.0196395241300181,
+      "full_minus_sampled_delta": -0.015250771509906641,
+      "delta_retention_fraction": 0.2234653238569795
+    },
+    {
+      "phase": "final",
+      "origin": "2025Q1",
+      "delta": 0.0023883268886228937,
+      "winner": "CatBoost-ordinal"
+    },
+    {
+      "phase": "final",
+      "origin": "2025Q2",
+      "delta": 0.008443284184994293,
+      "winner": "CatBoost-ordinal"
+    },
+    {
+      "phase": "final",
+      "origin": "macro",
+      "delta": 0.005415805536808593,
+      "delta_variance_ddof0": 9.165626965220312e-06,
+      "delta_min": 0.0023883268886228937,
+      "delta_max": 0.008443284184994293,
+      "candidate_wins": 2,
+      "origins": 2,
+      "sampled_delta": 0.0271613788709139,
+      "full_minus_sampled_delta": -0.021745573334105307,
+      "delta_retention_fraction": 0.19939361556523097
+    }
+  ],
+  "mean_delta_all_origins": 0.004731103592343837,
+  "delta_variance_all_origins_ddof0": 4.240391531089726e-06,
+  "delta_range": [
+    0.0023883268886228937,
+    0.008443284184994293
+  ],
+  "conclusion": "FULL_POPULATION_IMPROVEMENT_PARTIALLY_REPRODUCED",
+  "interpretation": "Descriptive paired macro AUC, no statistical significance claim",
+  "production_impact": "NO_PRODUCTION_CHANGE",
+  "subgroup_metrics": [
+    {
+      "model": "HGB",
+      "origin": "2024Q1",
+      "phase": "validation",
+      "biz_type": "미용업",
+      "n": 4434,
+      "positive_rate": 0.07465042850699143,
+      "auc": 0.5938164764857783
+    },
+    {
+      "model": "HGB",
+      "origin": "2024Q1",
+      "phase": "validation",
+      "biz_type": "일반음식점",
+      "n": 19744,
+      "positive_rate": 0.12180915721231766,
+      "auc": 0.6333453036723122
+    },
+    {
+      "model": "HGB",
+      "origin": "2024Q1",
+      "phase": "validation",
+      "biz_type": "휴게음식점",
+      "n": 5619,
+      "positive_rate": 0.18846769887880405,
+      "auc": 0.5598702847770985
+    },
+    {
+      "model": "HGB",
+      "origin": "2024Q2",
+      "phase": "validation",
+      "biz_type": "미용업",
+      "n": 4494,
+      "positive_rate": 0.0794392523364486,
+      "auc": 0.5921901755626109
+    },
+    {
+      "model": "HGB",
+      "origin": "2024Q2",
+      "phase": "validation",
+      "biz_type": "일반음식점",
+      "n": 19484,
+      "positive_rate": 0.11537671935947444,
+      "auc": 0.6210449230444596
+    },
+    {
+      "model": "HGB",
+      "origin": "2024Q2",
+      "phase": "validation",
+      "biz_type": "휴게음식점",
+      "n": 5419,
+      "positive_rate": 0.16331426462446946,
+      "auc": 0.5193696589983028
+    },
+    {
+      "model": "HGB",
+      "origin": "2024Q3",
+      "phase": "validation",
+      "biz_type": "미용업",
+      "n": 4523,
+      "positive_rate": 0.08114083572849878,
+      "auc": 0.609696954994978
+    },
+    {
+      "model": "HGB",
+      "origin": "2024Q3",
+      "phase": "validation",
+      "biz_type": "일반음식점",
+      "n": 19510,
+      "positive_rate": 0.11430035879036392,
+      "auc": 0.625109395760671
+    },
+    {
+      "model": "HGB",
+      "origin": "2024Q3",
+      "phase": "validation",
+      "biz_type": "휴게음식점",
+      "n": 5388,
+      "positive_rate": 0.15979955456570155,
+      "auc": 0.5076708416426207
+    },
+    {
+      "model": "HGB",
+      "origin": "2024Q4",
+      "phase": "validation",
+      "biz_type": "미용업",
+      "n": 4548,
+      "positive_rate": 0.08245382585751979,
+      "auc": 0.6142206246505312
+    },
+    {
+      "model": "HGB",
+      "origin": "2024Q4",
+      "phase": "validation",
+      "biz_type": "일반음식점",
+      "n": 19523,
+      "positive_rate": 0.1283101982277314,
+      "auc": 0.6355112316206698
+    },
+    {
+      "model": "HGB",
+      "origin": "2024Q4",
+      "phase": "validation",
+      "biz_type": "휴게음식점",
+      "n": 5320,
+      "positive_rate": 0.15695488721804512,
+      "auc": 0.5379150728643048
+    },
+    {
+      "model": "CatBoost-ordinal",
+      "origin": "2024Q1",
+      "phase": "validation",
+      "biz_type": "미용업",
+      "n": 4434,
+      "positive_rate": 0.07465042850699143,
+      "auc": 0.5874682367113297
+    },
+    {
+      "model": "CatBoost-ordinal",
+      "origin": "2024Q1",
+      "phase": "validation",
+      "biz_type": "일반음식점",
+      "n": 19744,
+      "positive_rate": 0.12180915721231766,
+      "auc": 0.6392778156605367
+    },
+    {
+      "model": "CatBoost-ordinal",
+      "origin": "2024Q1",
+      "phase": "validation",
+      "biz_type": "휴게음식점",
+      "n": 5619,
+      "positive_rate": 0.18846769887880405,
+      "auc": 0.5406245340688832
+    },
+    {
+      "model": "CatBoost-ordinal",
+      "origin": "2024Q2",
+      "phase": "validation",
+      "biz_type": "미용업",
+      "n": 4494,
+      "positive_rate": 0.0794392523364486,
+      "auc": 0.5726456403204261
+    },
+    {
+      "model": "CatBoost-ordinal",
+      "origin": "2024Q2",
+      "phase": "validation",
+      "biz_type": "일반음식점",
+      "n": 19484,
+      "positive_rate": 0.11537671935947444,
+      "auc": 0.628180672084993
+    },
+    {
+      "model": "CatBoost-ordinal",
+      "origin": "2024Q2",
+      "phase": "validation",
+      "biz_type": "휴게음식점",
+      "n": 5419,
+      "positive_rate": 0.16331426462446946,
+      "auc": 0.5176678903152329
+    },
+    {
+      "model": "CatBoost-ordinal",
+      "origin": "2024Q3",
+      "phase": "validation",
+      "biz_type": "미용업",
+      "n": 4523,
+      "positive_rate": 0.08114083572849878,
+      "auc": 0.6045194499007378
+    },
+    {
+      "model": "CatBoost-ordinal",
+      "origin": "2024Q3",
+      "phase": "validation",
+      "biz_type": "일반음식점",
+      "n": 19510,
+      "positive_rate": 0.11430035879036392,
+      "auc": 0.6291841834828102
+    },
+    {
+      "model": "CatBoost-ordinal",
+      "origin": "2024Q3",
+      "phase": "validation",
+      "biz_type": "휴게음식점",
+      "n": 5388,
+      "positive_rate": 0.15979955456570155,
+      "auc": 0.5118413278234837
+    },
+    {
+      "model": "CatBoost-ordinal",
+      "origin": "2024Q4",
+      "phase": "validation",
+      "biz_type": "미용업",
+      "n": 4548,
+      "positive_rate": 0.08245382585751979,
+      "auc": 0.6095317517373592
+    },
+    {
+      "model": "CatBoost-ordinal",
+      "origin": "2024Q4",
+      "phase": "validation",
+      "biz_type": "일반음식점",
+      "n": 19523,
+      "positive_rate": 0.1283101982277314,
+      "auc": 0.6412046514562836
+    },
+    {
+      "model": "CatBoost-ordinal",
+      "origin": "2024Q4",
+      "phase": "validation",
+      "biz_type": "휴게음식점",
+      "n": 5320,
+      "positive_rate": 0.15695488721804512,
+      "auc": 0.5353935607046776
+    },
+    {
+      "model": "HGB",
+      "origin": "2025Q1",
+      "phase": "final",
+      "biz_type": "미용업",
+      "n": 4613,
+      "positive_rate": 0.0819423368740516,
+      "auc": 0.6187993103577518
+    },
+    {
+      "model": "HGB",
+      "origin": "2025Q1",
+      "phase": "final",
+      "biz_type": "일반음식점",
+      "n": 19367,
+      "positive_rate": 0.12082408220168328,
+      "auc": 0.6399565496529143
+    },
+    {
+      "model": "HGB",
+      "origin": "2025Q1",
+      "phase": "final",
+      "biz_type": "휴게음식점",
+      "n": 5238,
+      "positive_rate": 0.13955708285605192,
+      "auc": 0.5792765896612565
+    },
+    {
+      "model": "HGB",
+      "origin": "2025Q2",
+      "phase": "final",
+      "biz_type": "미용업",
+      "n": 4651,
+      "positive_rate": 0.08234788217587616,
+      "auc": 0.6135415417668924
+    },
+    {
+      "model": "HGB",
+      "origin": "2025Q2",
+      "phase": "final",
+      "biz_type": "일반음식점",
+      "n": 19250,
+      "positive_rate": 0.11537662337662338,
+      "auc": 0.651719162551559
+    },
+    {
+      "model": "HGB",
+      "origin": "2025Q2",
+      "phase": "final",
+      "biz_type": "휴게음식점",
+      "n": 5200,
+      "positive_rate": 0.14076923076923076,
+      "auc": 0.6066315230100141
+    },
+    {
+      "model": "CatBoost-ordinal",
+      "origin": "2025Q1",
+      "phase": "final",
+      "biz_type": "미용업",
+      "n": 4613,
+      "positive_rate": 0.0819423368740516,
+      "auc": 0.6100179281997464
+    },
+    {
+      "model": "CatBoost-ordinal",
+      "origin": "2025Q1",
+      "phase": "final",
+      "biz_type": "일반음식점",
+      "n": 19367,
+      "positive_rate": 0.12082408220168328,
+      "auc": 0.6448120983315087
+    },
+    {
+      "model": "CatBoost-ordinal",
+      "origin": "2025Q1",
+      "phase": "final",
+      "biz_type": "휴게음식점",
+      "n": 5238,
+      "positive_rate": 0.13955708285605192,
+      "auc": 0.5755483869596982
+    },
+    {
+      "model": "CatBoost-ordinal",
+      "origin": "2025Q2",
+      "phase": "final",
+      "biz_type": "미용업",
+      "n": 4651,
+      "positive_rate": 0.08234788217587616,
+      "auc": 0.6276800942590558
+    },
+    {
+      "model": "CatBoost-ordinal",
+      "origin": "2025Q2",
+      "phase": "final",
+      "biz_type": "일반음식점",
+      "n": 19250,
+      "positive_rate": 0.11537662337662338,
+      "auc": 0.6579626237615843
+    },
+    {
+      "model": "CatBoost-ordinal",
+      "origin": "2025Q2",
+      "phase": "final",
+      "biz_type": "휴게음식점",
+      "n": 5200,
+      "positive_rate": 0.14076923076923076,
+      "auc": 0.620955452495218
+    }
+  ],
+  "hgb_reference_max_auc_difference": 0.0
+}

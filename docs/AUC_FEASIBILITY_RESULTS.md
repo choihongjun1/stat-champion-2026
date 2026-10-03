@@ -162,3 +162,7 @@ CatBoost의 개선은 추가 검증 가치가 있으나 validation/final 차이�
 현재 production 교체를 권고하지 않는다. 향후 별도 승인 범위에서 더 큰 표본의 paired 검증,
 entity-cluster 불확실성, 추가 시점 외부 검증, calibration/운영 계약 검증이 필요하다.
 오늘 밤 H4에는 적용하지 않는다.
+
+## Full-population follow-up (2026-10-04)
+
+See [AUC_FULL_POPULATION_RESULTS.md](AUC_FULL_POPULATION_RESULTS.md). Fixed CatBoost ordinal temporal+B settings were reused without tuning. Improvement partially reproduced; no production change.
