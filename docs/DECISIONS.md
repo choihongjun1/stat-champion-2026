@@ -1330,3 +1330,17 @@ PR에서 다루지 않는다(요청대로 범위 밖).
   한 등급 100%는 별도 공개 blocker. 기존 3구 법정동 이름 중복 0건 기록 유지(이 PC에 인허가 파일 없어 재측정 안 함).
 - technical_gate는 공개 승인이 아니며 publication_approved=false·실데이터 private/gitignored 경로 제한·합성 샘플 예외 유지.
 - 상세 계약/후속 #48 항목/실데이터 완료 후 실행 명령: W2_REPORT_REFRESH.md.
+
+## 2026-10-03 — 제출용 비식별 사례 번들 분리 (H1 blocker, #49 A3·T3·T5)
+근거: H1 점검(`static_private`: public-static-0.1 검증 오류 0·금지 키 0이지만 #56 check_claims ID-01/05/06 대량 검출).
+구현 `src/serving/submission_report.py`·`export_submission.py`·`submission_schema.json`, 계약 설명 REPORT_SCHEMA §15.
+
+- **세 층을 구분한다.** `static_private`(report 0.3, 전체 점포 내부 검색·E2E·QA)와 public-static-0.1(개인 확률·구간만 뺀 기술적
+  projection)은 상호·주소·store_id를 담고 있어 **제출 범위가 아니다.** 제출 범위는 비식별 실제 사례 A/B/C만 담는
+  **submission-static-0.1** 번들뿐이다. 내부 번들·스키마·SQLite는 바꾸지 않는다.
+- 제출 번들의 식별자는 `CASE-A/B/C`뿐이고 지역·업종은 T5가 허용한 구·업종만 남긴다. 요인은 정량값(%p 기여·원 feature 값) 없이
+  방향·표시 상태·해석 민감·driver_code와 고정 문구만 낸다. 전체 해시는 내보내지 않고 sha256 앞 12자만 쓴다.
+- check_claims는 규칙·allowlist를 느슨하게 하지 않고, projection이 통과하게 만든다. 내보내기 게이트가 같은 규칙을
+  `--fail-on warn` 기준으로 적용해 발견이 하나라도 있으면 번들을 만들지 않는다.
+- technical_gate 통과는 공개 승인이 아니다(`publication_approved=false`). 실제 A/B/C는 #64 선택·최종 정책 파일 이후 채운다.
+  동 요약은 R5로 제출 범위에서 뺀다. 모델·diagnose·serve 재실행은 필요 없다(`report.sqlite`만 읽는다).

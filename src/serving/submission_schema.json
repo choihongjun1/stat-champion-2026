@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "submission-static-0.1",
+  "description": "제출용 비식별 사례 번들 (src/serving/submission_report.py, export_submission.py). 내부 report 0.3·public-static-0.1과 별개 계약. 식별자는 CASE-A/B/C뿐이고 상호·주소·store_id·개인 확률·구간·요인 정량값이 없다.",
+  "$defs": {
+    "case_label": {"enum": ["A", "B", "C"]},
+    "public_id": {"type": "string", "pattern": "^CASE-[ABC]$"},
+    "rule_stage": {"enum": ["base", "alt1", "alt2", "none"]},
+    "data_kind": {"enum": ["real", "synthetic_sample"]},
+    "quarter": {"type": "string", "pattern": "^\\d{4}Q[1-4]$"},
+    "date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+    "short_hash": {"type": "string", "pattern": "^[0-9a-f]{12}$"},
+    "submission_factor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["factor_id", "name", "category", "actionability", "direction", "level_text", "summary_text",
+                   "display", "data_missing", "missing_reason", "hold_reason", "driver_code",
+                   "interpretation_sensitive", "sensitivity_label"],
+      "properties": {
+        "factor_id": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1},
+        "category": {"enum": ["입지·수요", "경쟁", "비용", "사업체 구조"]},
+        "actionability": {"enum": ["owner", "policy", "external"]},
+        "direction": {"enum": ["위험 증가", "위험 감소", "영향 미미", null]},
+        "level_text": {"enum": ["위험 증가", "위험 감소", "영향 미미", "데이터 없음", "표시 보류"]},
+        "summary_text": {"type": "string", "minLength": 1, "not": {"pattern": "\\d"}},
+        "display": {"type": "boolean"},
+        "data_missing": {"type": "boolean"},
+        "missing_reason": {"type": ["string", "null"]},
+        "hold_reason": {"type": ["string", "null"]},
+        "driver_code": {"enum": ["decline", "lapse", "absent", "unobservable", "no_change", "presence", null]},
+        "interpretation_sensitive": {"type": "boolean"},
+        "sensitivity_label": {"enum": ["해석 민감", ""]}
+      }
+    },
+    "submission_case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["_submission_contract_version", "source_schema_version", "public_id", "case_label", "case_title",
+                   "data_kind", "score_origin", "as_of", "store", "risk", "factors", "unavailable_categories",
+                   "policy_matching", "policies", "selection", "disclaimer"],
+      "properties": {
+        "_submission_contract_version": {"const": "submission-static-0.1"},
+        "source_schema_version": {"type": "string"},
+        "public_id": {"$ref": "#/$defs/public_id"},
+        "case_label": {"$ref": "#/$defs/case_label"},
+        "case_title": {"type": "string", "minLength": 1},
+        "data_kind": {"$ref": "#/$defs/data_kind"},
+        "score_origin": {"$ref": "#/$defs/quarter"},
+        "as_of": {"$ref": "#/$defs/date"},
+        "store": {
+          "type": "object", "additionalProperties": false, "required": ["gu", "biz_type"],
+          "properties": {"gu": {"type": "string", "minLength": 1}, "biz_type": {"type": "string", "minLength": 1}}
+        },
+        "risk": {
+          "type": "object", "additionalProperties": false, "required": ["band", "percentile", "peer_group"],
+          "properties": {
+            "band": {"enum": ["low", "mid", "high"]},
+            "percentile": {"type": ["integer", "null"], "minimum": 0, "maximum": 100},
+            "peer_group": {"type": "string", "minLength": 1}
+          }
+        },
+        "factors": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/submission_factor"}},
+        "unavailable_categories": {"type": "array", "items": {"type": "string"}},
+        "policy_matching": {"type": "string"},
+        "policies": {"type": "array", "items": {"type": "object"}},
+        "selection": {
+          "type": "object", "additionalProperties": false, "required": ["rule_stage", "n_candidates", "seed"],
+          "properties": {
+            "rule_stage": {"enum": ["base", "alt1", "alt2"]},
+            "n_candidates": {"type": ["integer", "null"], "minimum": 0},
+            "seed": {"type": ["integer", "null"]}
+          }
+        },
+        "disclaimer": {"type": "string", "minLength": 1}
+      }
+    },
+    "case_slot": {
+      "type": "object", "additionalProperties": false,
+      "required": ["case_label", "public_id", "selection_status", "rule_stage", "n_candidates", "seed", "path"],
+      "properties": {
+        "case_label": {"$ref": "#/$defs/case_label"},
+        "public_id": {"$ref": "#/$defs/public_id"},
+        "selection_status": {"enum": ["selected", "no_suitable_case", "pending_selection"]},
+        "rule_stage": {"$ref": "#/$defs/rule_stage"},
+        "n_candidates": {"type": ["integer", "null"], "minimum": 0},
+        "seed": {"type": ["integer", "null"]},
+        "path": {"type": ["string", "null"], "pattern": "^cases/CASE-[ABC]\\.json$"}
+      },
+      "allOf": [
+        {"if": {"properties": {"selection_status": {"const": "selected"}}},
+         "then": {"properties": {"path": {"type": "string"}, "rule_stage": {"enum": ["base", "alt1", "alt2"]}}},
+         "else": {"properties": {"path": {"type": "null"}}}}
+      ]
+    },
+    "submission_meta": {
+      "type": "object", "additionalProperties": false,
+      "required": ["_submission_contract_version", "source_schema_version", "run_id", "score_origin", "as_of",
+                   "data_kind", "scope", "excluded", "cases", "provenance", "policy_matching", "technical_gate",
+                   "publication_approved", "publication_note"],
+      "properties": {
+        "_submission_contract_version": {"const": "submission-static-0.1"},
+        "source_schema_version": {"type": "string"},
+        "run_id": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+        "score_origin": {"$ref": "#/$defs/quarter"},
+        "as_of": {"$ref": "#/$defs/date"},
+        "data_kind": {"$ref": "#/$defs/data_kind"},
+        "scope": {"type": "string", "minLength": 1},
+        "excluded": {"type": "array", "items": {"type": "string"}},
+        "cases": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"$ref": "#/$defs/case_slot"}},
+        "provenance": {
+          "type": "object", "additionalProperties": false,
+          "required": ["params_name", "model_class", "params_contract", "s8_rule_version", "primary_seed",
+                       "sensitivity_seed", "source_db_sha256_12"],
+          "properties": {
+            "params_name": {"type": ["string", "null"]}, "model_class": {"type": ["string", "null"]},
+            "params_contract": {"type": ["string", "null"]}, "s8_rule_version": {"type": ["string", "null"]},
+            "primary_seed": {"type": ["integer", "null"]}, "sensitivity_seed": {"type": ["integer", "null"]},
+            "source_db_sha256_12": {"$ref": "#/$defs/short_hash"}
+          }
+        },
+        "policy_matching": {"type": "string"},
+        "technical_gate": {
+          "type": "object", "additionalProperties": false, "required": ["passed", "checks"],
+          "properties": {"passed": {"const": true}, "checks": {"type": "array", "items": {"type": "string"}}}
+        },
+        "publication_approved": {"const": false},
+        "publication_note": {"type": "string", "minLength": 1}
+      }
+    },
+    "submission_manifest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["_submission_contract_version", "run_id", "score_origin", "as_of", "files"],
+      "properties": {
+        "_submission_contract_version": {"const": "submission-static-0.1"},
+        "run_id": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+        "score_origin": {"$ref": "#/$defs/quarter"},
+        "as_of": {"$ref": "#/$defs/date"},
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["path", "sha256_12", "bytes"],
+            "properties": {
+              "path": {"type": "string", "pattern": "^(meta\\.json|cases/CASE-[ABC]\\.json)$"},
+              "sha256_12": {"$ref": "#/$defs/short_hash"},
+              "bytes": {"type": "integer", "minimum": 1}
+            }
+          }
+        }
+      }
+    }
+  }
+}
