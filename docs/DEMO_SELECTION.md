@@ -20,17 +20,42 @@ DB의 정책 해시·건수·원천 conditions·매칭 증거를 대조한다. �
 `read_frozen_inputs` 함수는 합성 테스트용으로 다른 digest도 받지만 실제 CLI는 최종 freeze만 받는다.
 정책 조건 계약은 기존 report 0.3을 그대로 사용한다.
 
-## 전체 후보 모집단과 검수
+## Frozen policy review와 runtime store review
 
-모집단은 **2026Q2 canonical serving 전체 대상 − 공개 부적합 점포**다.
-`set(review.stores) == set(canonical stores)`를 강제한다. 부분 입력·추가 점포·중복·필수 flag 누락을 거부한다.
-canonical record 수와 run.n_stores도 같아야 한다. 목록 일부만 넣어 후보를 축소할 수 없다.
+원본 `demo_review_policies_20261003.json`은 **정책 검수만** 동결한 파일이다.
+`--policy-review`로 받으며 원본 전체 sha256을 그대로 검증한다. 정책 hash·확인일·정책 id 전체 집합·상태·조건을
+대조한다. 원본의 db_sha256=null, stores=[]는 채우거나 수정하지 않는다. frozen 검수에서 DB/점포 gate는 요구하지 않는다.
+기존 `--review`는 --policy-review의 별칭이며 runtime 파일과 합치는 사용법은 지원하지 않는다.
 
-현재 `demo-review-0.1`의 전 점포 `publication_guard_passed`/`claims_passed` 계약을 유지한다.
-이 목록은 위험 등급으로 사람이 골라 채우는 목록이 아니며, 전 점포에 같은 submission projection,
-식별 누수 0, claims 0 규칙을 적용한 검수 증거로 준비해야 한다. 선택된 A/B/C 3건의 수작업 확인은 사후 확인이다.
-실제 공개 적합성 최종 검사는 #65 submission projection의 바이트 검사와 check_claims에서 수행한다.
-최종 review 파일이 정책 검수만 포함하거나 stores가 일부뿐이면 실행은 중단된다. 고정 파일을 몰래 보완하지 않는다.
+`--store-review`는 **실행 시 자동 생성**한 비공개 `demo-store-review-0.1` 파일이다.
+실제 DB hash, 분기/기준일, canonical_count/review_count, 전 점포 flag, gate version과 코드/규칙 fingerprint를 담는다.
+원본 frozen review의 고정 hash를 요구하지 않는다. 두 review의 전체 digest는 private provenance에 별도로 기록하고,
+기존 review_sha256은 두 digest를 결합한 hash로 기록한다. 공개 allowlist와 #65 adapter는 그대로다.
+
+### 자동 전 점포 검수
+
+`--build-store-review`는 finalized read-only SQLite 전체를 읽어 동일한 결정적 gate를 적용한다.
+수작업으로 stores나 flag를 채우지 않는다. #65 checkout의 기존 submission_report.project_case를
+`--submission-root`에서 **읽기 전용**으로 불러온다. #65 코드/스키마를 수정하거나 복사하지 않는다.
+기본 로컬 경로는 형제 submission65 checkout이며 Claude에서는 실제 #65 source checkout 경로를 명시한다.
+
+- publication_guard_passed: #65 pure projection이 내부/제출 스키마 검증을 통과하고, 금지 키가 없으며,
+  모든 canonical 점포 참조와 해당 점포의 상호·주소·법정동 byte search가 0이다.
+  구·업종·peer_group에 포함되는 짧은 값의 예외는 #65의 기존 identifier gate와 같다.
+- claims_passed: projection JSON에 #56의 기존 compiled rules와 allowlist 함수를 메모리에서 적용해 발견 0.
+  JSON unicode 정규화, rule scope, 여러 줄 match의 inline allowlist 의미를 checker.scan과 동일하게 적용한다.
+  실제 식별값이나 finding/context를 출력하지 않는다.
+- rules/schema를 한 번만 읽고, 전체 canonical identifier는 Aho-Corasick matcher 한 번으로 구성한다.
+  점포별 full bundle 생성·임시 파일 I/O·check_claims CLI 실행은 하지 않는다.
+- 출력은 점포 참조 순서로 정렬한다. 입력 순서와 관계없이 동일한 DB/코드/규칙에서 같은 JSON을 만든다.
+- selector는 runtime DB hash, row/count, missing=0/extra=0/duplicate=0을 검사한다.
+  gate 결과를 다시 계산해 문서 전체와 대조하므로 사람이 flag를 바꿔 모집단을 줄일 수 없다.
+  생성·검증 뒤 DB hash를 다시 확인한다. DB/코드/규칙이 달라졌으면 runtime review를 다시 생성해야 한다.
+
+모집단은 **2026Q2 canonical serving 전체 대상 − 자동 공개 부적합 점포**다.
+자동 gate → rule 0.3 선택 → 선택된 A/B/C 3건의 별도 사후 manual review 순서다.
+manual review로 모집단을 사전에 축소하지 않는다. #65의 실제 최종 bundle 검사는 별도로 그대로 수행한다.
+원천·runtime review·실제 점포정보는 저장소 밖 또는 git 무시 경로에만 두고 PR/로그에 남기지 않는다.
 
 ## 선택 규칙
 
@@ -48,16 +73,24 @@ canonical record 수와 run.n_stores도 같아야 한다. 목록 일부만 넣�
 
 ## 실행과 #65 연결
 
-최종 QA 이후 저장소 루트에서 다음 입력을 제공한다. 실제 입력 경로는 비공개다.
+Claude의 최종 28건 DB/matching QA 이후 다음 순서로 실행한다. 실제 입력 경로는 비공개이며,
+이 PR에서는 아래 명령을 실데이터로 실행하지 않았다.
 
 ```text
-python scripts/select_demo_stores.py --db <final-db> --review <frozen-review> \
-  --policy-file <policies.json> --policy-sha256 <위의 최종 정책 해시> --policy-checked-at 2026-10-03
+python scripts/select_demo_stores.py --db <final-db> --policy-review <original-frozen-policy-review> \
+  --policy-file <policies.json> --policy-sha256 <최종 정책 해시> --policy-checked-at 2026-10-03 \
+  --submission-root <read-only-PR65-source-checkout> \
+  --store-review <private-runtime-review.json> --build-store-review
 ```
+
+같은 입력에서 `--build-store-review`를 `--preflight-only`로 바꾸면 자동 gate와 전체 모집단을 검증하고,
+**사례를 선택하거나 selection 파일을 만들지 않는다**. 최종 확인 뒤 이 두 mode flag를 모두 빼면 selection을 실행한다.
+현재 실데이터 selection은 금지이며 Claude의 QA 완료와 실행 요청 이후에만 수행한다.
 
 CLI 정책 옵션을 생략하면 기존 `regen_w3.json`의 demo.policy.path/sha256/checked_at을 읽는다.
 이 PR은 #60 설정이나 정책 원천을 수정하지 않는다.
 
+- outputs/demo/runtime_store_review.json: 자동 전 점포 검수. private이며 커밋하지 않는다.
 - outputs/demo/demo_selection_private.json: 전체 provenance, 선택 메타. 점포와 case 매핑을 포함하지 않는다.
 - outputs/demo/demo_selection_public.json: 구·업종·band·단계·후보 수·top 수·seed·rule_version=0.3,
   정책 확인일/건수, 해시 앞 16자. 식별정보·개인 확률·CI 없음.
@@ -81,3 +114,12 @@ rule 0.3, B 실제 최소값, matched/check_required, common 제외, A/B/C disti
 (로컬 기본: 형제 submission65). #65의 integration test에 실제 selector 출력 파일을 그대로 넣어
 load_cases와 전체 submission export/claims/identifier 게이트를 실행한다. CI 단독 checkout에는 상대 PR이 없어
 이 교차 테스트만 skip할 수 있으며 별도의 합성 adapter 계약 검증은 항상 실행한다.
+
+
+### CLI 회귀 fixture
+
+`--synthetic-fixture`는 tests/fixtures/demo_preflight의 고정된 합성 정책/검수 hash만 허용한다.
+28건·확인일 검증을 유지하고 canonical 모든 점포가 SAMPLE 참조/(샘플) 상호/sample_synthetic 모형이어야 한다.
+실제 DB가 이 모드에 들어오면 거부한다. 실제 실행에서는 이 flag를 사용하지 않는다.
+fixture hash를 monkeypatch하지 않고 원본 형태(db_sha256=null, stores=[])와 별도 runtime review로
+CLI build-review/preflight를 검증한다. 정책 내용 변경, runtime DB hash·누락·추가·중복·수작업 flag 변경을 거부한다.

@@ -282,30 +282,6 @@ def test_review_provenance_and_publication_evidence(frozen,change):
             assert result['A']['candidate'].tailored_policy_count==2
 
 
-def test_cli_uses_future_regen_freeze_and_safe_errors(frozen,tmp_path,capsys,monkeypatch):
-    db,policy,review,_=frozen
-    config=tmp_path/'regen.json'
-    config.write_text(json.dumps({'demo':{'policy':{'path':str(policy),'sha256':sel.sha256_file(policy),'checked_at':'2026-10-01'}}}),encoding='utf-8')
-    args=['--db',str(db),'--review',str(review),'--config',str(config),
-          '--private-out',str(tmp_path/'private.json'),'--public-out',str(tmp_path/'public.json')]
-    monkeypatch.setattr(sel, 'FINAL_POLICY_SHA256', sel.sha256_file(policy))
-    monkeypatch.setattr(sel, 'FINAL_REVIEW_SHA256', sel.sha256_file(review))
-    monkeypatch.setattr(sel, 'FINAL_CHECKED_AT', '2026-10-01')
-    original=sel.read_frozen_inputs
-    def synthetic_read(*args):
-        pool, provenance=original(*args)
-        provenance['policy_count']=28
-        return pool, provenance
-    monkeypatch.setattr(sel, 'read_frozen_inputs', synthetic_read)
-    assert sel.main(args)==0
-    assert (tmp_path/'demo_cases_for_export.json').is_file()
-    assert 'store_id' not in capsys.readouterr().out
-    policy.write_bytes(policy.read_bytes()+b' ')
-    assert sel.main(args)==2
-    message=capsys.readouterr().err
-    assert 'policy hash mismatch' in message and str(policy) not in message
-
-
 def test_private_output_cannot_be_committed(tmp_path):
     provenance=dict(rule_version=sel.RULE_VERSION,db_sha256='a'*64,policies_sha256='b'*64,review_sha256='c'*64,
                     policy_checked_at='2026-10-01',policy_count=3,policy_collected_at=['2026-10-01'],policy_path='private')
@@ -390,19 +366,3 @@ def test_direct_submission_consumer_integration(tmp_path):
     result=subprocess.run([sys.executable,'-m','pytest','tests/test_demo_submission_integration.py','-q'],
                           cwd=root,env=env,capture_output=True,encoding='utf-8')
     assert result.returncode==0,result.stdout+result.stderr
-
-
-@pytest.mark.parametrize('gate',['count','review'])
-def test_cli_final_count_and_review_gate(frozen,tmp_path,monkeypatch,gate):
-    db,policy,review,_=frozen
-    cfg=tmp_path/'config.json'; cfg.write_text('{}')
-    monkeypatch.setattr(sel,'FINAL_POLICY_SHA256',sel.sha256_file(policy))
-    monkeypatch.setattr(sel,'FINAL_CHECKED_AT','2026-10-01')
-    if gate=='count':
-        monkeypatch.setattr(sel,'FINAL_REVIEW_SHA256',sel.sha256_file(review))
-    else:
-        monkeypatch.setattr(sel.sqlite3,'connect',lambda *a,**k:pytest.fail('DB opened'))
-    assert sel.main(['--db',str(db),'--review',str(review),'--config',str(cfg),
-                     '--policy-file',str(policy),'--policy-sha256',sel.sha256_file(policy),
-                     '--policy-checked-at','2026-10-01'])==2
-    assert not (tmp_path/'demo_cases_for_export.json').exists()

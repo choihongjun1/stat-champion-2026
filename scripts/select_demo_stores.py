@@ -141,7 +141,7 @@ def choose_cases(candidates):
     return selected
 
 
-def read_frozen_inputs(db, policy_file, review_file, expected_sha256, checked_at):
+def read_policy_snapshot(db, policy_file, review_file, expected_sha256, checked_at):
     require(isinstance(expected_sha256, str) and re.fullmatch('[0-9a-f]{64}', expected_sha256),
             'full policy digest is required')
     date.fromisoformat(checked_at)
@@ -162,22 +162,17 @@ def read_frozen_inputs(db, policy_file, review_file, expected_sha256, checked_at
     review = json.loads(review_bytes.decode('utf-8-sig'))
     require(isinstance(review, dict), 'invalid review document')
     require(review.get('contract_version') == 'demo-review-0.1', 'missing review contract')
-    require(review.get('db_sha256') == db_hash and review.get('policies_sha256') == expected_sha256,
+    require(review.get('policies_sha256') == expected_sha256,
             'review provenance mismatch')
     require(review.get('policy_checked_at') == checked_at, 'policy confirmation date mismatch')
     require(review.get('score_origin') == '2026Q2' and review.get('as_of') == '2026-06-30', 'review period mismatch')
-    require(isinstance(review.get('policies'), list) and isinstance(review.get('stores'), list), 'missing public review')
+    require(isinstance(review.get('policies'), list), 'missing policy review')
     reviewed_policies = review['policies']
     require(len({p['id'] for p in reviewed_policies}) == len(reviewed_policies), 'duplicate policy review')
     require({p['id'] for p in reviewed_policies} == ids, 'incomplete policy review')
     require(all(type(p.get('public_eligible')) is bool and p.get('apply_status') in {'open','closed','unknown'}
                 and p.get('checked_at') == checked_at for p in reviewed_policies), 'invalid policy review evidence')
     approved_policies = {p['id'] for p in reviewed_policies if p['public_eligible'] and p['apply_status'] == 'open'}
-    stores = review['stores']
-    require(len({s['store_id'] for s in stores}) == len(stores), 'duplicate store review')
-    require(all(type(s.get('publication_guard_passed')) is bool and type(s.get('claims_passed')) is bool
-                for s in stores), 'invalid store review evidence')
-    approved_stores = {s['store_id'] for s in stores if s['publication_guard_passed'] and s['claims_passed']}
     conn = sqlite3.connect(Path(db).resolve().as_uri() + '?mode=ro', uri=True)
     try:
         run = bd.read_run(conn)
@@ -191,15 +186,49 @@ def read_frozen_inputs(db, policy_file, review_file, expected_sha256, checked_at
         reports = list(bd.iter_reports(conn))
     finally:
         conn.close()
-    require(len(reports) == run['n_stores'], 'canonical record count mismatch')
-    require({s['store_id'] for s in stores} == {r['store_id'] for r in reports},
-            'incomplete canonical population review')
+    require(len(reports) == run['n_stores'] and bool(reports), 'canonical record count mismatch')
+    require(all(not rv.validate_report(r) and r['score_origin']=='2026Q2' and r['as_of']=='2026-06-30'
+                for r in reports), 'invalid canonical serving population')
     require(sha256_file(db) == db_hash, 'SQLite changed while reading')
     provenance = dict(rule_version=RULE_VERSION, db_sha256=db_hash, policies_sha256=expected_sha256,
                       review_sha256=hashlib.sha256(review_bytes).hexdigest(), policy_checked_at=checked_at,
                       policy_count=len(policies), policy_collected_at=sorted({p['collected_at'] for p in policies}),
                       policy_path=str(Path(policy_file).resolve()))
-    return candidates_from_reports(reports, approved_stores, approved_policies, policies), provenance
+    return reports, approved_policies, policies, provenance
+
+
+def validate_store_review(review,reports,db_hash):
+    require(isinstance(review,dict), 'invalid store review document')
+    require(review.get('db_sha256')==db_hash, 'store review DB provenance mismatch')
+    require(review.get('score_origin')=='2026Q2' and review.get('as_of')=='2026-06-30', 'store review period mismatch')
+    rows=review.get('stores')
+    require(isinstance(rows,list), 'missing store review')
+    require(all(isinstance(r,dict) and isinstance(r.get('store_id'),str) for r in rows), 'invalid store review row')
+    ids=[r['store_id'] for r in rows]
+    require(len(ids)==len(set(ids)), 'duplicate store review')
+    canonical={r['store_id'] for r in reports}
+    require(len(rows)==len(reports) and set(ids)==canonical, 'incomplete canonical population review')
+    require(all(type(r.get('publication_guard_passed')) is bool and type(r.get('claims_passed')) is bool
+                for r in rows), 'invalid store review evidence')
+    return {r['store_id'] for r in rows if r['publication_guard_passed'] and r['claims_passed']}
+
+
+def read_frozen_inputs(db,policy_file,review_file,expected_sha256,checked_at,*,store_review_file=None,gate=None):
+    reports,approved_policies,policies,provenance=read_policy_snapshot(
+        db,policy_file,review_file,expected_sha256,checked_at)
+    runtime_path=store_review_file or review_file  # low-level combined synthetic test compatibility
+    runtime_bytes=Path(runtime_path).read_bytes()
+    runtime=json.loads(runtime_bytes.decode('utf-8-sig'))
+    approved_stores=validate_store_review(runtime,reports,provenance['db_sha256'])
+    if gate is not None:
+        require(runtime==gate.review(reports,provenance['db_sha256']), 'runtime review differs from automatic gate')
+    if store_review_file is not None:
+        policy_digest=provenance['review_sha256']
+        runtime_digest=hashlib.sha256(runtime_bytes).hexdigest()
+        provenance.update(policy_review_digest=policy_digest,store_review_digest=runtime_digest)
+        provenance['review_sha256']=hashlib.sha256(f'{policy_digest}:{runtime_digest}'.encode()).hexdigest()
+    require(sha256_file(db)==provenance['db_sha256'], 'SQLite changed while reviewing')
+    return candidates_from_reports(reports,approved_stores,approved_policies,policies),provenance
 
 
 def output_documents(selection, provenance, commit):
@@ -300,7 +329,13 @@ def write_outputs(private, public, private_path, public_path, *, export_cases=No
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--db',type=Path,required=True)
-    parser.add_argument('--review',type=Path,required=True)
+    parser.add_argument('--policy-review','--review',dest='policy_review',type=Path,required=True)
+    parser.add_argument('--store-review',type=Path)
+    parser.add_argument('--submission-root',type=Path,default=ROOT.parent/'submission65')
+    mode=parser.add_mutually_exclusive_group()
+    mode.add_argument('--build-store-review',action='store_true')
+    mode.add_argument('--preflight-only',action='store_true')
+    parser.add_argument('--synthetic-fixture',action='store_true',help='Pinned synthetic fixture only; real records rejected')
     parser.add_argument('--config',type=Path,default=ROOT/'configs/regen_w3.json')
     parser.add_argument('--policy-file',type=Path)
     parser.add_argument('--policy-sha256')
@@ -318,15 +353,58 @@ def main(argv=None):
         digest=args.policy_sha256 or frozen.get('sha256')
         checked=args.policy_checked_at or frozen.get('checked_at')
         require(policy_file is not None and digest is not None and checked is not None, 'policy freeze is incomplete')
-        require(digest == FINAL_POLICY_SHA256 and checked == FINAL_CHECKED_AT, 'final 28-policy freeze required')
-        require(sha256_file(args.review) == FINAL_REVIEW_SHA256, 'final review hash mismatch')
-        candidates, provenance=read_frozen_inputs(args.db,policy_file,args.review,digest,checked)
+        expected_policy,expected_review=FINAL_POLICY_SHA256,FINAL_REVIEW_SHA256
+        if args.synthetic_fixture:
+            from scripts.demo_fixture_freeze import POLICY_SHA256, REVIEW_SHA256
+            expected_policy,expected_review=POLICY_SHA256,REVIEW_SHA256
+        require(digest == expected_policy and checked == FINAL_CHECKED_AT, 'final 28-policy freeze required')
+        require(sha256_file(args.policy_review) == expected_review, 'frozen policy review hash mismatch')
+        reports,approved_policies,policies,snapshot=read_policy_snapshot(args.db,policy_file,args.policy_review,digest,checked)
+        require(snapshot['policy_count']==28, 'final policy count must be 28')
+        if args.synthetic_fixture:
+            require(all(re.fullmatch(r'SAMPLE-\d+',r['store_id']) and
+                        (r['store'].get('name') or '').startswith('(샘플)') and
+                        r['risk']['model']=='sample_synthetic' for r in reports), 'synthetic fixture records required')
+        from scripts.demo_review_gate import SubmissionGate
+        gate=SubmissionGate(args.submission_root,ROOT)
+        if args.build_store_review:
+            runtime=gate.review(reports,snapshot['db_sha256'])
+            require(sha256_file(args.db)==snapshot['db_sha256'], 'SQLite changed while reviewing')
+            target=args.store_review or ROOT/'outputs/demo/runtime_store_review.json'
+            require(target.resolve() not in {p.resolve() for p in
+                    (args.db,Path(policy_file),args.policy_review,args.config)}, 'output must not replace input')
+            paths.check_private_output(target)
+            if target.exists():
+                require(load_json(target)==runtime, 'existing runtime review differs')
+            target.parent.mkdir(parents=True,exist_ok=True)
+            temp=target.with_name(f'.{target.name}.tmp-{os.getpid()}')
+            try:
+                temp.write_text(json.dumps(runtime,ensure_ascii=False,indent=2)+'\n',encoding='utf-8',newline='\n')
+                os.replace(temp,target)
+            finally:
+                temp.unlink(missing_ok=True)
+            print('automatic private store review written; canonical count: '+str(len(reports)))
+            return 0
+        require(args.store_review is not None, 'separate runtime store review required')
+        runtime_bytes=args.store_review.read_bytes()
+        runtime=json.loads(runtime_bytes.decode('utf-8-sig'))
+        approved_stores=validate_store_review(runtime,reports,snapshot['db_sha256'])
+        require(runtime==gate.review(reports,snapshot['db_sha256']), 'runtime review differs from automatic gate')
+        require(sha256_file(args.db)==snapshot['db_sha256'], 'SQLite changed while reviewing')
+        provenance=dict(snapshot)
+        policy_digest=provenance['review_sha256']; runtime_digest=hashlib.sha256(runtime_bytes).hexdigest()
+        provenance.update(policy_review_digest=policy_digest,store_review_digest=runtime_digest)
+        provenance['review_sha256']=hashlib.sha256(f'{policy_digest}:{runtime_digest}'.encode()).hexdigest()
+        candidates=candidates_from_reports(reports,approved_stores,approved_policies,policies)
+        if args.preflight_only:
+            print('demo preflight passed; canonical count: '+str(len(reports)))
+            return 0
         commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,encoding='utf-8').strip()
         require(provenance['policy_count'] == 28, 'final policy count must be 28')
         selection=choose_cases(candidates)
         private,public=output_documents(selection,provenance,commit)
         export_path=args.export_out or args.private_out.with_name('demo_cases_for_export.json')
-        require(not ({args.db.resolve(),Path(policy_file).resolve(),args.review.resolve(),args.config.resolve()}
+        require(not ({args.db.resolve(),Path(policy_file).resolve(),args.policy_review.resolve(),args.store_review.resolve(),args.config.resolve()}
                      & {args.private_out.resolve(),args.public_out.resolve(),export_path.resolve()}), 'output must not replace input')
         write_outputs(private,public,args.private_out,args.public_out,
                       export_cases=export_cases_document(selection),export_path=export_path)
