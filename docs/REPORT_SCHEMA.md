@@ -50,6 +50,7 @@
 | 인허가 표준화 `licenses_3gu.parquet` | **빌드 입력.** 상호·주소·동·인허가일·현재 상태의 단일 출처 | `outputs/standardized/` | 안 함 |
 | SQLite (`report.sqlite`) | **로컬 정본.** 위 입력을 합친 결과 + 실행 provenance | `outputs/serving/` | 안 함 |
 | 정적 JSON 번들 | **파생본.** SQLite에서만 생성하며 브라우저가 서버 없이 읽는다 (§13) | `outputs/serving/static_private/` (로컬 비공개) | 안 함 (합성 샘플만 `docs/samples/w2-5/`) |
+| 제출용 비식별 사례 번들 | **제출 범위.** 비식별 실제 사례 A/B/C만 담는 별도 projection `submission-static-0.1` (§15) | `outputs/serving/submission_public/` (로컬 → 첨부물) | 안 함 |
 
 - 정적 JSON은 SQLite를 거치지 않고 만들지 않는다. 정적 JSON을 고쳐 SQLite에 되돌리지 않는다.
 - 실명·주소·store_id와 위험도가 연결된 실제 결과는 저장소에 커밋하지 않는다. 정적 배포 전에는 검증 게이트(§9)를 통과해야 한다.
@@ -595,6 +596,8 @@ python -m src.serving.synthetic_samples
 
 ## 14. 미정 사항
 
+- (2026-10-03) 제출 범위는 §15의 제출용 비식별 사례 번들뿐이다. 실제 사례 A/B/C는 #64 선택과 최종 정책 파일 이후 채운다.
+
 - `mdis_industry_code` 고정 매핑(일반·휴게음식점 → 56, 미용업 → 96)을 쓸지 — 처방(W3)이 필요할 때 결정.
 - 동 요약 숨김 하한값 `min_cell_n` — 위 실측을 근거로 팀 결정, #35 score 패널로 재확인 후 DECISIONS 기록.
 - 공개된 작은 칸의 등급 쏠림(속성 노출) 처리 방식 — 현재는 한 등급 100% 칸이 있으면 동 요약을 공개 불가로 표시만 한다.
@@ -607,3 +610,74 @@ python -m src.serving.synthetic_samples
 - band 표시명(낮음/주의/높음)과 컷오프 문구 — 화면 결정.
 - 내부 `ci_low`/`ci_high` 이름은 재현성·PR #36 호환을 위해 유지한다. 공개 계약에서는 W3-14에 따라 제외한다.
 - 실제 데이터 웹 공개 범위 (§9).
+
+## 15. 제출용 비식별 사례 번들 (`submission-static-0.1`, 2026-10-03)
+
+H1에서 `static_private`가 public-static-0.1 검증·금지 키 0을 통과했지만 #56 `check_claims`에서 식별정보(ID-01 store_id,
+ID-05 상호, ID-06 주소)가 대량 검출됐다. 모델·계약 오류가 아니라 **공개 범위** 문제라, 내부 번들을 고치지 않고 제출 전용
+projection을 따로 둔다. 모델·diagnose·serve·background를 다시 돌리지 않는다 — 이미 만든 `report.sqlite`만 읽는다.
+
+### 세 층의 구분
+
+| 층 | 계약 | 대상·용도 | 식별정보 | 제출 |
+|---|---|---|---|---|
+| 내부 정본·전체 번들 | report 0.3 / `static_private` | 전체 점포 검색·E2E·QA | 상호·주소·store_id 있음 | **안 함** |
+| 공개 projection | public-static-0.1 (§13 W3-14) | 개인 확률·구간을 뺀 기술적 projection (static_private 리포트) | 상호·주소·store_id 남음 | **안 함** |
+| 제출용 사례 번들 | **submission-static-0.1** | 비식별 실제 사례 A/B/C(T5) 상세 + 공통 meta | 없음 (`CASE-A/B/C`만) | **이것만 제출 범위** |
+
+- `technical_gate` 통과는 **공개 승인이 아니다.** 제출 번들도 `publication_approved=false`이며 제출 여부는 팀이 정한다.
+- 실제 A/B/C는 **#64 선택 완료 후** 채운다. 그 전에는 세 칸이 `pending_selection`인 meta만 만든다(사례 0건).
+- 동 요약·검색 인덱스·전체 리포트는 제출 범위가 아니다(R5, 소표본 하한 미확정).
+
+### 실행
+
+```
+python -m src.serving.export_submission --db outputs/serving/report.sqlite     [--cases <저장소 밖 비공개 cases.json>] [--out outputs/serving/submission_public] [--dry-run]
+python scripts/check_claims.py outputs/serving/submission_public --fail-on warn --format json
+```
+
+`--cases`는 store_id가 든 비공개 파일이다(H3 `demo_selection_private.json`): `{"cases": [{"case_label": "A", "store_id": …,
+"rule_stage": "base"|"alt1"|"alt2"|"none", "n_candidates": …, "seed": …}, …]}`. `rule_stage=none`이면 store_id가 없고 그 칸은
+`no_suitable_case`("적합한 비식별 실제 사례 없음")로 남는다. A·B·C는 서로 다른 점포여야 한다.
+
+### 파일 구조
+
+```
+meta.json             계약 버전, run_id, score_origin·as_of, 범위·제외 목록, 세 칸(case_slot), provenance(params_name·
+                      model_class·S8 rule/seed·정본 sha256 앞 12자), technical_gate, publication_approved=false
+cases/CASE-{A,B,C}.json   선택된 사례만 (submission_case)
+manifest.json         파일 목록과 sha256 앞 12자·바이트 (전체 해시는 내보내지 않는다)
+```
+
+### 사례 1건에 남기는 것 / 빼는 것
+
+- **남김:** `public_id`(CASE-A…), `case_label`, `case_title`("비식별 실제 사례 A"), 구·업종, `risk.band`·`percentile`(동종 순위)·
+  `peer_group`(구·업종), 요인(범주·방향·`level_text`·고정 문구 `summary_text`·표시 상태·보류 사유 코드·`driver_code`·
+  `interpretation_sensitive`·`sensitivity_label`), `unavailable_categories`, `policy_matching`·`policies`(`policy_match` 그대로),
+  `selection`(rule_stage·n_candidates·seed), `disclaimer`, `score_origin`·`as_of`.
+- **뺌:** store_id(파일명·manifest 경로 포함), 상호, 법정동, 도로명·지번 주소, 인허가일, 영업 상태·폐업일, MDIS 코드, 온라인 존재감,
+  처방, 개인 확률·구간·`interval_note`·`peer_median`·model·calibrated, 요인 `contribution`(%p)·`peer_percentile`·원 feature 값·
+  driver 문구·원 explanation·display_note. 표시 보류 요인은 방향도 내보내지 않는다.
+- 요인 문구는 방향·표시 상태만으로 만든 고정 템플릿이다(숫자·%·"원인" 표현 없음). 내부 값은 SQLite·static_private에 그대로 있다.
+
+### 게이트 (하나라도 걸리면 번들을 만들지 않고 기존 번들은 그대로)
+
+1. 정본 `release_blockers` 없음 2. 사례마다 내부 report 0.3 검증 → `submission_schema.json` 검증
+3. 금지 키 재귀 검사 4. 정본의 모든 store_id와 선택 점포의 상호·주소·법정동이 번들 바이트에 없음
+5. #56 check_claims 규칙 전체를 `--fail-on warn` 기준으로 적용해 발견 0건 (규칙·allowlist는 바꾸지 않는다)
+
+H1 실데이터 dry-run(2026-10-03, 사례 미선택): meta·manifest 2파일, check_claims 발견 0, `report.sqlite`·`static_private` 바이트 불변.
+
+
+### submission policy application fields (2026-10-03)
+
+Submission cards add apply_status/apply_end/checked_at via policy id from policies_apply.csv,
+and force linked_factor_ids=[]. Internal report 0.3 is unchanged. Public provenance uses both source hash prefixes.
+Submission consumer SHOULD NOT display summary_text directly; use level_text + direction.
+See [SUBMISSION_BUNDLE.md](SUBMISSION_BUNDLE.md) for final 28-policy gates, direct #64 input and synthetic samples.
+
+Submission policy review projection excludes `unverifiable_conditions` and `check_note`.
+The existing `match_status` is retained; `unverified_condition_count` is the number of internal
+unverifiable conditions (zero for `matched`, positive for `check_required`). Official policy facts
+and application dates remain public. Submission consumers can render the #54 guidance from this
+structured state/count and `checked_at`; the data layer does not copy internal review sentences.

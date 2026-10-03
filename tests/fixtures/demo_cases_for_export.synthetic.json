@@ -1,0 +1,25 @@
+{
+  "cases": [
+    {
+      "case_label": "A",
+      "store_id": "SYNTHETIC-A",
+      "rule_stage": "base",
+      "n_candidates": 1,
+      "seed": 20261004
+    },
+    {
+      "case_label": "B",
+      "store_id": "SYNTHETIC-B",
+      "rule_stage": "base",
+      "n_candidates": 1,
+      "seed": 20261005
+    },
+    {
+      "case_label": "C",
+      "store_id": "SYNTHETIC-C",
+      "rule_stage": "base",
+      "n_candidates": 1,
+      "seed": 20261006
+    }
+  ]
+}
