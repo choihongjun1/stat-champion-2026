@@ -5,7 +5,7 @@
 대상 범위 (R5): 비식별 실제 사례 A/B/C 상세 3건까지와 공통 meta·manifest. 전체 리포트 28,711건, 검색 인덱스,
 동 요약(소표본 하한 미확정·R5)은 넣지 않는다.
 
-사례 지정은 저장소 밖의 비공개 JSON(`--cases`)으로만 받는다(store_id가 들어 있다 — H3 `demo_selection_private.json`):
+사례 지정은 저장소 밖의 비공개 JSON(`--cases`)으로만 받는다(store_id가 들어 있다 — H3 `demo_cases_for_export.json`):
     {"cases": [{"case_label": "A", "store_id": "...", "rule_stage": "base", "n_candidates": 12, "seed": 20261004},
                {"case_label": "B", "store_id": null, "rule_stage": "none", "n_candidates": 0, "seed": 20261005}]}
 사례를 아직 고르지 않았으면 `--cases`를 생략한다 → 세 칸 모두 `pending_selection`인 meta만 만든다(사례 0건).
@@ -37,6 +37,7 @@ from src.data import config
 from src.serving import build_db as bd
 from src.serving import export_static as ex
 from src.serving import submission_report as sr
+from src.serving import policy_apply as pa
 
 DEFAULT_OUT = config.REPO_ROOT / "outputs" / "serving" / "submission_public"
 CLAIMS_SCRIPT = config.REPO_ROOT / "scripts" / "check_claims.py"
@@ -110,13 +111,13 @@ def claims_findings(bundle: Path) -> dict:
 
 
 # ---------------------------------------------------------------------------
-def render(conn: sqlite3.Connection, cases: list[dict], db_sha12: str) -> tuple[dict[str, bytes], list[str]]:
+def render(conn: sqlite3.Connection, cases: list[dict], db_sha12: str, *, policy_apply=None, apply_sha256=None, checked_at=None) -> tuple[dict[str, bytes], list[str]]:
     """→ ({상대 경로: 바이트}, 바이트에 나오면 안 되는 문자열 목록). 계약 위반이면 SubmissionError."""
     run = bd.read_run(conn)
     blockers = bd.release_blockers(run)
     if blockers:
         raise SubmissionError("기술적 계약 미통과 — 제출 번들을 만들지 않는다: " + " / ".join(blockers))
-    kind = ex.data_kind(conn)
+    kind = "synthetic" if ex.data_kind(conn) == "synthetic_sample" else "real"
     known = {sid for (sid,) in conn.execute("SELECT store_id FROM stores")}
     secrets = set(known)
     files: dict[str, bytes] = {}
@@ -136,7 +137,7 @@ def render(conn: sqlite3.Connection, cases: list[dict], db_sha12: str) -> tuple[
                            and not any(v in a for a in allowed))
             try:
                 case = sr.project_case(rec, label=c["case_label"], data_kind=kind, rule_stage=c["rule_stage"],
-                                       n_candidates=c["n_candidates"], seed=c["seed"])
+                                       n_candidates=c["n_candidates"], seed=c["seed"], policy_apply=policy_apply)
             except ValueError as e:
                 raise SubmissionError(f"사례 {c['case_label']}: {e}") from e
             slot["path"] = f"cases/{slot['public_id']}.json"
@@ -153,7 +154,10 @@ def render(conn: sqlite3.Connection, cases: list[dict], db_sha12: str) -> tuple[
                            "s8_rule_version": source.get("s8_rule", {}).get("rule_version"),
                            "primary_seed": bg.get("primary", {}).get("seed"),
                            "sensitivity_seed": bg.get("sensitivity", {}).get("seed"),
-                           "source_db_sha256_12": db_sha12},
+                           "source_db_sha256_12": db_sha12,
+                           "policies_sha256_12": (run.get("policies_sha256") or "")[:12] or None,
+                           "policies_apply_sha256_12": apply_sha256[:12] if apply_sha256 else None,
+                           "policy_checked_at": checked_at},
             "policy_matching": run["policy_matching"],
             "technical_gate": {"passed": True, "checks": list(GATE_CHECKS)},
             "publication_approved": False, "publication_note": PUBLICATION_NOTE}
@@ -213,7 +217,9 @@ def verify_bundle(bundle: Path, secrets: list[str] | None = None) -> list[str]:
 
 # ---------------------------------------------------------------------------
 def export(db_path: Path, out_dir: Path = DEFAULT_OUT, *, cases_path: Path | None = None,
-           dry_run: bool = False) -> dict:
+           dry_run: bool = False, policies_apply_path: Path | None = None,
+           policies_apply_sha256: str | None = None, policy_checked_at: str | None = None,
+           final_policy_gate: bool = False, allow_tracked_synthetic: bool = False) -> dict:
     """정본 → 제출 번들. → 요약 dict. 실패하면 SubmissionError이며 기존 번들은 바뀌지 않는다.
     dry_run=True면 임시 폴더에서 만들어 전부 검증한 뒤 지운다(아무것도 남기지 않는다)."""
     db_path, out = Path(db_path), Path(out_dir)
@@ -222,14 +228,30 @@ def export(db_path: Path, out_dir: Path = DEFAULT_OUT, *, cases_path: Path | Non
     conn = sqlite3.connect(f"file:{db_path.resolve().as_posix()}?mode=ro", uri=True)
     try:
         kind = ex.data_kind(conn)
+        run = bd.read_run(conn)
+        rows, digest, checked = None, None, None
+        if final_policy_gate:
+            if (run.get("policies_sha256") != pa.FINAL_POLICY_SHA256 or run.get("n_policies") != 28
+                    or policies_apply_path is None):
+                raise SubmissionError("final 28-policy freeze required")
+            policies_apply_sha256, policy_checked_at = pa.FINAL_APPLY_SHA256, pa.FINAL_CHECKED_AT
+        if policies_apply_path is not None:
+            ids = {pid for (pid,) in conn.execute("SELECT policy_id FROM policies")}
+            try:
+                rows, digest, checked = pa.load_policy_apply(policies_apply_path, ids,
+                    expected_sha256=policies_apply_sha256, checked_at=policy_checked_at)
+            except ValueError as e:
+                raise SubmissionError(str(e)) from e
+        elif policies_apply_sha256 is not None or policy_checked_at is not None:
+            raise SubmissionError("policy apply file required")
         if not dry_run:
             try:
-                ex.guard_export_path(out, kind)
+                ex.guard_export_path(out, kind, allow_tracked_synthetic)
             except ex.ExportError as e:
                 raise SubmissionError(str(e)) from e
             if out.exists() and not (out / "manifest.json").is_file():
                 raise SubmissionError(f"기존 경로가 제출 번들이 아니라 덮어쓰지 않는다: {out}")
-        files, secrets = render(conn, cases, db_sha12)
+        files, secrets = render(conn, cases, db_sha12, policy_apply=rows, apply_sha256=digest, checked_at=checked)
     finally:
         conn.close()
 
@@ -264,9 +286,10 @@ def main(argv=None) -> None:
     ap.add_argument("--db", type=Path, default=bd.DEFAULT_OUT)
     ap.add_argument("--cases", type=Path, default=None, help="비공개 사례 지정 JSON (store_id 포함, 저장소 밖)")
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
+    ap.add_argument("--policies-apply", type=Path)
     ap.add_argument("--dry-run", action="store_true", help="임시 폴더에서 만들고 검증만 한 뒤 지운다")
     a = ap.parse_args(argv)
-    s = export(a.db, a.out, cases_path=a.cases, dry_run=a.dry_run)
+    s = export(a.db, a.out, cases_path=a.cases, dry_run=a.dry_run, policies_apply_path=a.policies_apply, final_policy_gate=a.cases is not None)
     where = "(dry-run, 기록 안 함)" if s["dry_run"] else f"→ {s['out']}"
     print(f"제출 번들 {s['contract']} {where}  data_kind={s['data_kind']}")
     print(f"  파일 {len(s['files'])}개: {', '.join(s['files'])}")

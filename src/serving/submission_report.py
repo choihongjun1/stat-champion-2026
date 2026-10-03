@@ -88,7 +88,7 @@ def project_factor(f: dict) -> dict:
 
 
 def project_case(record: dict, *, label: str, data_kind: str, rule_stage: str, n_candidates: int | None,
-                 seed: int | None) -> dict:
+                 seed: int | None, policy_apply: dict | None = None) -> dict:
     """내부 report 0.3 레코드 → 제출용 사례 1건. 원 레코드를 먼저 0.3 계약으로 검증하고, 결과를 제출 계약으로 검증한다.
     원 레코드(정본·static_private 원천)는 바꾸지 않는다."""
     errors = rv.validate_report(record)
@@ -100,7 +100,7 @@ def project_case(record: dict, *, label: str, data_kind: str, rule_stage: str, n
         "_submission_contract_version": CONTRACT_VERSION,
         "source_schema_version": record["_schema_version"],
         "public_id": public_id(label), "case_label": label, "case_title": case_title(label, data_kind),
-        "data_kind": data_kind,
+        "data_kind": "synthetic" if data_kind == "synthetic_sample" else data_kind,
         "score_origin": record["score_origin"], "as_of": record["as_of"],
         "store": {"gu": record["store"]["gu"], "biz_type": record["store"]["biz_type"]},
         "risk": {k: record["risk"][k] for k in ("band", "percentile", "peer_group")},
@@ -111,6 +111,12 @@ def project_case(record: dict, *, label: str, data_kind: str, rule_stage: str, n
         "selection": {"rule_stage": rule_stage, "n_candidates": n_candidates, "seed": seed},
         "disclaimer": record["disclaimer"],
     }
+    if policy_apply is not None and any(p["id"] not in policy_apply for p in case["policies"]):
+        raise ValueError("incomplete policy application join")
+    for policy in case["policies"]:
+        policy["linked_factor_ids"] = []
+        policy.update((policy_apply or {}).get(policy["id"],
+                      dict(apply_status="unknown", apply_end=None, checked_at=None)))
     errors = validate_case(case)
     if errors:
         raise ValueError("submission contract: " + " / ".join(errors[:3]))
@@ -153,7 +159,10 @@ def validate_case(case: dict) -> list[str]:
     errs += validate_def("submission_case", case)
     if errs:
         return errs
-    errs += [f"policies/{i}: {e}" for i, p in enumerate(case["policies"]) for e in rv.validate_def("policy_match", p)]
+    errs += [f"policies/{i}: {e}" for i, p in enumerate(case["policies"]) for e in rv.validate_def("policy_match", {k: v for k, v in p.items()
+                          if k not in {"apply_status", "apply_end", "checked_at"}})]
+    if len({p['id'] for p in case['policies']}) != len(case['policies']):
+        errs.append("duplicate submission policy id")
     if case["public_id"] != f"CASE-{case['case_label']}":
         errs.append("public_id는 CASE-{case_label}이어야 한다")
     if case["case_title"] != case_title(case["case_label"], case["data_kind"]):

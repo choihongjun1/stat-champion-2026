@@ -173,7 +173,8 @@ def test_kept_fields_match_internal_record(built):
                 assert (f["interpretation_sensitive"], f["sensitivity_label"]) == (
                     g["interpretation_sensitive"], g["sensitivity_label"])
                 assert f["display"] == g["display"] and f["direction"] == (g["direction"] if g["display"] else None)
-            assert case["policies"] == rec["policies"] and case["policy_matching"] == rec["policy_matching"]
+            assert case["policies"] == [dict(p, linked_factor_ids=[], apply_status="unknown", apply_end=None,
+                                         checked_at=None) for p in rec["policies"]] and case["policy_matching"] == rec["policy_matching"]
             assert case["selection"]["seed"] in (20261004, 20261005, 20261006)
     finally:
         conn.close()

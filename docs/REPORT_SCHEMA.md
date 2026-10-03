@@ -667,3 +667,11 @@ manifest.json         파일 목록과 sha256 앞 12자·바이트 (전체 해�
 5. #56 check_claims 규칙 전체를 `--fail-on warn` 기준으로 적용해 발견 0건 (규칙·allowlist는 바꾸지 않는다)
 
 H1 실데이터 dry-run(2026-10-03, 사례 미선택): meta·manifest 2파일, check_claims 발견 0, `report.sqlite`·`static_private` 바이트 불변.
+
+
+### submission policy application fields (2026-10-03)
+
+Submission cards add apply_status/apply_end/checked_at via policy id from policies_apply.csv,
+and force linked_factor_ids=[]. Internal report 0.3 is unchanged. Public provenance uses both source hash prefixes.
+Submission consumer SHOULD NOT display summary_text directly; use level_text + direction.
+See [SUBMISSION_BUNDLE.md](SUBMISSION_BUNDLE.md) for final 28-policy gates, direct #64 input and synthetic samples.

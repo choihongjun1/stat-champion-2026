@@ -30,7 +30,8 @@ def test_projection_keeps_public_fields_and_drops_the_rest():
     assert case["public_id"] == "CASE-A" and case["case_title"] == "비식별 실제 사례 A"
     assert case["store"] == {"gu": rec["store"]["gu"], "biz_type": rec["store"]["biz_type"]}
     assert set(case["risk"]) == {"band", "percentile", "peer_group"}
-    assert case["policies"] == rec["policies"] and case["disclaimer"] == rec["disclaimer"]
+    assert case["policies"] == [dict(p, linked_factor_ids=[], apply_status="unknown", apply_end=None,
+                                         checked_at=None) for p in rec["policies"]] and case["disclaimer"] == rec["disclaimer"]
     assert sr.forbidden_key_paths(case) == []
     for f in case["factors"]:
         assert "contribution" not in f and "explanation" not in f and "values" not in f
