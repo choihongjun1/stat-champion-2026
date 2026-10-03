@@ -1,28 +1,15 @@
-# DASH 웹 (W2-6 리포트 화면 v0)
+# DASH 웹 (W2-6 화면)
 
-사장님이 가게를 검색하면 폐업 위험 리포트를 보여주는 웹 프로토타입입니다.
-Next.js + TypeScript + Tailwind CSS. 백엔드 없이 W2-5 **정적 JSON 번들**(REPORT_SCHEMA §13, 스키마 0.2)을 읽기만 합니다.
+사장님이 가게를 검색하면 상대 위험 수준 리포트를 보여주는 웹 프로토타입입니다.
+Next.js + TypeScript + Tailwind CSS. 백엔드 없이 W2-5 **정적 JSON 번들**(공개 계약 `public-static-0.1`)을 읽기만 합니다.
 
 ## 데이터 (중요)
 
-- `public/bundle/`에는 PR #41 `docs/samples/w2-5/bundle/`의 **합성 샘플 번들**(SAMPLE-001~009)만 들어 있습니다. 모든 값은 지어낸 값입니다.
-- **실제 점포 번들(실명·주소·위험도)은 공개 승인(`publication_approved`) 전에는 `public/`에 넣지도, 저장소에 커밋하지도, 배포하지도 않습니다** (REPORT_SCHEMA §9).
-- 번들 위치는 환경변수 `NEXT_PUBLIC_BUNDLE_BASE`로 바꿀 수 있습니다 (기본 `/bundle`).
-- 진입 파일은 `meta.json`: `files`(검색 인덱스·동 목록·동 요약)와 `report_path_template`을 여기서 읽습니다.
-
-## 폴더 구조
-
-| 경로 | 내용 |
-| --- | --- |
-| `src/app/page.tsx` | 첫 화면 (온보딩 → 검색) |
-| `src/app/report/[storeId]/page.tsx` | 가게 리포트 (로딩 최소 1.2초 → 리포트) |
-| `src/app/dong/[gu]/[dong]/page.tsx` | 동 리포트 (**디자인 전 임시 화면**) |
-| `src/components/report/ReportView.tsx` | 리포트 화면 (피그마 146:6440) |
-| `src/lib/bundle.ts` | 번들 읽기 |
-| `src/lib/reportTypes.ts` | 스키마 0.2 타입 |
-| `src/lib/ownerText.ts` | 위험요인 → 사장님 문장 변환 (기능명세서 '사장님 언어 가이드'와 짝) |
-| `src/lib/actions.ts` | '개선 방향' 목록 규칙 |
-| `src/lib/search.ts` | 상호명(+동)·주소 검색 |
+- `public/bundle/`(SAMPLE-001~009), `public/bundle_no_policy/`(SAMPLE-010)는 main `docs/samples/w2-5/`의 **합성 샘플 번들 사본**입니다. 모든 값은 지어낸 값입니다.
+- **실제 점포 번들은 공개 승인(`publication_approved`) 전에는 `public/`에 넣지도, 커밋하지도, 배포하지도 않습니다** (REPORT_SCHEMA §9). 비식별 시연 번들만 별도 경로에 넣습니다.
+- 번들 위치는 환경변수 `NEXT_PUBLIC_BUNDLE_BASE`로 바꿉니다 (기본 `/bundle`).
+  - 정책 매칭 미실행 화면 확인: `NEXT_PUBLIC_BUNDLE_BASE=/bundle_no_policy npm run dev`
+- `meta.json`의 `data_kind`가 `synthetic_sample`이면 합성 배너, 그 밖이면 비식별 시연 배너를 보여주고 위치는 구까지만, 검색 결과는 주소 없이 표시합니다.
 
 ## 실행
 
@@ -31,16 +18,30 @@ npm install
 npm run dev
 ```
 
-http://localhost:3000 — 테스트 검색어: `가상식당`(2건), `가상카페 화양동`, `광진구 가상로 12`(주소 검색), `없는가게`(결과 없음)
+http://localhost:3000 — 테스트 검색어: `가상식당`(2건), `가상카페 화양동`, `가상로`(주소로 찾기), `없는가게`(결과 없음)
 
-## 리포트 화면 메모 — 피그마와 다르게 둔 곳
+정적 HTML 시험: `STATIC_EXPORT=1 npm run build` → `out/` 생성 → `npx serve out`으로 엽니다. (`out/index.html` 더블클릭은 데이터를 불러오지 못합니다.)
 
-| 피그마 | 구현 | 이유 |
-| --- | --- | --- |
-| "29~47%로 경고 등급" | "예측이 흔들릴 수 있는 범위는 …, 위험 등급은 주의" + `interval_note` | 범위는 폐업 확률의 범위가 아님, 등급명은 낮음/주의/높음 (§3-3) |
-| "업력이 유사한 … 평균 19%" | "광진구 휴게음식점 가게들의 중간 위험도" | 비교 집단에 업력 조건 없음, 값은 평균이 아니라 중간값 |
-| 요인 카드 "46%p 기여 / 업력" | "+5.2%p · 위험을 크게 높이는 쪽이에요 / 영업 기간" + 사장님 문장 | 사장님 언어 가이드 |
-| 개선 방향 3개 + "효과 확인" | 데이터로 근거가 있는 항목만, 전부 "효과 미확인" | 처방 효과는 W3 전까지 없음 (§6). 리뷰·대기시간·배달앱 데이터 없음 |
-| 정책 카드 기관 로고 | 운영기관 첫 글자 원 | 정책 원천에 로고 필드 없음 |
-| 하단 "결과는 본인만 볼 수 있습니다" | 삭제 | 로그인·본인 확인이 없어 누구나 검색하면 볼 수 있음 |
-| (없음) | 데이터 없음·판단 불가·두드러진 요인 없음·폐업 신고·조건 확인 필요·정책 준비 중 상태 | 스키마 §4 표시 상태 |
+금지어 검사 (저장소 루트에서): `python scripts/check_claims.py app/src --fail-on warn`
+
+## 폴더 구조
+
+| 경로 | 내용 |
+| --- | --- |
+| `src/app/page.tsx` | 첫 화면 (온보딩 → 검색) |
+| `src/app/report/[storeId]/page.tsx` | 가게 리포트 경로 (정적 export용 경로 목록 포함) |
+| `src/app/dong/[gu]/[dong]/page.tsx` | 동 화면 — 공개 준비 전이라 "동 리포트는 준비 중이에요" |
+| `src/components/report/ReportPage.tsx` | 로딩(최소 1.2초) → 리포트 |
+| `src/components/report/ReportView.tsx` | 리포트 화면 (피그마 146:6440) |
+| `src/lib/reportTypes.ts` | 공개 계약 타입 |
+| `src/lib/ownerText.ts` | 위험요인 → 사장님 문장 변환 |
+| `src/lib/actions.ts` | 대응 방향 두 축 (분석 근거 / 지원사업) |
+| `src/lib/search.ts` | 상호명(+동)·주소 검색 |
+
+## 화면 규칙 요약 (#48 검토 M1~M8, Issue #49)
+
+- 위험은 등급(낮음·주의·높음)과 동종 순위("위험 상위 N%")만 보여줍니다. 개인 확률·범위는 공개 리포트에 없습니다.
+- 위험요인은 숫자 없이 크기 단계로, 문장은 "모형은 이 점을 … 신호로 봤어요" 틀로 씁니다. 온라인 지표는 "블로그 언급"입니다.
+- 대응 방향은 분석 근거("확인 불가")와 지원사업 두 축입니다.
+- 지원사업은 위험요인과 연결하지 않고 자격 조건으로만 보여줍니다. 확인일·운영기관·확인이 필요한 조건 수를 표시합니다.
+- 화면 분기는 코드 필드(`display`, `hold_reason`, `missing_reason`, `unavailable_categories`, `policy_matching`, `match_status`)로만 합니다.

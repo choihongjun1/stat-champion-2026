@@ -1,5 +1,5 @@
 {
-  "_schema_version": "0.2",
+  "_schema_version": "0.3",
   "store_id": "SAMPLE-008",
   "score_origin": "2026Q2",
   "as_of": "2026-06-30",
@@ -20,14 +20,9 @@
     }
   },
   "risk": {
-    "probability_12m": 0.061,
-    "ci_low": 0.045,
-    "ci_high": 0.079,
-    "interval_note": "학습 데이터가 달랐다면 예측이 얼마나 흔들렸을지의 범위이며, 폐업 확률 자체의 범위가 아닙니다.",
     "band": "low",
     "percentile": 30,
     "peer_group": "영등포구 미용업",
-    "peer_median": 0.118,
     "model": "sample_synthetic",
     "calibrated": false
   },
@@ -47,7 +42,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "store_profile",
@@ -64,7 +62,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "trdar_vitality",
@@ -81,7 +82,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "peer_competition",
@@ -98,7 +102,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "district",
@@ -115,7 +122,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "peer_sales",
@@ -132,7 +142,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "trdar_population",
@@ -149,7 +162,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "online_attention",
@@ -166,7 +182,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": "presence",
+      "interpretation_sensitive": true,
+      "sensitivity_label": "해석 민감"
     }
   ],
   "unavailable_categories": [
@@ -219,5 +238,6 @@
       "check_note": "데이터로 확인할 수 없는 조건이 있어 자동 매칭하지 않음: 연매출 3억 원 이하"
     }
   ],
-  "disclaimer": "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다."
+  "disclaimer": "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다.",
+  "_public_contract_version": "public-static-0.1"
 }

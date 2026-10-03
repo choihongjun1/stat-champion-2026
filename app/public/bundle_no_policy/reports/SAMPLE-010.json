@@ -1,28 +1,28 @@
 {
   "_schema_version": "0.3",
-  "store_id": "SAMPLE-007",
+  "store_id": "SAMPLE-010",
   "score_origin": "2026Q2",
   "as_of": "2026-06-30",
   "store": {
     "biz_type": "일반음식점",
-    "gu": "광진구",
-    "dong": "구의동",
-    "name": "(샘플) 기준일후폐업식당",
-    "address_road": "서울특별시 광진구 가상로 707",
+    "gu": "마포구",
+    "dong": "망원동",
+    "name": "(샘플) 정책미실행식당",
+    "address_road": "서울특별시 마포구 가상로 1010",
     "address_jibun": null,
-    "license_date": "2017-04-04",
+    "license_date": "2023-06-01",
     "mdis_industry_code": null,
     "status": {
       "open_at_as_of": true,
-      "current": "closed",
-      "close_date": "2026-08-14",
+      "current": "open",
+      "close_date": null,
       "license_snapshot_date": "2026-09-11"
     }
   },
   "risk": {
-    "band": "mid",
-    "percentile": 72,
-    "peer_group": "광진구 일반음식점",
+    "band": "low",
+    "percentile": 30,
+    "peer_group": "마포구 일반음식점",
     "model": "sample_synthetic",
     "calibrated": false
   },
@@ -201,42 +201,8 @@
     "first_date_truncated": false,
     "note": "현재 시점 스냅샷 — 표시 전용, 예측·진단에 쓰지 않음 [합성 예시]"
   },
-  "policy_matching": "performed",
-  "policies": [
-    {
-      "id": "sample_online_support",
-      "name": "(예시) 온라인 판로 지원",
-      "operator": "(예시) 운영기관",
-      "link": "https://example.org/sample-online",
-      "eligibility_text": "(예시) 업력 1년 이상 소상공인",
-      "announce_year": 2026,
-      "collected_at": "2026-09-20",
-      "match_status": "matched",
-      "matched_by": [
-        "biz_type",
-        "tenure"
-      ],
-      "unverifiable_conditions": [],
-      "linked_factor_ids": [],
-      "check_note": null
-    },
-    {
-      "id": "sample_rent_support",
-      "name": "(예시) 임차료 부담 완화",
-      "operator": "(예시) 운영기관",
-      "link": "https://example.org/sample-rent",
-      "eligibility_text": "(예시) 연매출 3억 원 이하 소상공인",
-      "announce_year": 2026,
-      "collected_at": "2026-09-20",
-      "match_status": "check_required",
-      "matched_by": [],
-      "unverifiable_conditions": [
-        "연매출 3억 원 이하"
-      ],
-      "linked_factor_ids": [],
-      "check_note": "데이터로 확인할 수 없는 조건이 있어 자동 매칭하지 않음: 연매출 3억 원 이하"
-    }
-  ],
+  "policy_matching": "not_performed",
+  "policies": [],
   "disclaimer": "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다.",
   "_public_contract_version": "public-static-0.1"
 }

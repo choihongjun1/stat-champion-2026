@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { DongEntry, SearchEntry } from "@/lib/reportTypes";
-import { loadDongs, loadSearchIndex } from "@/lib/bundle";
+import { loadDongs, loadMeta, loadSearchIndex } from "@/lib/bundle";
 import { GU_ORDER, dongsByGu, searchStores } from "@/lib/search";
 import { LogoSmall } from "./Logo";
 import SearchField from "./SearchField";
@@ -16,6 +16,7 @@ export default function SearchScreen() {
   const [index, setIndex] = useState<SearchEntry[] | null>(null);
   const [dongs, setDongs] = useState<DongEntry[]>([]);
   const [loadError, setLoadError] = useState(false);
+  const [synthetic, setSynthetic] = useState(true);
   const [query, setQuery] = useState("");
   const [view, setView] = useState<View>({ kind: "idle" });
   const inputRef = useRef<HTMLInputElement>(null);
@@ -23,10 +24,11 @@ export default function SearchScreen() {
 
   // 검색 색인·동 목록은 한 번만 받아온다 (백엔드 없음 — 정적 번들)
   useEffect(() => {
-    Promise.all([loadSearchIndex(), loadDongs()])
-      .then(([idx, ds]) => {
+    Promise.all([loadSearchIndex(), loadDongs(), loadMeta()])
+      .then(([idx, ds, meta]) => {
         setIndex(idx);
         setDongs(ds);
+        setSynthetic(meta.data_kind === "synthetic_sample");
       })
       .catch(() => setLoadError(true));
   }, []);
@@ -66,7 +68,7 @@ export default function SearchScreen() {
           <AreaPicker
             guList={guList}
             dongs={byGu}
-            // 동을 고르면 그 동의 리포트(동별 위험도 분포 + 상위 위험 업종)로 바로 이동
+            // 동을 고르면 동 화면으로 이동 — 동 리포트는 release_ready=false라 10/5 회의 전까지 '준비 중'
             onPick={(gu, dong) => router.push(`/dong/${encodeURIComponent(gu)}/${encodeURIComponent(dong)}`)}
           />
         ) : (
@@ -78,7 +80,7 @@ export default function SearchScreen() {
 
       {view.kind === "results" && (
         <div className="mt-[37px]">
-          <ResultList items={view.items} onNotHere={() => setView({ kind: "area" })} />
+          <ResultList items={view.items} synthetic={synthetic} onNotHere={() => setView({ kind: "area" })} />
         </div>
       )}
 

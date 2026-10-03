@@ -1,42 +1,39 @@
-// '개선 방향' 목록 만들기
-// - 서빙 prescriptions: W3 인과분석 전이라 비어 있거나 status=unavailable 항목만 온다 (REPORT_SCHEMA §6)
-// - 프론트 규칙(효과 미확인): 사장님이 직접 관리할 수 있는 요인·현재 상태에서만 만든다
-//   ① 온라인 후기 요인이 표시되고 위험을 높였을 때 ② 지도 앱 미등록(online_presence, 현재 스냅샷)
-//   효과를 약속하지 않고, 배지로 '효과 미확인'을 항상 붙인다 (가이드라인 §10-3 근거 수준 표시)
+// '대응 방향' 두 축 (#48 검토 의견 M5, Issue #49 T1·T3·A1)
+// ① 분석 근거: 전국 조사(소상공인실태조사 2023) 분석이 A1 게이트를 넘지 못해 모든 가게에서 '확인 불가'.
+//    공개 리포트의 prescriptions는 항상 빈 배열이다 → 고정 문구.
+// ② 지원사업: 자격 조건이 맞는 사업 수 (맞춤 묶음 = match_status가 matched 또는 check_required).
+// 프론트가 근거 없이 만들던 점검 항목(지도 앱 등록 등)과 효과 배지는 제출 화면에서 뺐다 (T3).
 
 import type { Report } from "./reportTypes";
 
-export type ActionBadge = "verified" | "unverified" | "pending";
-export type ActionItem = { id: string; title: string; desc: string; badge: ActionBadge };
+export type ResponseBadge = "unconfirmed" | "policy" | "pending";
+export type ResponseItem = { id: string; title: string; desc: string; badge: ResponseBadge; badgeText: string };
 
-export function buildActions(r: Report): ActionItem[] {
-  const items: ActionItem[] = [];
+/** 맞춤 묶음 사업 수 (#54에서 묶음 필드가 정해지면 그 기준으로 바꾼다) */
+export function matchedPolicyCount(r: Report): number {
+  return r.policies.filter((p) => p.match_status === "matched" || p.match_status === "check_required").length;
+}
 
-  const online = r.factors.find((f) => f.factor_id === "online_attention");
-  if (online && online.display && online.hold_reason === null && online.contribution >= 0.01) {
-    items.push({
-      id: "online_reviews",
-      title: "온라인 후기 관리하기",
-      desc: "최근 후기가 적은 편이에요. 방문 손님이 지도 앱이나 블로그에 후기를 남기기 쉽도록 안내해 보세요.",
-      badge: "unverified",
-    });
-  }
+export function buildResponses(r: Report): ResponseItem[] {
+  const evidence: ResponseItem = {
+    id: "evidence",
+    title: "분석 근거",
+    desc: "전국 조사 자료로 분석했지만, 관계의 방향을 확인할 근거가 충분하지 않아 대응 근거로 표시하지 않아요.",
+    badge: "unconfirmed",
+    badgeText: "확인 불가",
+  };
 
-  const op = r.online_presence;
-  if (op) {
-    const missing = [op.naver_local_registered === false ? "네이버 지도" : null, op.kakao_registered === false ? "카카오맵" : null].filter(Boolean);
-    if (missing.length) {
-      items.push({
-        id: "map_listing",
-        title: "지도 앱에 가게 정보 등록하기",
-        desc: `지금 ${missing.join("과 ")}에서 가게 정보를 찾지 못했어요. 영업시간·메뉴·사진을 등록해 보세요.`,
-        badge: "unverified",
-      });
-    }
-  }
+  const n = matchedPolicyCount(r);
+  const policy: ResponseItem =
+    r.policy_matching === "not_performed"
+      ? { id: "policy", title: "지원사업", desc: "지원사업 정보를 준비하고 있어요.", badge: "pending", badgeText: "정보 준비 중" }
+      : {
+          id: "policy",
+          title: "지원사업",
+          desc: n > 0 ? "신청 전 공식 공고를 꼭 확인하세요." : "지금 가게 조건으로 찾은 지원사업은 없어요.",
+          badge: "policy",
+          badgeText: `자격 조건이 맞는 사업 ${n}건`,
+        };
 
-  for (const p of r.prescriptions) {
-    items.push({ id: p.id, title: p.title, desc: p.unavailable_reason, badge: "pending" });
-  }
-  return items;
+  return [evidence, policy];
 }

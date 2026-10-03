@@ -1,5 +1,5 @@
 {
-  "_schema_version": "0.2",
+  "_schema_version": "0.3",
   "store_id": "SAMPLE-009",
   "score_origin": "2026Q2",
   "as_of": "2026-06-30",
@@ -20,14 +20,9 @@
     }
   },
   "risk": {
-    "probability_12m": 0.284,
-    "ci_low": 0.236,
-    "ci_high": 0.331,
-    "interval_note": "학습 데이터가 달랐다면 예측이 얼마나 흔들렸을지의 범위이며, 폐업 확률 자체의 범위가 아닙니다.",
     "band": "high",
     "percentile": 94,
     "peer_group": "영등포구 휴게음식점",
-    "peer_median": 0.118,
     "model": "sample_synthetic",
     "calibrated": false
   },
@@ -47,7 +42,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "online_attention",
@@ -58,13 +56,16 @@
       "direction": "위험 증가",
       "peer_percentile": null,
       "explanation": "이 점포는 온라인 언급(블로그) 데이터가 없어(관측 불가) 이 요인은 진단하지 않습니다. [합성 예시]",
-      "driver": null,
+      "driver": "관측 불가(검색 결과 상한)",
       "values": {},
       "display": false,
       "data_missing": true,
       "missing_reason": "online_unobservable",
       "hold_reason": "data_missing",
-      "display_note": "합성 예시 — 표시 보류"
+      "display_note": "합성 예시 — 표시 보류",
+      "driver_code": "unobservable",
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "store_profile",
@@ -81,7 +82,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "peer_sales",
@@ -98,7 +102,10 @@
       "data_missing": true,
       "missing_reason": "sales_unpublished",
       "hold_reason": "data_missing",
-      "display_note": "합성 예시 — 표시 보류"
+      "display_note": "합성 예시 — 표시 보류",
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "trdar_vitality",
@@ -115,7 +122,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "peer_competition",
@@ -132,7 +142,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "district",
@@ -149,7 +162,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     },
     {
       "factor_id": "trdar_population",
@@ -166,7 +182,10 @@
       "data_missing": false,
       "missing_reason": null,
       "hold_reason": null,
-      "display_note": null
+      "display_note": null,
+      "driver_code": null,
+      "interpretation_sensitive": false,
+      "sensitivity_label": ""
     }
   ],
   "unavailable_categories": [
@@ -218,5 +237,6 @@
       "check_note": "데이터로 확인할 수 없는 조건이 있어 자동 매칭하지 않음: 연매출 3억 원 이하"
     }
   ],
-  "disclaimer": "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다."
+  "disclaimer": "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다.",
+  "_public_contract_version": "public-static-0.1"
 }
