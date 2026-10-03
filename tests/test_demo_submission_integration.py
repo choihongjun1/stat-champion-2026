@@ -20,7 +20,7 @@ def test_selector_fixture_direct_input():
 
 def test_live_selector_output_direct_load_and_export(tmp_path,monkeypatch):
     selector=Path(os.environ.get('DEMO_SELECTOR_PATH',
-        config.REPO_ROOT.parent/'demo15/scripts/select_demo_stores.py'))
+        config.REPO_ROOT/'scripts/select_demo_stores.py'))
     if not selector.is_file():
         pytest.skip('Set DEMO_SELECTOR_PATH to the #64 checkout to run the cross-PR integration')
     spec=importlib.util.spec_from_file_location('demo_selector_integration',selector)

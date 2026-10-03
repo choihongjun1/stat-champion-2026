@@ -14,7 +14,7 @@ from scripts.demo_fixture_freeze import POLICY_SHA256, REVIEW_SHA256
 from src.serving import build_db as bd, synthetic_samples as syn
 
 FIXTURE=sel.ROOT/'tests/fixtures/demo_preflight'
-SUBMISSION=Path(os.environ.get('SUBMISSION_CHECKOUT',sel.ROOT.parent/'submission65'))
+SUBMISSION=Path(os.environ.get('SUBMISSION_CHECKOUT',sel.ROOT))
 
 
 @pytest.fixture

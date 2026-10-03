@@ -331,7 +331,7 @@ def main(argv=None):
     parser.add_argument('--db',type=Path,required=True)
     parser.add_argument('--policy-review','--review',dest='policy_review',type=Path,required=True)
     parser.add_argument('--store-review',type=Path)
-    parser.add_argument('--submission-root',type=Path,default=ROOT.parent/'submission65')
+    parser.add_argument('--submission-root',type=Path,default=ROOT)
     mode=parser.add_mutually_exclusive_group()
     mode.add_argument('--build-store-review',action='store_true')
     mode.add_argument('--preflight-only',action='store_true')

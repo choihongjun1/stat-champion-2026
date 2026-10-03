@@ -359,7 +359,7 @@ def test_direct_submission_consumer_integration(tmp_path):
     import os
     import subprocess
     import sys
-    root=Path(os.environ.get('SUBMISSION_CHECKOUT',sel.ROOT.parent/'submission65'))
+    root=Path(os.environ.get('SUBMISSION_CHECKOUT',sel.ROOT))
     if not (root/'tests/test_demo_submission_integration.py').is_file():
         pytest.skip('Set SUBMISSION_CHECKOUT to the #65 checkout for cross-PR integration')
     env=dict(os.environ,DEMO_SELECTOR_PATH=str(sel.ROOT/'scripts/select_demo_stores.py'),PYTHONUTF8='1')

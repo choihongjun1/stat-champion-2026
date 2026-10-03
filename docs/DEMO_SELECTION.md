@@ -35,9 +35,8 @@ DB의 정책 해시·건수·원천 conditions·매칭 증거를 대조한다. �
 ### 자동 전 점포 검수
 
 `--build-store-review`는 finalized read-only SQLite 전체를 읽어 동일한 결정적 gate를 적용한다.
-수작업으로 stores나 flag를 채우지 않는다. #65 checkout의 기존 submission_report.project_case를
-`--submission-root`에서 **읽기 전용**으로 불러온다. #65 코드/스키마를 수정하거나 복사하지 않는다.
-기본 로컬 경로는 형제 submission65 checkout이며 Claude에서는 실제 #65 source checkout 경로를 명시한다.
+수작업으로 stores나 flag를 채우지 않는다. main에 병합된 #65의 기존 submission_report.project_case를
+`--submission-root`(기본: 이 저장소 루트)에서 **읽기 전용**으로 불러온다. #65 코드/스키마를 수정하거나 복사하지 않는다.
 
 - publication_guard_passed: #65 pure projection이 내부/제출 스키마 검증을 통과하고, 금지 키가 없으며,
   모든 canonical 점포 참조와 해당 점포의 상호·주소·법정동 byte search가 0이다.
@@ -110,8 +109,8 @@ stdout은 건수만, 오류는 고정 분류만 출력한다.
 
 partial review 거부, canonical completeness, seeded hash-before-top10, lexical 편향 제거,
 rule 0.3, B 실제 최소값, matched/check_required, common 제외, A/B/C distinct를 검증한다.
-`tests/test_select_demo_stores.py` 연결 테스트는 #65 checkout을 `SUBMISSION_CHECKOUT`으로 지정한다
-(로컬 기본: 형제 submission65). #65의 integration test에 실제 selector 출력 파일을 그대로 넣어
+`tests/test_select_demo_stores.py` 연결 테스트는 #65가 main에 병합된 뒤 기본으로 이 저장소를 쓴다
+(`SUBMISSION_CHECKOUT`으로 바꿀 수 있다). #65의 integration test에 실제 selector 출력 파일을 그대로 넣어
 load_cases와 전체 submission export/claims/identifier 게이트를 실행한다. CI 단독 checkout에는 상대 PR이 없어
 이 교차 테스트만 skip할 수 있으며 별도의 합성 adapter 계약 검증은 항상 실행한다.
 
