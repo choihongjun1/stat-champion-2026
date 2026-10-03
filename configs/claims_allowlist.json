@@ -1,0 +1,80 @@
+[
+  {
+    "path_glob": "configs/claims_rules.json",
+    "rule_ids": [
+      "*"
+    ],
+    "reason": "검사 도구의 규칙 및 합성 테스트 자체"
+  },
+  {
+    "path_glob": "configs/claims_allowlist.json",
+    "rule_ids": [
+      "*"
+    ],
+    "reason": "검사 도구의 규칙 및 합성 테스트 자체"
+  },
+  {
+    "path_glob": "tests/test_check_claims.py",
+    "rule_ids": [
+      "*"
+    ],
+    "reason": "검사 도구의 규칙 및 합성 테스트 자체"
+  },
+  {
+    "path_glob": "scripts/check_claims.py",
+    "rule_ids": [
+      "*"
+    ],
+    "reason": "검사 도구의 규칙 및 합성 테스트 자체"
+  },
+  {
+    "path_glob": "docs/DECISIONS*.md",
+    "rule_ids": [
+      "CL-01",
+      "CL-02",
+      "CL-03",
+      "CL-04",
+      "CL-05",
+      "CL-06",
+      "CL-07",
+      "CL-08",
+      "CL-09",
+      "CL-10",
+      "CL-11",
+      "CL-12",
+      "CL-13",
+      "CL-14",
+      "CL-15",
+      "CL-16",
+      "CL-17",
+      "CL-18",
+      "CL-19"
+    ],
+    "reason": "결정 기록과 금지어 목록 자체; 식별정보 예외 없음"
+  },
+  {
+    "path_glob": "docs/CLAIMS.md",
+    "rule_ids": [
+      "CL-01",
+      "CL-02",
+      "CL-03",
+      "CL-04",
+      "CL-05",
+      "CL-06",
+      "CL-07",
+      "CL-08",
+      "CL-09",
+      "CL-10",
+      "CL-11",
+      "CL-12",
+      "CL-13",
+      "CL-14",
+      "CL-15",
+      "CL-16",
+      "CL-17",
+      "CL-18",
+      "CL-19"
+    ],
+    "reason": "결정 기록과 금지어 목록 자체; 식별정보 예외 없음"
+  }
+]

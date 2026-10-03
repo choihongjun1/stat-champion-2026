@@ -2,6 +2,8 @@
 """온라인 feature 집계(#25 결측 규칙)와 #26 삭제 편향 진단 테스트 (합성 데이터)."""
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -157,10 +159,12 @@ def test_cli_runs_future_post_check_before_writing(tmp_path, monkeypatch):
     p = panel_for(["A"])
     pp, mp, qp, op = tmp_path / "panel.parquet", tmp_path / "m.parquet", tmp_path / "qa.csv", tmp_path / "o.parquet"
     p.to_parquet(pp, index=False)
+    lp = tmp_path / "lic.parquet"
+    pd.DataFrame({"store_id": ["A"], "name_raw": ["가나다라"]}).to_parquet(lp, index=False)
     pd.DataFrame([("A", "2022-01", 2)], columns=["store_id", "year_month", "mention_count"]).to_parquet(mp, index=False)
     qp.write_text("store_id,error,first_date_truncated,oldest_raw_postdate,collected_at\n"
                   "A,,False,,2026-09-23T14:39:46+00:00\n", encoding="utf-8")
-    of.main(["--panel", str(pp), "--monthly", str(mp), "--qa", str(qp), "--out", str(op)])
+    of.main(["--panel", str(pp), "--monthly", str(mp), "--qa", str(qp), "--out", str(op), "--licenses", str(lp)])
     assert op.exists()
 
     def boom(*a, **k):
@@ -169,7 +173,7 @@ def test_cli_runs_future_post_check_before_writing(tmp_path, monkeypatch):
     monkeypatch.setattr(of, "assert_no_future_posts", boom)
     op2 = tmp_path / "o2.parquet"
     with pytest.raises(ValueError):
-        of.main(["--panel", str(pp), "--monthly", str(mp), "--qa", str(qp), "--out", str(op2)])
+        of.main(["--panel", str(pp), "--monthly", str(mp), "--qa", str(qp), "--out", str(op2), "--licenses", str(lp)])
     assert not op2.exists()
 
 
@@ -217,3 +221,107 @@ def test_lower_bound_policy_keeps_partial_counts():
     assert get(t, "T", "2023Q4", "online_blog_has_ever") == 0
     with pytest.raises(ValueError):
         of.build_online_features(p, m, qa([("T", True, True, "2024-01")]), truncated_policy="x")
+
+
+# ---------------------------------------------------------------- #44 A안: 짧은 상호(정규화 ≤ 2자) 전 origin NA
+# (store_id, name_raw, 정규화 후 짧은 상호인가) — 정규화 = PR #21 collect_online_presence.normalize_name
+SHORT_CASES = [
+    ("S1", "가", True),                  # 1자
+    ("S2", "가나", True),                # 2자
+    ("S3", "  가 · 나 !! ", True),       # raw는 길지만 공백·기호 제거 후 2자
+    ("S4", "★A-b★", True),              # 영문 2자(소문자화)
+    ("S5", None, True),                  # 상호 없음 → 길이 0
+    ("L1", "가나다", False),             # 3자 → 유지
+    ("L2", "A B C", False),              # 공백 제거 후 3자
+    ("L3", "(주) 가 나", False),         # 괄호 기호만 빠지고 '주'는 남는다 → '주가나' 3자
+]
+
+
+def _short_inputs():
+    stores = [c[0] for c in SHORT_CASES]
+    p = panel_for(stores)
+    monthly = _prep(pd.DataFrame([(s, f"{y}-{m:02d}", 1 + (i % 3)) for i, s in enumerate(stores)
+                                  for y in (2020, 2021, 2022, 2023, 2024, 2025) for m in (1, 4, 7, 10)],
+                                 columns=["store_id", "year_month", "mention_count"]))
+    q = qa([(s, True, False, None) for s in stores])
+    lic = pd.DataFrame({"store_id": stores, "name_raw": [c[1] for c in SHORT_CASES]})
+    return p, monthly, q, lic
+
+
+def test_feature_list_is_the_model_online_predictor_list():
+    from src.models import features
+
+    assert of.FEATURES == list(features.ONLINE_PREDICTORS)
+
+
+def test_short_name_store_ids_use_pr21_normalization():
+    _, _, _, lic = _short_inputs()
+    assert of.short_name_store_ids(lic) == {c[0] for c in SHORT_CASES if c[2]}
+
+
+def test_short_name_policy_masks_all_predictors_in_every_origin_and_keeps_the_rest():
+    p, monthly, q, lic = _short_inputs()
+    t = of.build_online_features(p, monthly, q, "snap")
+    out, rep = of.apply_short_name_policy(t, lic, "na")
+    short = out["store_id"].isin({c[0] for c in SHORT_CASES if c[2]})
+    # 행·점포·순서 불변, 점포 삭제 없음
+    assert len(out) == len(t) and (out["store_id"].to_numpy() == t["store_id"].to_numpy()).all()
+    assert (out["origin"].to_numpy() == t["origin"].to_numpy()).all()
+    # ≤2자: 모든 origin에서 모든 온라인 predictor NA (NA율 100%)
+    assert out.loc[short, of.FEATURES].isna().all().all()
+    assert set(out.loc[short, "origin"]) == set(ORIGINS)
+    # 마스크 전에는 값이 있었다 (정책이 실제로 지운 것)
+    assert t.loc[short, of.FEATURES].notna().any().any()
+    # ≥3자: 값 그대로 (NA 위치 포함)
+    pd.testing.assert_frame_equal(out.loc[~short], t.loc[~short])
+    # 식별자·시점 메타는 전부 그대로
+    keep_cols = [c for c in t.columns if c not in of.FEATURES]
+    pd.testing.assert_frame_equal(out[keep_cols], t[keep_cols])
+    assert rep["short_name_masked_store_count"] == 5 and rep["short_name_masked_row_count"] == 5 * len(ORIGINS)
+    assert rep["unaffected_store_count"] == 3 and rep["unaffected_row_count"] == 3 * len(ORIGINS)
+    assert rep["short_name_masked_rows_by_origin"] == {o: 5 for o in ORIGINS}
+    assert rep["masked_columns"] == of.FEATURES and rep["rows"] == len(t) and rep["stores"] == 8
+
+
+def test_short_name_keep_policy_changes_nothing_and_bad_inputs_fail():
+    p, monthly, q, lic = _short_inputs()
+    t = of.build_online_features(p, monthly, q, "snap")
+    out, rep = of.apply_short_name_policy(t, lic, "keep")
+    pd.testing.assert_frame_equal(out, t)
+    assert rep["short_name_masked_row_count"] == 0 and rep["short_name_row_count"] == 5 * len(ORIGINS)
+    with pytest.raises(ValueError, match="인허가 표에 없다"):
+        of.apply_short_name_policy(t, lic.iloc[1:], "na")
+    with pytest.raises(ValueError, match="중복"):
+        of.apply_short_name_policy(t, pd.concat([lic, lic.head(1)]), "na")
+    with pytest.raises(ValueError, match="policy"):
+        of.apply_short_name_policy(t, lic, "drop")
+
+
+@pytest.mark.parametrize("kind", ["train", "score"])
+def test_cli_applies_short_name_policy_to_training_and_score_tables(tmp_path, kind):
+    """학습용(라벨 패널 전 origin)·예측용(score origin 하나) 표 모두 같은 CLI 경로로 #44가 적용되고 QA가 남는다."""
+    p, monthly, _, lic = _short_inputs()
+    if kind == "score":
+        p = p[p["origin"] == ORIGINS[-1]]
+    pp, mp, qp, lp = (tmp_path / n for n in ("panel.parquet", "m.parquet", "qa.csv", "lic.parquet"))
+    p.to_parquet(pp, index=False)
+    monthly[["store_id", "year_month", "mention_count"]].to_parquet(mp, index=False)
+    qp.write_text("store_id,error,first_date_truncated,oldest_raw_postdate\n"
+                  + "".join(f"{s},,False,\n" for s in p["store_id"].unique()), encoding="utf-8")
+    lic.to_parquet(lp, index=False)
+    out = tmp_path / f"online_{kind}.parquet"
+    of.main(["--panel", str(pp), "--monthly", str(mp), "--qa", str(qp), "--out", str(out), "--licenses", str(lp)])
+    t = pd.read_parquet(out)
+    short = t["store_id"].isin({c[0] for c in SHORT_CASES if c[2]})
+    assert len(t) == len(p) and t["store_id"].nunique() == 8
+    assert t.loc[short, of.FEATURES].isna().all().all() and t.loc[~short, "online_blog_has_ever"].notna().all()
+    assert t["online_source_snapshot"].str.endswith("#short_name=na").all()
+    rep = json.loads((tmp_path / f"online_{kind}.parquet.short_name_qa.json").read_text(encoding="utf-8"))
+    assert rep["policy"] == "na" and rep["short_name_masked_store_count"] == 5
+    assert rep["short_name_masked_row_count"] == int(short.sum()) and rep["unaffected_store_count"] == 3
+    assert rep["licenses_sha12"] and rep["panel"] == str(pp)
+    # keep은 명시할 때만 (#44 이전 표 재현용)
+    out2 = tmp_path / "keep.parquet"
+    of.main(["--panel", str(pp), "--monthly", str(mp), "--qa", str(qp), "--out", str(out2), "--licenses", str(lp),
+             "--short-name-policy", "keep"])
+    assert pd.read_parquet(out2).loc[short.to_numpy(), "online_blog_has_ever"].notna().all()

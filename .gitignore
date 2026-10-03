@@ -43,3 +43,10 @@ venv/
 # Outputs
 outputs/*
 !outputs/.gitkeep
+
+# W2-5 serving canonical DB (real store results must never be committed)
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.db

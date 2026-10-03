@@ -1,0 +1,128 @@
+{
+  "_note": "합성 샘플: 점포·상호·주소·위험도·요인 기여·정책은 모두 지어낸 값이며 실제 점포·실제 추정 결과·실제 통계가 아니다. 공개 승인 대상 데이터가 아니다.",
+  "min_cell_n_note": "동 요약은 시연용 provisional 하한 2로 만들었다 — 실제 하한값·실제 통계가 아니다",
+  "samples": [
+    {
+      "store_id": "SAMPLE-001",
+      "bundle": "bundle",
+      "name": "(샘플) 가상식당 망원점",
+      "cases": [
+        "band_low",
+        "duplicate_name",
+        "cost_unavailable"
+      ]
+    },
+    {
+      "store_id": "SAMPLE-002",
+      "bundle": "bundle",
+      "name": "(샘플) 가상식당 합정점",
+      "cases": [
+        "band_mid",
+        "duplicate_name",
+        "cost_unavailable"
+      ]
+    },
+    {
+      "store_id": "SAMPLE-003",
+      "bundle": "bundle",
+      "name": "(샘플) 가상카페",
+      "cases": [
+        "band_high",
+        "address_distinct",
+        "cost_unavailable"
+      ]
+    },
+    {
+      "store_id": "SAMPLE-004",
+      "bundle": "bundle",
+      "name": "(샘플) 가상미용실",
+      "cases": [
+        "band_low",
+        "address_distinct",
+        "online_presence_absent",
+        "cost_unavailable"
+      ]
+    },
+    {
+      "store_id": "SAMPLE-005",
+      "bundle": "bundle",
+      "name": "(샘플) 상권밖식당",
+      "cases": [
+        "band_mid",
+        "data_missing",
+        "online_presence_not_collected",
+        "cost_unavailable"
+      ]
+    },
+    {
+      "store_id": "SAMPLE-006",
+      "bundle": "bundle",
+      "name": "(샘플) 검토대기카페",
+      "cases": [
+        "band_high",
+        "review_hold",
+        "cost_unavailable"
+      ]
+    },
+    {
+      "store_id": "SAMPLE-007",
+      "bundle": "bundle",
+      "name": "(샘플) 기준일후폐업식당",
+      "cases": [
+        "band_mid",
+        "closed_after_as_of",
+        "cost_unavailable"
+      ]
+    },
+    {
+      "store_id": "SAMPLE-008",
+      "bundle": "bundle",
+      "name": "(샘플) 인허가일미상미용실",
+      "cases": [
+        "band_low",
+        "policy_check_required",
+        "cost_unavailable"
+      ]
+    },
+    {
+      "store_id": "SAMPLE-009",
+      "bundle": "bundle",
+      "name": "(샘플) 매출미공개카페",
+      "cases": [
+        "band_high",
+        "data_missing",
+        "cost_unavailable"
+      ]
+    },
+    {
+      "store_id": "SAMPLE-010",
+      "bundle": "bundle_no_policy",
+      "name": "(샘플) 정책미실행식당",
+      "cases": [
+        "band_low",
+        "policy_not_performed",
+        "cost_unavailable"
+      ]
+    }
+  ],
+  "search_checks": [
+    {
+      "kind": "name",
+      "query": "가상식당",
+      "expect": [
+        "SAMPLE-001",
+        "SAMPLE-002"
+      ]
+    },
+    {
+      "kind": "address",
+      "query": "광진구 가상로 1",
+      "expect_first": "SAMPLE-003"
+    },
+    {
+      "kind": "address",
+      "query": "광진구 가상로 12",
+      "expect_first": "SAMPLE-004"
+    }
+  ]
+}

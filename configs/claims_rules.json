@@ -1,0 +1,256 @@
+[
+  {
+    "id": "CL-01",
+    "severity": "error",
+    "patterns": [
+      "효과\\s*확인(?!\\s*되지)"
+    ],
+    "reason": "T1 \"효과 확인\" 금지",
+    "mask": false
+  },
+  {
+    "id": "CL-02",
+    "severity": "error",
+    "patterns": [
+      "인과\\s*효과"
+    ],
+    "reason": "S5",
+    "mask": false
+  },
+  {
+    "id": "CL-03",
+    "severity": "error",
+    "patterns": [
+      "폐업\\s*확률"
+    ],
+    "reason": "T3 개인 확률 금지",
+    "mask": false
+  },
+  {
+    "id": "CL-04",
+    "severity": "error",
+    "patterns": [
+      "\\d+(\\.\\d+)?\\s*%\\s*(로|으로)\\s*예측",
+      "(?<![\\d.])38\\s*%",
+      "\"probability_12m\"\\s*:\\s*-?\\d",
+      "\"risk\"\\s*:\\s*\\{[^{}]*\"(?:ci_low|ci_high)\"\\s*:\\s*-?\\d"
+    ],
+    "reason": "CLAIMS 탐지: 개인 수치 예측 금지",
+    "mask": false
+  },
+  {
+    "id": "CL-05",
+    "severity": "error",
+    "patterns": [
+      "\\d+\\s*[~∼\\-–]\\s*\\d+\\s*%"
+    ],
+    "reason": "T3 개인 구간(예: 29~47%). 문서의 기술적 범위는 allowlist로 처리",
+    "mask": false
+  },
+  {
+    "id": "CL-06",
+    "severity": "error",
+    "patterns": [
+      "폐업률\\s*2\\s*배",
+      "AI가\\s*폐업을\\s*예측"
+    ],
+    "reason": "CLAIMS 탐지",
+    "mask": false
+  },
+  {
+    "id": "CL-07",
+    "severity": "error",
+    "patterns": [
+      "대기\\s*시간"
+    ],
+    "reason": "철회된 카드",
+    "mask": false
+  },
+  {
+    "id": "CL-08",
+    "severity": "error",
+    "patterns": [
+      "본인만\\s*볼\\s*수"
+    ],
+    "reason": "A3",
+    "mask": false
+  },
+  {
+    "id": "CL-09",
+    "severity": "error",
+    "patterns": [
+      "(?<![\\d.])3\\.3\\s*%",
+      "(?<![\\d.])8\\.8(?![\\d])",
+      "(?<![\\d.])12\\.6\\s*%",
+      "오탐\\s*[-–·]?\\s*폐업\\s*상관"
+    ],
+    "reason": "S12 철회 수치",
+    "mask": false
+  },
+  {
+    "id": "CL-10",
+    "severity": "error",
+    "patterns": [
+      "LightGBM"
+    ],
+    "reason": "F10: 탐지 모형은 HGB",
+    "mask": false
+  },
+  {
+    "id": "CL-11",
+    "severity": "error",
+    "patterns": [
+      "창업기업실태조사"
+    ],
+    "reason": "MDIS 조사명 오기",
+    "mask": false
+  },
+  {
+    "id": "CL-12",
+    "severity": "warn",
+    "patterns": [
+      "신청\\s*가능"
+    ],
+    "reason": "T4 상태 불명이면 금지, 문맥 확인 필요",
+    "mask": false
+  },
+  {
+    "id": "CL-13",
+    "severity": "warn",
+    "patterns": [
+      "후기",
+      "리뷰"
+    ],
+    "reason": "CLAIMS 온라인: 블로그 언급 수로 표기",
+    "mask": false
+  },
+  {
+    "id": "CL-14",
+    "severity": "warn",
+    "patterns": [
+      "받을\\s*수\\s*있는"
+    ],
+    "reason": "CLAIMS 지원사업",
+    "mask": false
+  },
+  {
+    "id": "CL-15",
+    "severity": "warn",
+    "patterns": [
+      "원인은",
+      "때문에\\s*위험"
+    ],
+    "reason": "CLAIMS 진단: 모형 기여를 원인으로 서술 금지",
+    "mask": false
+  },
+  {
+    "id": "CL-16",
+    "severity": "warn",
+    "patterns": [
+      "문을\\s*닫는\\s*경우가\\s*더\\s*많"
+    ],
+    "reason": "집단 폐업률 비교 미수행",
+    "mask": false
+  },
+  {
+    "id": "ID-01",
+    "severity": "error",
+    "patterns": [
+      "(?i:SR_)\\d+",
+      "(?i:store_id)[\"\\x27`]*\\s*[:=]\\s*[\"\\x27`]?(?!SAMPLE-\\d+(?:[\"\\x27`\\s,}]|$)|SYN-\\d+(?:[\"\\x27`\\s,}]|$)|null\\b)[\\w-]+"
+    ],
+    "reason": "store_id 노출",
+    "mask": true
+  },
+  {
+    "id": "ID-02",
+    "severity": "error",
+    "patterns": [
+      "\\b\\d{3}-\\d{2}-\\d{5}\\b",
+      "(?:사업자\\s*(?:등록)?번호|business_number)[\"\\x27`]*\\s*[:=]\\s*[\"\\x27`]?\\d{10}(?!\\d)"
+    ],
+    "reason": "사업자번호 형식",
+    "mask": true
+  },
+  {
+    "id": "ID-03",
+    "severity": "error",
+    "patterns": [
+      "\\b0\\d{1,2}-\\d{3,4}-\\d{4}\\b",
+      "(?<!\\d)(?:010|011|016|017|018|019)\\d{7,8}(?!\\d)",
+      "(?<!\\d)(?:\\+82[ .-]?(?:10|2|[3-6]\\d)|0(?:10|2|[3-6]\\d))[ .-]\\d{3,4}[ .-]\\d{4}(?!\\d)"
+    ],
+    "reason": "전화번호 형식",
+    "mask": true
+  },
+  {
+    "id": "ID-04",
+    "severity": "warn",
+    "patterns": [
+      "\\b[0-9a-f]{32}\\b"
+    ],
+    "reason": "해시 row_key 가능성(커밋 SHA 40자와 구분). 문맥 확인",
+    "mask": true
+  },
+  {
+    "id": "CL-17",
+    "severity": "warn",
+    "patterns": [
+      "관련"
+    ],
+    "reason": "CLAIMS 추가 규칙: 정책 카드와 위험요인 연결 여부를 문맥 검수",
+    "mask": false
+  },
+  {
+    "id": "CL-18",
+    "severity": "error",
+    "patterns": [
+      "개별\\s*점포\\s*효과",
+      "위험\\s*\\d+(?:\\.\\d+)?\\s*%\\s*p?\\s*감소",
+      "이\\s*사업을\\s*받으면\\s*위험이\\s*줄"
+    ],
+    "reason": "S5/T1/T4: 개인 효과·지원사업 효과 단정 금지",
+    "mask": false
+  },
+  {
+    "id": "ID-05",
+    "severity": "error",
+    "patterns": [
+      "(?:상호(?:명)?|사업장명|store_name|business_name)[\"\\x27`]*\\s*[:=]\\s*[\"\\x27`]?(?!\\(샘플\\)|비식별 실제 사례|null\\b)[^\\s\"\\x27`,}\\n<][^\"\\x27`,}\\n<]*",
+      "\"name\"\\s*:\\s*\"(?!\\(샘플\\)|비식별 실제 사례)[^\"\\n]+\"(?=[^{}]*\"store_id\"\\s*:)",
+      "\"store_id\"\\s*:[^{}]*?\"name\"\\s*:\\s*\"(?!\\(샘플\\)|비식별 실제 사례)[^\"\\n]+\"",
+      "\"store\"\\s*:\\s*\\{[^{}]*?\"name\"\\s*:\\s*\"(?!\\(샘플\\)|비식별 실제 사례)[^\"\\n]+\""
+    ],
+    "reason": "A3: 상호 필드의 식별 가능한 값; 임의의 본문 상호는 별도 사전 검수 필요",
+    "mask": true
+  },
+  {
+    "id": "ID-06",
+    "severity": "error",
+    "patterns": [
+      "(?:[가-힣]+(?:시|도)\\s+)?[가-힣]+(?:구|군)\\s+(?:[가-힣0-9·]+(?:로|길|동|읍|면|리))\\s+\\d+(?:-\\d+)?",
+      "(?:도로명주소|지번주소|address(?:_road|_jibun)?)[\"\\x27`]*\\s*[:=]\\s*[\"\\x27`]?(?!\\(샘플\\)|비식별|null\\b)[^\\s\"\\x27`\\n,}<>][^\"\\x27`\\n,}<>]*"
+    ],
+    "reason": "A3: 상세 도로명·지번 주소 또는 주소 필드; 구 단위 지역명은 허용",
+    "mask": true
+  },
+  {
+    "id": "ID-07",
+    "severity": "error",
+    "patterns": [
+      "(?:관리번호|인허가번호|row_key|pnu|PNU)[\"\\x27`]*\\s*[:=]\\s*[\"\\x27`]?(?!null\\b)[\\w-]*\\d[\\w-]*"
+    ],
+    "reason": "A3: 관리번호·row_key·필지 식별자 값",
+    "mask": true
+  },
+  {
+    "id": "CL-19",
+    "severity": "error",
+    "patterns": [
+      "\"(?:probability_12m|ci_low|ci_high|interval_note)\"\\s*:"
+    ],
+    "reason": "T3/W3-14: public report에 개인 확률·구간 키 자체 금지 (null 포함)",
+    "mask": false,
+    "scope": "public_report"
+  }
+]

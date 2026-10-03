@@ -1,0 +1,7 @@
+# W2-5 synthetic sample bundles: manifest.json records sha256 of the exact bytes,
+# so never convert line endings (core.autocrlf would break the hashes on checkout).
+docs/samples/w2-5/** -text
+docs/samples/submission_bundle/** -text
+
+# CLI synthetic policy-review hash fixtures require exact bytes.
+tests/fixtures/demo_preflight/** -text

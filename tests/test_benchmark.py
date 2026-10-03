@@ -458,6 +458,14 @@ def test_competition_eval_end_to_end_and_checkpoint(tmp_path, panel, monkeypatch
     pd.testing.assert_frame_equal(r["summary"], r2["summary"])
 
 
+def test_serving_window_params_reference_adopted_params():
+    """S13: 벤치마크의 서빙 구간 선택값은 detect.ADOPTED_PARAMS를 참조하고 값은 이전 리터럴 (0.03, 31)과 같다."""
+    assert bm.SERVING_WINDOW_PARAMS == {k: bm.detect.ADOPTED_PARAMS[k] for k in ("learning_rate", "max_leaf_nodes")}
+    assert bm.SERVING_WINDOW_PARAMS == {"learning_rate": 0.03, "max_leaf_nodes": 31}
+    # 벤치마크의 "현 설정" 비교 기준(make_fitters 기본)은 DEFAULT_PARAMS 그대로
+    assert bm.detect.DEFAULT_PARAMS["learning_rate"] == 0.06
+
+
 def test_lift_curve_crossings_counts_each_upward_crossing():
     # p 구간별 실측률을 정해 누적 lift가 2를 넘었다가 내려가고 다시 넘게 만든다
     p = np.repeat(np.linspace(0.01, 0.99, 1000), 10)

@@ -35,7 +35,8 @@ from src.data import master_schema as ms
 MIN_EVENTS = 30
 SEED = 20260926
 BANDS = ("low", "mid", "high")
-# 업력대 — 진단(W2-3)과 같은 경계: 12·36·60·120개월 이하가 아래 구간
+# 업력대 — 진단(W2-3 `diagnose.AGE_BANDS`)·#38 문서와 같은 경계 [lo, hi): 12·36·60·120개월 **미만**이 아래 구간,
+# 정확히 12·36·60·120개월이면 다음 구간 (2026-10-01 정정 — 이전엔 (lo, hi]로 진단과 달랐다). 라벨 표기만 진단("1~3년")과 다르다.
 AGE_EDGES = [(12, "1년 미만"), (36, "1–3년"), (60, "3–5년"), (120, "5–10년"), (np.inf, "10년 이상")]
 AGE_ORDER = [name for _, name in AGE_EDGES]
 ONLINE_OBS_COL = "online_blog_cnt_12m"
@@ -46,7 +47,7 @@ def age_band(age_months: pd.Series) -> pd.Series:
     out = pd.Series(pd.NA, index=age_months.index, dtype="object")
     lo = -np.inf
     for hi, name in AGE_EDGES:
-        out[(age_months > lo) & (age_months <= hi)] = name
+        out[(age_months >= lo) & (age_months < hi)] = name
         lo = hi
     return out
 

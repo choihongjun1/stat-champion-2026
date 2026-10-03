@@ -1,0 +1,126 @@
+{
+  "_schema_version": "0.3",
+  "run_id": "28d181e6cb896d1f",
+  "score_origin": "2026Q2",
+  "as_of": "2026-06-30",
+  "export_version": "w3-14-export-0.2",
+  "data_kind": "synthetic_sample",
+  "n_stores": 9,
+  "public_contract_version": "public-static-0.1",
+  "technical_gate": {
+    "passed": true,
+    "blockers": []
+  },
+  "dong_summary_public_ready": false,
+  "dong_summary_blockers": [
+    "소표본 하한값 미확정 (min_cell_n=2, provisional)"
+  ],
+  "publication_approved": false,
+  "publication_note": "합성 샘플: 점포·상호·주소·위험도·요인 기여·정책은 모두 지어낸 값이며 실제 점포·실제 추정 결과·실제 통계가 아니다. 공개 승인 대상 데이터가 아니다.",
+  "files": [
+    {
+      "path": "dong_summary.json",
+      "sha256": "6be2bd3e3d6e689c4e94be9f6d6cde413f715ccd10fe221e3bb1d5f9f4313286",
+      "bytes": 9802,
+      "rows": 16,
+      "schema_version": "0.3",
+      "run_id": "28d181e6cb896d1f"
+    },
+    {
+      "path": "dongs.json",
+      "sha256": "3e3946c930ec4ced7cfa2e0f2686fab3bd0a2469b2d51037e1531f4b1706f2cb",
+      "bytes": 879,
+      "rows": 7,
+      "schema_version": "0.3",
+      "run_id": "28d181e6cb896d1f"
+    },
+    {
+      "path": "meta.json",
+      "sha256": "1c55cc5f6e924b569903379d0c6b78cbf08388b0ed8f0706c11f36dab93cb142",
+      "bytes": 1234,
+      "rows": 1,
+      "schema_version": "0.3",
+      "run_id": "28d181e6cb896d1f"
+    },
+    {
+      "path": "reports/SAMPLE-001.json",
+      "sha256": "27caf15884ca1789a0cc8e192eb09aac4ca57e17c9ae759e97d5503b2220b367",
+      "bytes": 8546,
+      "rows": 1,
+      "schema_version": "0.3",
+      "run_id": "28d181e6cb896d1f"
+    },
+    {
+      "path": "reports/SAMPLE-002.json",
+      "sha256": "d5031bdec7c3e1aa719c74f7fcae11bf76a23eafae3ea0cd0e37303e67fece51",
+      "bytes": 8546,
+      "rows": 1,
+      "schema_version": "0.3",
+      "run_id": "28d181e6cb896d1f"
+    },
+    {
+      "path": "reports/SAMPLE-003.json",
+      "sha256": "8242b320184cf595c39ece221a80e500da605578e1926cb57cbb20eb016ef31d",
+      "bytes": 8109,
+      "rows": 1,
+      "schema_version": "0.3",
+      "run_id": "28d181e6cb896d1f"
+    },
+    {
+      "path": "reports/SAMPLE-004.json",
+      "sha256": "7a1adea8dda56da3eca9524eafa52c8143a9167b49f2cffc8a454715a860d0bc",
+      "bytes": 8063,
+      "rows": 1,
+      "schema_version": "0.3",
+      "run_id": "28d181e6cb896d1f"
+    },
+    {
+      "path": "reports/SAMPLE-005.json",
+      "sha256": "7b1a7a4fc7524c7bad554dc244020a1d23b028c38015c70b26b20da7d590da96",
+      "bytes": 7997,
+      "rows": 1,
+      "schema_version": "0.3",
+      "run_id": "28d181e6cb896d1f"
+    },
+    {
+      "path": "reports/SAMPLE-006.json",
+      "sha256": "7dfe6c5e13fd73b6531797573f0761e62f3f5f97cbcfbee17f29cc7c486af972",
+      "bytes": 8573,
+      "rows": 1,
+      "schema_version": "0.3",
+      "run_id": "28d181e6cb896d1f"
+    },
+    {
+      "path": "reports/SAMPLE-007.json",
+      "sha256": "0274ba5f0dce2746bdd66895b9f7ea3a9eaf5355b96b72c72af39a6a2bcf8898",
+      "bytes": 8044,
+      "rows": 1,
+      "schema_version": "0.3",
+      "run_id": "28d181e6cb896d1f"
+    },
+    {
+      "path": "reports/SAMPLE-008.json",
+      "sha256": "43a9cbca39d407eb92d513ea5fa79224c1aaaaa24cd721e746d85009699aae6b",
+      "bytes": 8194,
+      "rows": 1,
+      "schema_version": "0.3",
+      "run_id": "28d181e6cb896d1f"
+    },
+    {
+      "path": "reports/SAMPLE-009.json",
+      "sha256": "540629a3cca25839e35807855cd1a581fefd34f84546984a557ff62b2bdcb5c8",
+      "bytes": 8150,
+      "rows": 1,
+      "schema_version": "0.3",
+      "run_id": "28d181e6cb896d1f"
+    },
+    {
+      "path": "search_index.json",
+      "sha256": "9c04047d5fde89bf755427be4f7520ff782c8b7c09488a14e7f8846a69f16084",
+      "bytes": 3149,
+      "rows": 9,
+      "schema_version": "0.3",
+      "run_id": "28d181e6cb896d1f"
+    }
+  ]
+}
