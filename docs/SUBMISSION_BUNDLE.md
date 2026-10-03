@@ -32,7 +32,10 @@ checked_at=2026-10-03. 원천 파일은 커밋하지 않는다. 테스트/샘플
 
 CSV 필수 header: id, apply_status, apply_end, checked_at (추가 열은 읽지 않는다).
 id는 canonical 정책 id와 1:1이어야 하며 누락·빈 id·중복·알 수 없는 id를 거부한다.
-apply_status는 open/closed/unknown, apply_end는 ISO 날짜 또는 빈 칸(출력 null), checked_at은 ISO 날짜다.
+입력 apply_status는 open/rolling/closed/unknown이며, 공개 submission에서는 rolling을 open으로 정규화한다.
+apply_end는 ISO 날짜 또는 빈 칸(출력 null), checked_at은 ISO 날짜이며 정규화로 변경하지 않는다.
+원 상태는 private join 결과의 source_apply_status에만 보존하고 공개 CASE/meta에는 추가하지 않는다.
+CSV 원본 bytes로 해시를 검증하며, 공개 provenance의 해시 prefix도 정규화 전 원본 기준이다.
 CSV 해시·확인일·날짜 유효성·전체 id 집합을 export 전에 검사한다.
 
 카드는 apply_status/apply_end/checked_at을 그대로 제공하며 **모든 linked_factor_ids=[]**로 강제한다.

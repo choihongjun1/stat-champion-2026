@@ -10,6 +10,8 @@ from pathlib import Path
 FINAL_POLICY_SHA256 = "0cfb716fbe9272efc816d34d2213354d3ed6cdccbc9851080eee7f40c3eefc2a"
 FINAL_APPLY_SHA256 = "90a2b2134f54d4860481c8f84944ee615177250373abf9cd4bc119590eef5be3"
 FINAL_CHECKED_AT = "2026-10-03"
+# Source acceptance is broader than the public submission status contract.
+PUBLIC_APPLY_STATUS = {"open": "open", "rolling": "open", "closed": "closed", "unknown": "unknown"}
 
 
 def load_policy_apply(path, policy_ids, *, expected_sha256=None, checked_at=None):
@@ -29,7 +31,7 @@ def load_policy_apply(path, policy_ids, *, expected_sha256=None, checked_at=None
         if not pid or pid in rows or pid not in policy_ids:
             raise ValueError("missing, duplicate or unknown policy apply id")
         status, end, checked = row.get("apply_status"), row.get("apply_end") or None, row.get("checked_at")
-        if status not in {"open", "closed", "unknown"}:
+        if status not in PUBLIC_APPLY_STATUS:
             raise ValueError("invalid policy apply status")
         try:
             date.fromisoformat(checked)
@@ -39,7 +41,9 @@ def load_policy_apply(path, policy_ids, *, expected_sha256=None, checked_at=None
             raise ValueError("invalid policy apply date") from None
         if checked_at is not None and checked != checked_at:
             raise ValueError("policy apply confirmation date mismatch")
-        rows[pid] = dict(apply_status=status, apply_end=end, checked_at=checked)
+        # Raw status stays in the private join result; project_policy only copies public fields.
+        rows[pid] = dict(apply_status=PUBLIC_APPLY_STATUS[status], apply_end=end, checked_at=checked,
+                         source_apply_status=status)
     if set(rows) != set(policy_ids):
         raise ValueError("incomplete policy apply ids")
     dates = {r["checked_at"] for r in rows.values()}

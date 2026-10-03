@@ -98,12 +98,13 @@ def test_checked_in_synthetic_sample():
         assert 'SAMPLE-' not in file.read_text(encoding='utf-8')
 
 
-@pytest.mark.parametrize('status',['open','closed','unknown'])
+@pytest.mark.parametrize('status',['open','rolling','closed','unknown'])
 def test_application_status_is_data_not_ui_policy(tmp_path,status):
     db,_=_build(tmp_path); path,ids=application_fixture(tmp_path,db)
     path.write_text(path.read_text().replace(',open,',f',{status},'),encoding='utf-8')
     rows,_,_=pa.load_policy_apply(path,set(ids))
-    assert all(r['apply_status']==status for r in rows.values())
+    assert all(r['apply_status']==('open' if status=='rolling' else status) for r in rows.values())
+    assert all(r['source_apply_status']==status and r['checked_at']=='2026-10-03' for r in rows.values())
 
 
 def test_csv_mismatch_preserves_existing_bundle(tmp_path):
@@ -114,3 +115,55 @@ def test_csv_mismatch_preserves_existing_bundle(tmp_path):
     with pytest.raises(es.SubmissionError,match='hash mismatch'):
         es.export(db,out,cases_path=cases,policies_apply_path=path,policies_apply_sha256='0'*64)
     assert before=={p.relative_to(out):p.read_bytes() for p in out.rglob('*') if p.is_file()}
+
+
+def test_pinned_equivalent_28_row_source_status_distribution(tmp_path):
+    ids = {f'synthetic_policy_{i:02}' for i in range(28)}
+    path = tmp_path / 'synthetic_28_apply.csv'
+    path.write_text('id,apply_status,apply_end,checked_at\n' + ''.join(
+        f'{pid},{"open" if i < 13 else "rolling"},,2026-10-03\n'
+        for i, pid in enumerate(sorted(ids))), encoding='utf-8')
+    before = path.read_bytes()
+    digest = hashlib.sha256(before).hexdigest()
+    rows, actual, checked = pa.load_policy_apply(path, ids, expected_sha256=digest,
+                                               checked_at='2026-10-03')
+    assert len(rows) == 28 and actual == digest and checked == '2026-10-03'
+    assert sum(r['source_apply_status'] == 'open' for r in rows.values()) == 13
+    assert sum(r['source_apply_status'] == 'rolling' for r in rows.values()) == 15
+    assert all(r['apply_status'] == 'open' and r['apply_end'] is None
+               and r['checked_at'] == checked for r in rows.values())
+    assert path.read_bytes() == before
+    with pytest.raises(ValueError, match='hash mismatch'):
+        pa.load_policy_apply(path, ids, expected_sha256='0' * 64, checked_at=checked)
+    path.write_bytes(before.replace(b',rolling,', b',open,', 1))
+    with pytest.raises(ValueError, match='hash mismatch'):
+        pa.load_policy_apply(path, ids, expected_sha256=digest, checked_at=checked)
+
+
+def test_rolling_source_export_preserves_privacy_claims_and_source_hash(tmp_path):
+    db, _ = _build(tmp_path)
+    path, ids = application_fixture(tmp_path, db)
+    path.write_text(path.read_text().replace(',open,', ',rolling,').replace('2026-10-16', ''),
+                    encoding='utf-8')
+    source = path.read_bytes()
+    db_before = db.read_bytes()
+    cases = _cases(tmp_path, db)  # synthetic adapter only; no actual selection is read or run
+    adapter_before = cases.read_bytes()
+    digest = hashlib.sha256(source).hexdigest()
+    out = tmp_path / 'bundle'
+    result = es.export(db, out, cases_path=cases, policies_apply_path=path,
+                       policies_apply_sha256=digest, policy_checked_at='2026-10-03')
+    assert result['claims_findings'] == 0 and es.verify_bundle(out) == []
+    assert es.claims_findings(out)['findings'] == []
+    meta = json.loads((out / 'meta.json').read_text(encoding='utf-8'))
+    assert meta['provenance']['policies_apply_sha256_12'] == digest[:12]
+    assert meta['provenance']['policy_checked_at'] == '2026-10-03'
+    for file in (out / 'cases').glob('*.json'):
+        case = json.loads(file.read_text(encoding='utf-8'))
+        assert sr.validate_case(case) == []
+        for policy in case['policies']:
+            assert policy['apply_status'] == 'open' and policy['apply_end'] is None
+            assert policy['checked_at'] == '2026-10-03' and policy['linked_factor_ids'] == []
+            assert not {'source_apply_status', 'unverifiable_conditions', 'check_note'} & policy.keys()
+    assert path.read_bytes() == source and db.read_bytes() == db_before
+    assert cases.read_bytes() == adapter_before
