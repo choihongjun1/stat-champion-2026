@@ -59,5 +59,5 @@ manifest.json은 모두 submission-static-0.1, data_kind=synthetic이다. 실제
 항상 실행: #64 producer에서 생성한 합성 adapter fixture를 load_cases에 직접 입력.
 교차 PR 전체 연결: `DEMO_SELECTOR_PATH`를 #64 scripts/select_demo_stores.py로 지정하고
 `python -m pytest tests/test_demo_submission_integration.py -q`.
-기본 로컬 경로는 형제 demo15 checkout이다. 상대 PR이 없는 단독 CI에서는 live 교차 테스트만 skip한다.
+#64 병합 후 기본 경로는 이 저장소의 scripts/select_demo_stores.py다(`DEMO_SELECTOR_PATH`로 바꿀 수 있다).
 교차 테스트는 selector가 파일을 쓰고 load_cases/export가 변환 없이 읽어 claims/identifier 0을 확인한다.

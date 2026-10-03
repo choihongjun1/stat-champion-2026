@@ -77,7 +77,7 @@ def test_public_schema_rejects_internal_prose_or_invalid_count(field, value):
 
 def test_runtime_review_helper_uses_submission_projection(tmp_path):
     helper = Path(os.environ.get("DEMO_REVIEW_HELPER_PATH",
-        config.REPO_ROOT.parent / "demo15/scripts/demo_review_gate.py"))
+        config.REPO_ROOT / "scripts/demo_review_gate.py"))
     if not helper.is_file():
         pytest.skip("Set DEMO_REVIEW_HELPER_PATH to the #64 runtime helper")
     spec = importlib.util.spec_from_file_location("demo_review_submission_regression", helper)
