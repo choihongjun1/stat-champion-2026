@@ -1,96 +1,83 @@
-# W3-15 시연 사례 선택 (H2/H3)
+# W3-15 시연 사례 선택 — T5 rule 0.3
 
-Issue #49의 기존 T5(5945674299), 보완 제안(5949343653), 손유성 수정 제안(5955352405) 및 사용자 요청을 코드에 고정했다.
-규칙 버전은 T5-H2-2026-10-03-0.2이다. 팀 확인/게시 전 준비용이며 결과를 보고 규칙을 바꾸지 않는다.
-H2 게시 초안은 [T5_SUPPLEMENT_COMMENT.md](drafts/T5_SUPPLEMENT_COMMENT.md)에 있고 실제 게시하지 않았다.
+2026-10-03 최신 #49/#64 검토 의견과 사용자 요청을 반영한다. 실제 A/B/C 선택은 아직 실행하지 않았다.
+Claude가 H1 final run DB에 최종 28건을 `build_db --policies`로 결합하고 matching QA를 끝낸 뒤 실행한다.
+production 모델, train/diagnose/serve/background는 다시 실행하지 않는다.
 
-## 정책 경로와 현재 blocker
+## 동결 정책과 실행 게이트
 
-main의 build_db는 --policies로 명시한 JSON 배열 또는 policies 배열 래퍼를 읽는다.
-기본값은 None이며 정책 입력이 없으면 policy_matching=not_performed이다.
-모델 serve는 이 원천을 읽지 않는다. 매칭은 build_db, 정적 export는 SQLite에 저장된 매칭 결과를 읽는다.
-현재 main/로컬 checkout에는 실제 정책 원천이나 그 파일의 고정 경로가 없다.
-따라서 실제 경로·현재 건수·해시·확인일은 미검증이다. 16건은 #49/#54 기록상 잠정값이다.
-최종 정책 파일·모집 상태 파일·해시·확인일은 #49 수정 제안상 10/4 오후 제공 예정이다.
-파일 수신 후 경로·sha256·checked_at·실제 건수와 B 최소 맞춤 정책 수를 확인해야 H2를 최종 확정할 수 있다.
-파일 수신 전 실제 해시를 계산하거나 실제 사례를 선택하지 않으며 B의 실제 최소값도 미확정이다.
-collected_at은 원천의 수집일이고 serving as_of는 점포 기준 분기 말일이다.
-현행 policy_source에는 apply_status/checked_at이 없어 수집일만으로 모집 상태 재확인을 대신할 수 없다.
+최종 원천 파일은 저장소 밖에 둔다. 팀 Drive 원천을 커밋하지 않는다.
 
-#60 브랜치와 regen_w3.json은 수정하지 않았다. #60에 최종 정책 경로, 전체 sha256, 확인일 및 A/B/C 보완 확정 기록을
-반영해야 한다. 사용자 확인/손유성 확인, 실제 정책 파일, finalized SQLite 및 공개 검수 증거가 실제 실행 전 조건이다.
-현재 외부 노트북의 작업트리/실데이터에는 접근하거나 변경하지 않았다.
+| 입력 | sha256 |
+|---|---|
+| policies.json | 0cfb716fbe9272efc816d34d2213354d3ed6cdccbc9851080eee7f40c3eefc2a |
+| policies_apply.csv (#65) | 90a2b2134f54d4860481c8f84944ee615177250373abf9cd4bc119590eef5be3 |
+| demo_review_policies_20261003.json | 75d05611f9dc16ea267a5a251303a4d0dd6733f4022aea81aec0565d27529ac6 |
 
-## 입력 계약
+확인일은 2026-10-03, 정책 수는 28이다. CLI는 위 policy/review 해시와 확인일을 검사하고,
+DB의 정책 해시·건수·원천 conditions·매칭 증거를 대조한다. 이전 27건을 허용하지 않는다.
+해시 검사는 DB 접근 전에 한다. SQLite는 finalized read-only snapshot이어야 한다.
+`read_frozen_inputs` 함수는 합성 테스트용으로 다른 digest도 받지만 실제 CLI는 최종 freeze만 받는다.
+정책 조건 계약은 기존 report 0.3을 그대로 사용한다.
 
-scripts/select_demo_stores.py는 release-ready SQLite 정본을 읽기 전용으로 연다.
-모델·diagnose·serve를 import하거나 실행하지 않고 위험도·등급·매칭을 재계산하지 않는다.
-DB 파일 해시와 run의 policies_sha256/n_policies, 저장된 정책 conditions 및 원천의 조건을 대조한다.
-WAL/journal이 남아 있는 DB는 확정 snapshot으로 보지 않고 중단한다.
+## 전체 후보 모집단과 검수
 
-별도 비공개 검수 JSON(--review)의 계약은 다음과 같다. 실제 ID/해시는 공개하거나 커밋하지 않는다.
+모집단은 **2026Q2 canonical serving 전체 대상 − 공개 부적합 점포**다.
+`set(review.stores) == set(canonical stores)`를 강제한다. 부분 입력·추가 점포·중복·필수 flag 누락을 거부한다.
+canonical record 수와 run.n_stores도 같아야 한다. 목록 일부만 넣어 후보를 축소할 수 없다.
 
-- contract_version: demo-review-0.1
-- score_origin: 2026Q2, as_of: 2026-06-30
-- db_sha256, policies_sha256: 전체 64자리 (로컬 파일)
-- policy_checked_at: 고정한 공식 공고 확인일
-- stores: 점포 참조와 publication_guard_passed/claims_passed boolean. 둘 다 true인 점포만 허용.
-  누락 점포는 허용하지 않는다. blanket publication_approved=false를 개인 검수 결과로 추측하지 않는다.
-- policies: 원천 전체 정책 참조와 public_eligible boolean, apply_status(open/closed/unknown), checked_at.
-  open이며 public_eligible=true인 카드만 표시/개수 판정에 사용한다. 마감·상태 불명은 제외한다.
+현재 `demo-review-0.1`의 전 점포 `publication_guard_passed`/`claims_passed` 계약을 유지한다.
+이 목록은 위험 등급으로 사람이 골라 채우는 목록이 아니며, 전 점포에 같은 submission projection,
+식별 누수 0, claims 0 규칙을 적용한 검수 증거로 준비해야 한다. 선택된 A/B/C 3건의 수작업 확인은 사후 확인이다.
+실제 공개 적합성 최종 검사는 #65 submission projection의 바이트 검사와 check_claims에서 수행한다.
+최종 review 파일이 정책 검수만 포함하거나 stores가 일부뿐이면 실행은 중단된다. 고정 파일을 몰래 보완하지 않는다.
 
-이 파일은 실제 공개/문구 검수를 완료한 사람이 준비하는 증거다. 스크립트가 원문 모집 상태나 실명 비식별을 자동 승인하지 않는다.
-생성 시점 DB와 정책 해시에 묶고, 정책 확인일을 CLI/config와 대조한다. 원천에 신규 purpose/apply_* 필드가 생겨
-현행 스키마에 맞지 않으면 추측해 무시하지 않고 중단한다. H5/#54 계약 조율 후 별도 수정이 필요하다.
+## 선택 규칙
 
-## 고정 규칙과 helper 정의
+- tailored: 공개 가능·open으로 검수된 표시 정책 중 gu 또는 biz_type 조건으로 표시된 정책 수.
+  matched와 check_required 모두 포함하며 common은 제외한다. 조건 둘이 있어도 1건이다.
+- A: high + tailored >=2. 없으면 high + >=1(alt1), 다음 mid + >=2(alt2), 다음 none.
+  tailored 내림차순 → 민감 false → 표시 요인 수 내림차순.
+- B: A를 제외한 high의 **실제 최소 tailored count**. 기대 최소값 1을 하드코딩하지 않는다.
+  민감 false → 표시 요인 수 내림차순. 실제 최소값은 요약 B 행의 tailored_policy_count_min에 기록한다.
+- C: A/B와 다른 low. 가능하면 A와 같은 업종, 없으면 업종 무관(alt1). 민감 false 우선.
+- 마지막 동률 키는 `sha256(f"{seed}:{store_id}")`. 전체 후보에 적용한 다음 상위 10개를 자른다.
+  그 안에서 기존 독립 Random(seed).choice를 유지한다. A=20261004, B=20261005, C=20261006.
+  store_id lexical 정렬은 사용하지 않는다. 입력 순서가 달라도 결과가 같다.
+- 개인 확률·CI·contribution 크기를 선택 키에 쓰지 않으며 결과를 보고 기준을 바꾸지 않는다.
 
-- 맞춤 정책 수(tailored_policy_count): 공개 가능·모집 중으로 검수된 표시 정책 중 원천 conditions.gu 또는
-  conditions.biz_type이 점포와 맞고 매칭 결과 matched_by의 gu/biz_type 증거와 일치하는 정책 수.
-  두 조건이 모두 있는 정책도 1건으로 센다. matched와 check_required 모두 포함한다.
-  matched는 데이터로 확인 가능한 자격 조건까지 모두 확인됨을 뜻한다.
-  check_required는 업종·지역 조건이 맞는 사업이지만 나머지 조건은 공고에서 확인 필요함을 뜻한다.
-  화면에는 “조건 확인 필요”로 설명한다. matched 수로 동률을 가리지 않고 이 상태만으로 점포를 제외하지 않는다.
-  위험요인 linked_factor_ids로 맞춤을 판정하거나 정책을 인과적으로 연결하지 않는다.
-- 공통: 위 두 조건이 모두 null인 사업. 업력 조건은 별개이며 맞춤 사업 수에 넣지 않는다.
-  B에 “공통만 표시” 또는 특정 맞춤 정책 수 조건을 추가하지 않는다.
-- 표시 가능 진단 요인 수: factors에서 display=true인 수. 기존 스키마의 display⇔hold_reason=null 계약을 사용한다.
-- interpretation_sensitive: 모든 factors 중 하나라도 true이면 점포를 true로 판정한다.
-  설명 안정성 우선이며 위험도 우열은 아니다.
-- A: high+맞춤≥2 → high+≥1 → mid+≥2 → 없음.
-  맞춤 수 내림차순, 민감 false, 표시 요인 수 내림차순.
-- B: A 제외 후 공개 가능한 high 후보의 tailored_policy_count 최소값을 계산하고 그 최소값 후보만 사용.
-  0건이 존재하면 0건만 사용하고, 아니면 1·2건 등 실제 최소값을 사용한다. 1건을 하드코딩하지 않는다.
-  민감 false, 표시 요인 수 내림차순. high 후보가 없으면 없음.
-  실제 적용된 최소값은 B 행의 tailored_policy_count_min에 기록하고 후보가 없으면 null이다.
-  최종 정책 파일 수신 전 실제 최소값과 B 최종 확인은 미확정이다.
-- C: A/B 제외, low 중 A와 같은 업종 우선. 없으면 업종 무관(대안1), 없으면 없음.
-  민감 false만 우선한다. C에 요인 수 우선순위를 추가하지 않는다.
-- 마지막 동률은 비공개 점포 참조의 문자열 오름차순으로 정렬하고 상위 min(10,후보 수) 중 독립 Random(seed).choice로 1곳.
-  seed는 A=20261004, B=20261005, C=20261006. 입력 순서/set/dict 순서에 의존하지 않는다.
-  A 변경이 난수 상태를 통해 B/C에 영향을 주지 않는다. A의 업종이 바뀌어 C 후보풀이 달라지는 것은 같은 업종 규칙의 의도다.
-  개인 확률·구간과 contribution 크기는 정렬/선택에 사용하지 않는다.
+## 실행과 #65 연결
 
-## 실행과 출력
+최종 QA 이후 저장소 루트에서 다음 입력을 제공한다. 실제 입력 경로는 비공개다.
 
-저장소 루트에서 --db와 --review를 지정한다. 정책 freeze는 CLI의 --policy-file, --policy-sha256, --policy-checked-at로
-모두 지정하거나 regen_w3.json의 demo.policy.path/sha256/checked_at을 읽게 한다.
-상대 설정 경로는 checkout 루트 기준이다. main의 TBD demo.rule 문자열을 자동 해석하지 않는다.
-전체 해시는 비공개 config로 전달하고 로그/명령 캡처에 공유하지 않는다.
-#60에는 demo.policy의 이 세 필드를 넣는 계약을 제안하며 이 PR에서 설정을 미리 확정하지 않는다.
+```text
+python scripts/select_demo_stores.py --db <final-db> --review <frozen-review> \
+  --policy-file <policies.json> --policy-sha256 <위의 최종 정책 해시> --policy-checked-at 2026-10-03
+```
 
-- outputs/demo/demo_selection_private.json: 선택 사례, 비공개 점포 참조, 전체 입력 해시·정책 파일 경로. git 무시 경로만 허용.
-- outputs/demo/demo_selection_public.json: 사례 라벨/구/업종/band/단계/후보 수/top 수/seed, 기준 분기·일,
-  입력 해시 앞 16자, 정책 확인일/수집일·건수, 규칙 버전, 생성 commit. 점포 참조·상호·상세주소·확률/구간은 포함하지 않는다.
-  이 요약은 public report 자체가 아니므로 별도 demo-selection-public-0.1 allowlist validator를 적용한다.
-  #59 공개 report 원칙과 #56 claims 검사 취지를 보존하며 공개 report로 위장하지 않는다.
-  B 행에만 tailored_policy_count_min(0 이상 정수 또는 후보 없음의 null)을 허용한다.
-  private 행에도 같은 최소값을 기록한다. 변경된 선택 의미는 rule_version 0.2로 구분한다.
-- 공개 요약의 hash prefix는 로컬 private provenance의 전체값 앞 16자와 일치한다. commit은 공개 코드의 Git revision이다.
-- policy hash mismatch는 DB 열기/선택/출력 전에 종료 코드 2. DB 정책 hash 또는 검수 hash/확인일 불일치도 중단.
-- 같은 증거의 반복 실행은 같은 결과. 기존 출력과 다른 증거/결과를 자동 덮어쓰지 않는다.
-  리허설/최종 등 다른 snapshot은 별도 비공개 출력 경로에 기록하고 서로 대체하지 않는다.
-- stdout은 선택 건수만, 오류는 고정 분류만 출력한다. 실제 경로/점포 값/전체 해시는 출력하지 않는다.
+CLI 정책 옵션을 생략하면 기존 `regen_w3.json`의 demo.policy.path/sha256/checked_at을 읽는다.
+이 PR은 #60 설정이나 정책 원천을 수정하지 않는다.
 
-실제 정책 파일과 검수 증거가 없어 이번 작업에서 실데이터 추출은 실행하지 않았다.
-합성 데이터로만 테스트하고 전체 pytest를 실행한다. 장시간 재생성에는 영향을 주지 않는다.
+- outputs/demo/demo_selection_private.json: 전체 provenance, 선택 메타. 점포와 case 매핑을 포함하지 않는다.
+- outputs/demo/demo_selection_public.json: 구·업종·band·단계·후보 수·top 수·seed·rule_version=0.3,
+  정책 확인일/건수, 해시 앞 16자. 식별정보·개인 확률·CI 없음.
+- **outputs/demo/demo_cases_for_export.json**: 점포와 case 매핑이 들어가는 유일한 비공개 출력.
+  `--export-out`으로 변경 가능하며 기본은 private-out과 같은 폴더. git 무시/저장소 밖 경로만 허용.
+
+```json
+{"cases": [{"case_label": "A", "store_id": "<private-reference>", "rule_stage": "base", "n_candidates": 12, "seed": 20261004}]}
+```
+
+실제 파일은 A/B/C 세 행이다. 기본→base, 대안1→alt1, 대안2→alt2, 없음→none.
+none이면 store_id=null, n_candidates=0. #65 `load_cases`/`--cases`에 파일을 그대로 전달한다.
+기존과 다른 증거/결과를 덮어쓰지 않는다. 세 출력 경로의 충돌과 입력 덮어쓰기를 거부한다.
+stdout은 건수만, 오류는 고정 분류만 출력한다.
+
+## 합성 검증
+
+partial review 거부, canonical completeness, seeded hash-before-top10, lexical 편향 제거,
+rule 0.3, B 실제 최소값, matched/check_required, common 제외, A/B/C distinct를 검증한다.
+`tests/test_select_demo_stores.py` 연결 테스트는 #65 checkout을 `SUBMISSION_CHECKOUT`으로 지정한다
+(로컬 기본: 형제 submission65). #65의 integration test에 실제 selector 출력 파일을 그대로 넣어
+load_cases와 전체 submission export/claims/identifier 게이트를 실행한다. CI 단독 checkout에는 상대 PR이 없어
+이 교차 테스트만 skip할 수 있으며 별도의 합성 adapter 계약 검증은 항상 실행한다.

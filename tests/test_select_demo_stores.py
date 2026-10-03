@@ -85,7 +85,8 @@ def test_stable_top10_reproducibility_and_case_rng_independence():
     low=[c(i,band='low',tailored=0) for i in range(41,61)]
     result=sel.choose_cases(a+b+low)
     assert result==sel.choose_cases(list(reversed(a+b+low)))
-    assert result['A']['candidate']==random.Random(sel.SEEDS['A']).choice(a[:10])
+    assert result['A']['candidate']==random.Random(sel.SEEDS['A']).choice(sorted(a, key=lambda c: hashlib.sha256(
+        f"{sel.SEEDS['A']}:{c.store_id}".encode()).hexdigest())[:10])
     changed=sel.choose_cases([c(70)]+b+low)
     assert result['B']==changed['B'] and result['C']==changed['C']
     assert len({r['candidate'].store_id for r in result.values()})==3
@@ -219,7 +220,8 @@ def test_readonly_sqlite_and_public_private_contract(frozen,tmp_path):
     pool,provenance=execute(frozen)
     assert db.read_bytes()==before
     private,public=sel.output_documents(sel.choose_cases(pool),provenance,'a'*40)
-    assert len({r['store_id'] for r in private['cases']})==3
+    assert all('store_id' not in r for r in private['cases'])
+    assert len({r['store_id'] for r in sel.export_cases_document(sel.choose_cases(pool))['cases']})==3
     sel.validate_public_output(public)
     assert not pr.private_key_paths(public)
     encoded=json.dumps(public,ensure_ascii=False)
@@ -280,13 +282,23 @@ def test_review_provenance_and_publication_evidence(frozen,change):
             assert result['A']['candidate'].tailored_policy_count==2
 
 
-def test_cli_uses_future_regen_freeze_and_safe_errors(frozen,tmp_path,capsys):
+def test_cli_uses_future_regen_freeze_and_safe_errors(frozen,tmp_path,capsys,monkeypatch):
     db,policy,review,_=frozen
     config=tmp_path/'regen.json'
     config.write_text(json.dumps({'demo':{'policy':{'path':str(policy),'sha256':sel.sha256_file(policy),'checked_at':'2026-10-01'}}}),encoding='utf-8')
     args=['--db',str(db),'--review',str(review),'--config',str(config),
           '--private-out',str(tmp_path/'private.json'),'--public-out',str(tmp_path/'public.json')]
+    monkeypatch.setattr(sel, 'FINAL_POLICY_SHA256', sel.sha256_file(policy))
+    monkeypatch.setattr(sel, 'FINAL_REVIEW_SHA256', sel.sha256_file(review))
+    monkeypatch.setattr(sel, 'FINAL_CHECKED_AT', '2026-10-01')
+    original=sel.read_frozen_inputs
+    def synthetic_read(*args):
+        pool, provenance=original(*args)
+        provenance['policy_count']=28
+        return pool, provenance
+    monkeypatch.setattr(sel, 'read_frozen_inputs', synthetic_read)
     assert sel.main(args)==0
+    assert (tmp_path/'demo_cases_for_export.json').is_file()
     assert 'store_id' not in capsys.readouterr().out
     policy.write_bytes(policy.read_bytes()+b' ')
     assert sel.main(args)==2
@@ -319,3 +331,78 @@ def test_incomplete_review_fails_closed(frozen,kind):
     else: review=[]
     path.write_text(json.dumps(review),encoding='utf-8')
     with pytest.raises(sel.SelectionError): execute(frozen)
+
+
+@pytest.mark.parametrize('partial',[True,False])
+def test_canonical_population_completeness(frozen,partial):
+    db,policy,path,review=frozen
+    pool,_=execute(frozen)
+    assert len(pool)==3
+    if partial:
+        review['stores']=review['stores'][:1]
+    else:
+        review['stores'].append(dict(store_id='SYN-UNKNOWN',publication_guard_passed=True,claims_passed=True))
+    path.write_text(json.dumps(review),encoding='utf-8')
+    with pytest.raises(sel.SelectionError,match='canonical population'):
+        execute(frozen)
+
+
+def test_random_hash_precedes_top10_and_is_not_lexical():
+    pool=[c(i) for i in range(1,101)]
+    result=chosen(pool)
+    ordered=sorted(pool,key=lambda c:hashlib.sha256(f"{sel.SEEDS['A']}:{c.store_id}".encode()).hexdigest())
+    assert result['candidate']==random.Random(sel.SEEDS['A']).choice(ordered[:10])
+    assert set(ordered[:10]) != set(pool[:10])
+    assert any(c not in pool[:10] for c in ordered[:10])
+    assert sel.RULE_VERSION=='0.3'
+
+
+def test_adapter_mapping_and_private_path_guard(tmp_path):
+    selection=sel.choose_cases([c(1,band='mid'),c(2,band='low')])
+    adapter=sel.export_cases_document(selection)
+    assert [r['rule_stage'] for r in adapter['cases']]==['alt2','none','base']
+    assert all(set(r)=={'case_label','store_id','rule_stage','n_candidates','seed'} for r in adapter['cases'])
+    provenance=dict(rule_version=sel.RULE_VERSION,db_sha256='a'*64,policies_sha256='b'*64,review_sha256='c'*64,
+                    policy_checked_at='2026-10-03',policy_count=28,policy_collected_at=['2026-10-03'],policy_path='private')
+    private,public=sel.output_documents(selection,provenance,'d'*40)
+    with pytest.raises(sel.paths.UnsafeOutputPath):
+        sel.write_outputs(private,public,tmp_path/'private.json',tmp_path/'public.json',
+                          export_cases=adapter,export_path=sel.ROOT/'docs/demo_cases_for_export.json')
+
+
+def test_cli_rejects_nonfinal_policy_freeze_before_db(frozen,tmp_path,monkeypatch):
+    db,policy,review,_=frozen
+    cfg=tmp_path/'config.json'; cfg.write_text('{}')
+    monkeypatch.setattr(sel.sqlite3,'connect',lambda *a,**k:pytest.fail('DB opened'))
+    assert sel.main(['--db',str(db),'--review',str(review),'--config',str(cfg),
+                     '--policy-file',str(policy),'--policy-sha256',sel.sha256_file(policy),
+                     '--policy-checked-at','2026-10-03'])==2
+
+
+def test_direct_submission_consumer_integration(tmp_path):
+    import os
+    import subprocess
+    import sys
+    root=Path(os.environ.get('SUBMISSION_CHECKOUT',sel.ROOT.parent/'submission65'))
+    if not (root/'tests/test_demo_submission_integration.py').is_file():
+        pytest.skip('Set SUBMISSION_CHECKOUT to the #65 checkout for cross-PR integration')
+    env=dict(os.environ,DEMO_SELECTOR_PATH=str(sel.ROOT/'scripts/select_demo_stores.py'),PYTHONUTF8='1')
+    result=subprocess.run([sys.executable,'-m','pytest','tests/test_demo_submission_integration.py','-q'],
+                          cwd=root,env=env,capture_output=True,encoding='utf-8')
+    assert result.returncode==0,result.stdout+result.stderr
+
+
+@pytest.mark.parametrize('gate',['count','review'])
+def test_cli_final_count_and_review_gate(frozen,tmp_path,monkeypatch,gate):
+    db,policy,review,_=frozen
+    cfg=tmp_path/'config.json'; cfg.write_text('{}')
+    monkeypatch.setattr(sel,'FINAL_POLICY_SHA256',sel.sha256_file(policy))
+    monkeypatch.setattr(sel,'FINAL_CHECKED_AT','2026-10-01')
+    if gate=='count':
+        monkeypatch.setattr(sel,'FINAL_REVIEW_SHA256',sel.sha256_file(review))
+    else:
+        monkeypatch.setattr(sel.sqlite3,'connect',lambda *a,**k:pytest.fail('DB opened'))
+    assert sel.main(['--db',str(db),'--review',str(review),'--config',str(cfg),
+                     '--policy-file',str(policy),'--policy-sha256',sel.sha256_file(policy),
+                     '--policy-checked-at','2026-10-01'])==2
+    assert not (tmp_path/'demo_cases_for_export.json').exists()

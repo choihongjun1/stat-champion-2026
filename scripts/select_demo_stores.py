@@ -20,7 +20,10 @@ if str(ROOT) not in sys.path:
 from src.serving import build_db as bd
 from src.serving import paths, report_validation as rv
 
-RULE_VERSION = 'T5-H2-2026-10-03-0.2'
+RULE_VERSION = '0.3'
+FINAL_POLICY_SHA256 = '0cfb716fbe9272efc816d34d2213354d3ed6cdccbc9851080eee7f40c3eefc2a'
+FINAL_REVIEW_SHA256 = '75d05611f9dc16ea267a5a251303a4d0dd6733f4022aea81aec0565d27529ac6'
+FINAL_CHECKED_AT = '2026-10-03'
 SEEDS = {'A': 20261004, 'B': 20261005, 'C': 20261006}
 NO_CASE = '적합한 비식별 실제 사례 없음'
 GU = {'광진구', '마포구', '영등포구'}
@@ -105,12 +108,13 @@ def candidates_from_reports(reports, approved_store_ids, approved_policy_ids, po
 
 
 def choose_cases(candidates):
-    """Stable private-ID final tie break, priority top ten, independent per-case RNGs."""
+    """Seeded hash across the entire pool before top ten, independent per-case RNGs."""
     require(len({c.store_id for c in candidates}) == len(candidates), 'duplicate candidate')
     selected, used = {}, set()
 
     def pick(label, pool, key, stage):
-        ordered = sorted(pool, key=key)
+        ordered = sorted(pool, key=lambda c: (*key(c), hashlib.sha256(
+            f'{SEEDS[label]}:{c.store_id}'.encode('utf-8')).hexdigest()))
         top = ordered[:10]
         chosen = random.Random(SEEDS[label]).choice(top) if top else None
         selected[label] = dict(candidate=chosen, rule_stage=stage if top else '없음',
@@ -124,16 +128,16 @@ def choose_cases(candidates):
         if pool:
             stage = name
             break
-    pick('A', pool, lambda c: (-c.tailored_policy_count, c.sensitive, -c.displayed_factors, c.store_id), stage)
+    pick('A', pool, lambda c: (-c.tailored_policy_count, c.sensitive, -c.displayed_factors), stage)
     high = [c for c in candidates if c.store_id not in used and c.band == 'high']
     minimum = min((c.tailored_policy_count for c in high), default=None)
     pool = [c for c in high if c.tailored_policy_count == minimum]
-    pick('B', pool, lambda c: (c.sensitive, -c.displayed_factors, c.store_id), '기본')
+    pick('B', pool, lambda c: (c.sensitive, -c.displayed_factors), '기본')
     selected['B']['tailored_policy_count_min'] = minimum
     pool = [c for c in candidates if c.store_id not in used and c.band == 'low']
     a = selected['A']['candidate']
     same = [c for c in pool if a and c.biz_type == a.biz_type]
-    pick('C', same or pool, lambda c: (c.sensitive, c.store_id), '기본' if same else '대안1')
+    pick('C', same or pool, lambda c: (c.sensitive,), '기본' if same else '대안1')
     return selected
 
 
@@ -188,6 +192,8 @@ def read_frozen_inputs(db, policy_file, review_file, expected_sha256, checked_at
     finally:
         conn.close()
     require(len(reports) == run['n_stores'], 'canonical record count mismatch')
+    require({s['store_id'] for s in stores} == {r['store_id'] for r in reports},
+            'incomplete canonical population review')
     require(sha256_file(db) == db_hash, 'SQLite changed while reading')
     provenance = dict(rule_version=RULE_VERSION, db_sha256=db_hash, policies_sha256=expected_sha256,
                       review_sha256=hashlib.sha256(review_bytes).hexdigest(), policy_checked_at=checked_at,
@@ -212,7 +218,7 @@ def output_documents(selection, provenance, commit):
         if label == 'B':
             row['tailored_policy_count_min'] = item['tailored_policy_count_min']
         public['cases'].append(row)
-        private['cases'].append({**row,'store_id':c.store_id if c else None})
+        private['cases'].append(dict(row))
     return private, public
 
 
@@ -252,19 +258,34 @@ def validate_public_output(public):
                 and c['top_count'] == min(c['candidate_count'],10), 'invalid public candidate count')
 
 
-def write_outputs(private, public, private_path, public_path):
+def export_cases_document(selection):
+    """The only private case-to-store mapping; directly consumed by #65 load_cases."""
+    stages = {'기본': 'base', '대안1': 'alt1', '대안2': 'alt2', '없음': 'none'}
+    return {'cases': [dict(case_label=label,
+                          store_id=item['candidate'].store_id if item['candidate'] else None,
+                          rule_stage=stages[item['rule_stage']],
+                          n_candidates=item['candidate_count'], seed=item['seed'])
+                      for label, item in selection.items()]}
+
+
+def write_outputs(private, public, private_path, public_path, *, export_cases=None, export_path=None):
     validate_public_output(public)
     targets = [Path(private_path).resolve(), Path(public_path).resolve()]
-    require(targets[0] != targets[1], 'private and public destinations must differ')
+    documents = [private, public]
+    if export_cases is not None:
+        require(export_path is not None, 'export destination required')
+        targets.append(Path(export_path).resolve())
+        documents.append(export_cases)
+    require(len(set(targets)) == len(targets), 'private and public destinations must differ')
     for target in targets:
         paths.check_private_output(target)  # public summary also defaults to ignored local outputs
     # Do not reselect over earlier evidence from a different policy/input snapshot.
-    for target, doc in zip(targets, [private, public]):
+    for target, doc in zip(targets, documents):
         if target.exists():
             require(load_json(target) == doc, 'existing selection differs; do not automatically reselect')
     temporary = []
     try:
-        for target, doc in zip(targets, [private, public]):
+        for target, doc in zip(targets, documents):
             target.parent.mkdir(parents=True, exist_ok=True)
             temp = target.with_name(f'.{target.name}.tmp-{os.getpid()}')
             temp.write_text(json.dumps(doc,ensure_ascii=False,indent=2)+'\n',encoding='utf-8',newline='\n')
@@ -285,6 +306,7 @@ def main(argv=None):
     parser.add_argument('--policy-sha256')
     parser.add_argument('--policy-checked-at')
     parser.add_argument('--private-out',type=Path,default=ROOT/'outputs/demo/demo_selection_private.json')
+    parser.add_argument('--export-out',type=Path)
     parser.add_argument('--public-out',type=Path,default=ROOT/'outputs/demo/demo_selection_public.json')
     args=parser.parse_args(argv)
     try:
@@ -296,12 +318,18 @@ def main(argv=None):
         digest=args.policy_sha256 or frozen.get('sha256')
         checked=args.policy_checked_at or frozen.get('checked_at')
         require(policy_file is not None and digest is not None and checked is not None, 'policy freeze is incomplete')
+        require(digest == FINAL_POLICY_SHA256 and checked == FINAL_CHECKED_AT, 'final 28-policy freeze required')
+        require(sha256_file(args.review) == FINAL_REVIEW_SHA256, 'final review hash mismatch')
         candidates, provenance=read_frozen_inputs(args.db,policy_file,args.review,digest,checked)
         commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,encoding='utf-8').strip()
-        private,public=output_documents(choose_cases(candidates),provenance,commit)
+        require(provenance['policy_count'] == 28, 'final policy count must be 28')
+        selection=choose_cases(candidates)
+        private,public=output_documents(selection,provenance,commit)
+        export_path=args.export_out or args.private_out.with_name('demo_cases_for_export.json')
         require(not ({args.db.resolve(),Path(policy_file).resolve(),args.review.resolve(),args.config.resolve()}
-                     & {args.private_out.resolve(),args.public_out.resolve()}), 'output must not replace input')
-        write_outputs(private,public,args.private_out,args.public_out)
+                     & {args.private_out.resolve(),args.public_out.resolve(),export_path.resolve()}), 'output must not replace input')
+        write_outputs(private,public,args.private_out,args.public_out,
+                      export_cases=export_cases_document(selection),export_path=export_path)
     except SelectionError as exc:
         print('selection error: '+str(exc),file=sys.stderr)
         return 2
