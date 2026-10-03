@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "export:submission": "node scripts/export-submission.mjs",
     "start": "next start",
     "lint": "next lint"
   },

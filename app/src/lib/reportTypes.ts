@@ -157,3 +157,78 @@ export type DongSummaryRow = {
   top_risk_biz_types: string[] | null;
   note: string;
 };
+
+// ---- 제출용 비식별 사례 번들 submission-static-0.1 (PR #65, REPORT_SCHEMA §15) ----
+// 식별자는 CASE-A/B/C뿐. 상호·주소·법정동·store_id·인허가일·영업 상태·개인 확률·구간·요인 기여값은 계약에 없다.
+
+export type CaseLabel = "A" | "B" | "C";
+
+export type SubmissionFactor = {
+  factor_id: FactorId;
+  name: string;
+  category: Factor["category"];
+  actionability: Factor["actionability"];
+  direction: Factor["direction"] | null; // 표시 보류 요인은 방향도 없다
+  level_text: string | null;
+  summary_text: string | null; // 표시 금지 — level_text + direction으로 화면 문구를 만든다 (SUBMISSION_BUNDLE.md)
+  display: boolean;
+  data_missing: boolean;
+  missing_reason: MissingReason | null;
+  hold_reason: Factor["hold_reason"];
+  driver_code: Factor["driver_code"];
+  interpretation_sensitive: boolean;
+  sensitivity_label: string;
+};
+
+export type SubmissionPolicy = {
+  id: string;
+  name: string;
+  operator: string;
+  link: string | null;
+  eligibility_text: string;
+  announce_year: number | null;
+  collected_at: string;
+  match_status: "matched" | "check_required";
+  matched_by: ("gu" | "biz_type" | "tenure")[];
+  unverified_condition_count: number; // check_required면 1 이상
+  linked_factor_ids: []; // 항상 빈 배열 (T4) — 표시 금지
+  apply_status: "open" | "closed" | "unknown";
+  apply_end: string | null;
+  checked_at: string | null;
+};
+
+export type SubmissionCase = {
+  _submission_contract_version: string; // "submission-static-0.1"
+  public_id: string; // CASE-A
+  case_label: CaseLabel;
+  case_title: string; // "비식별 실제 사례 A"
+  data_kind: string; // "real" | "synthetic"
+  score_origin: string;
+  as_of: string;
+  store: { gu: string; biz_type: Report["store"]["biz_type"] };
+  risk: { band: "low" | "mid" | "high"; percentile: number | null; peer_group: string };
+  factors: SubmissionFactor[];
+  unavailable_categories: string[];
+  policy_matching: "performed" | "not_performed";
+  policies: SubmissionPolicy[];
+  selection: { rule_stage: string; n_candidates: number; seed: number }; // 표시 안 함
+  disclaimer: string;
+};
+
+export type SubmissionCaseSlot = {
+  case_label: CaseLabel;
+  public_id: string;
+  selection_status: "selected" | "no_suitable_case" | "pending_selection";
+  path?: string;
+};
+
+export type SubmissionMeta = {
+  _submission_contract_version: string;
+  run_id: string;
+  score_origin: string;
+  as_of: string;
+  data_kind: string;
+  cases: SubmissionCaseSlot[];
+  policy_matching: "performed" | "not_performed";
+  publication_approved: boolean; // 화면은 읽지도 바꾸지도 않는다
+};

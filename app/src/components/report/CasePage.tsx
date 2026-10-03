@@ -1,32 +1,34 @@
 "use client";
 
+// 제출용 비식별 사례(submission-static-0.1) 화면. 리포트와 같은 ReportView를 쓴다.
+
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { fromReport, type ScreenModel } from "@/lib/screenModel";
-import { loadMeta, loadReport } from "@/lib/bundle";
+import type { CaseLabel } from "@/lib/reportTypes";
+import { loadCase } from "@/lib/bundle";
+import { fromCase, type ScreenModel } from "@/lib/screenModel";
 import ReportView from "@/components/report/ReportView";
 import LoadingScreen from "@/components/LoadingScreen";
 
-// 파일은 금방 읽히지만 '진단 중' 화면이 깜빡이지 않게 최소 1.2초 보여준다
 const MIN_LOADING_MS = 1200;
 
-export default function ReportPage() {
-  const { storeId } = useParams<{ storeId: string }>();
-  const id = decodeURIComponent(storeId);
+export default function CasePage() {
+  const { caseId } = useParams<{ caseId: string }>();
+  const label = decodeURIComponent(caseId).replace(/^CASE-/, "") as CaseLabel;
   const [state, setState] = useState<{ kind: "loading" } | { kind: "ok"; m: ScreenModel } | { kind: "missing" } | { kind: "error" }>({ kind: "loading" });
   const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     setState({ kind: "loading" });
     const started = Date.now();
-    Promise.all([loadReport(id), loadMeta()])
-      .then(async ([r, meta]) => {
-        await new Promise((res) => setTimeout(res, Math.max(0, MIN_LOADING_MS - (Date.now() - started))));
-        setState(r ? { kind: "ok", m: fromReport(r, meta.data_kind === "synthetic_sample") } : { kind: "missing" });
+    loadCase(label)
+      .then(async (res) => {
+        await new Promise((r) => setTimeout(r, Math.max(0, MIN_LOADING_MS - (Date.now() - started))));
+        setState(res ? { kind: "ok", m: fromCase(res.c) } : { kind: "missing" });
       })
       .catch(() => setState({ kind: "error" }));
-  }, [id, retry]);
+  }, [label, retry]);
 
   if (state.kind === "loading") return <LoadingScreen />;
   if (state.kind === "ok") return <ReportView m={state.m} />;
@@ -34,7 +36,7 @@ export default function ReportPage() {
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-screen flex-col items-center justify-center px-[30px] text-center">
       <p className="text-[20px] font-medium leading-[30px] tracking-[-0.4px] text-white">
-        {state.kind === "missing" ? "이 가게의 리포트를 찾지 못했어요" : "리포트를 불러오지 못했어요"}
+        {state.kind === "missing" ? "적합한 비식별 실제 사례가 없어요" : "사례를 불러오지 못했어요"}
       </p>
       {state.kind === "error" && (
         <button onClick={() => setRetry((n) => n + 1)} className="mt-6 rounded-[10px] bg-[#373e58] px-6 py-3 text-[15px] font-semibold text-white">
@@ -42,7 +44,7 @@ export default function ReportPage() {
         </button>
       )}
       <Link href="/" className="mt-6 text-[16px] font-semibold text-muted underline underline-offset-2">
-        다시 검색할래요
+        사례 목록으로
       </Link>
     </main>
   );

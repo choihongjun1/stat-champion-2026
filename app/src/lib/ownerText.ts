@@ -6,7 +6,7 @@
 //  - 온라인 지표는 "블로그 언급"이다 (글 내용을 분석하지 않았다).
 // 화면 분기는 코드 필드(display·hold_reason·missing_reason·unavailable_categories)로만 한다 (REPORT_SCHEMA §4).
 
-import type { Factor, FactorId, MissingReason, Report } from "./reportTypes";
+import type { Factor, FactorId, MissingReason, Report, SubmissionCase } from "./reportTypes";
 
 export type Level = "strong" | "some" | "slight" | "none";
 
@@ -188,19 +188,50 @@ export function toOwnerFactors(r: Report): OwnerFactorView {
     .sort((a, b) => a.contribution - b.contribution) // 많이 낮춘 순
     .map((f) => toOwner(f, r));
 
-  const reasons = [...new Set(missing.map((f) => f.missing_reason ?? "unknown"))] as MissingReason[];
-  // 상권 밖이면 상권 요인 문장 하나로 충분하다
-  const trdarWhole = reasons.includes("out_of_trdar") || reasons.includes("trdar_unknown");
-  const missingNotes = reasons
-    .filter((c) => !(trdarWhole && ["trdar_quarter_unavailable", "industry_unpublished", "sales_unpublished"].includes(c)))
-    .map((c) => MISSING_TEXT[c]);
-
   const maxUp = Math.max(0, ...shown.map((f) => f.contribution));
   return {
     up,
     down,
-    missingNotes,
-    unavailableNote: r.unavailable_categories.includes("비용") ? "임대료 같은 비용 부담은 자료가 부족해 판단하지 않았어요." : null,
+    missingNotes: missingNotesOf(missing),
+    unavailableNote: unavailableNoteOf(r.unavailable_categories),
     noStandout: Math.round(maxUp * 1000) / 1000 < 0.01, // 높이는 요인이 모두 '약간' 이하
+  };
+}
+
+function missingNotesOf(missing: { missing_reason: MissingReason | null }[]): string[] {
+  const reasons = [...new Set(missing.map((f) => f.missing_reason ?? "unknown"))] as MissingReason[];
+  // 상권 밖이면 상권 요인 문장 하나로 충분하다
+  const trdarWhole = reasons.includes("out_of_trdar") || reasons.includes("trdar_unknown");
+  return reasons
+    .filter((c) => !(trdarWhole && ["trdar_quarter_unavailable", "industry_unpublished", "sales_unpublished"].includes(c)))
+    .map((c) => MISSING_TEXT[c]);
+}
+
+const unavailableNoteOf = (cats: string[]) => (cats.includes("비용") ? "임대료 같은 비용 부담은 자료가 부족해 판단하지 않았어요." : null);
+
+/**
+ * 제출용 비식별 사례(submission-static-0.1)의 위험요인. 계약에 기여값·원 feature 값·driver 문구가 없으므로
+ * 크기 단계(크게·조금·약간)·사실 문장·동종 비교 문장 없이 방향(direction)만 쓴다. 순서는 번들 순서를 그대로 쓴다.
+ * summary_text는 표시하지 않는다 (SUBMISSION_BUNDLE.md: level_text + direction으로 화면 문구를 만든다).
+ */
+export function toOwnerFactorsFromCase(c: SubmissionCase): OwnerFactorView {
+  const shown = c.factors.filter((f) => f.display && f.hold_reason === null);
+  const missing = c.factors.filter((f) => f.hold_reason === "data_missing");
+  const toOwner = (f: SubmissionCase["factors"][number], up: boolean): OwnerFactor => ({
+    factorId: f.factor_id,
+    label: LABEL[f.factor_id],
+    direction: up ? "up" : "down",
+    level: "some",
+    levelText: `위험을 ${up ? "높이는" : "낮추는"} 쪽이에요`,
+    sentence: `모형은 이 요소를 위험을 ${up ? "높이는" : "낮추는"} 신호로 봤어요.`,
+    peerText: null,
+    sensitive: f.interpretation_sensitive === true,
+  });
+  return {
+    up: shown.filter((f) => f.direction === "위험 증가").map((f) => toOwner(f, true)),
+    down: shown.filter((f) => f.direction === "위험 감소").map((f) => toOwner(f, false)),
+    missingNotes: missingNotesOf(missing),
+    unavailableNote: unavailableNoteOf(c.unavailable_categories),
+    noStandout: false, // 기여값이 없어 '두드러진 신호 없음'은 판단하지 않는다
   };
 }

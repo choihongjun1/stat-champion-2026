@@ -1,14 +1,15 @@
 "use client";
 
-// 피그마 '리포트'(146:6440)를 공개 리포트 계약(public-static-0.1)으로 구현.
+// 피그마 '리포트'(146:6440)를 공개 리포트 계약(public-static-0.1)·제출용 사례 계약(submission-static-0.1)으로 구현.
 // 레이아웃·색·카드 모양은 피그마 그대로, 문구와 숫자 자리만 #48 검토 의견(M1~M7)·Issue #49 결정대로 바꿨다.
-// 표시 금지 필드: factors[].explanation, policies[].linked_factor_ids, online_presence, risk.model, risk.calibrated
+// 화면은 ScreenModel(lib/screenModel.ts)만 읽는다. 표시 금지 필드(factors[].explanation·summary_text,
+// policies[].linked_factor_ids, online_presence, risk.model, risk.calibrated)는 모델에 들어오지 않는다.
 
 import Link from "next/link";
 import { useState } from "react";
-import type { Policy, Report } from "@/lib/reportTypes";
-import { ageText, monthsBetween, toOwnerFactors, SENSITIVE_NOTE, type OwnerFactor } from "@/lib/ownerText";
-import { buildResponses, type ResponseItem } from "@/lib/actions";
+import { SENSITIVE_NOTE, type OwnerFactor } from "@/lib/ownerText";
+import type { ResponseItem } from "@/lib/actions";
+import type { PolicyCardData, ScreenModel } from "@/lib/screenModel";
 import { LogoSmall } from "../Logo";
 
 const BANDS = [
@@ -17,33 +18,28 @@ const BANDS = [
   { k: "high", label: "높음" },
 ] as const;
 
-const ymLabel = (d: string) => {
-  const [y, m] = d.split("-");
-  return `${y}년 ${Number(m)}월`;
-};
 const ymdLabel = (d: string) => {
   const [y, m, day] = d.split("-");
   return `${y}년 ${Number(m)}월 ${Number(day)}일`;
+};
+const mdLongLabel = (d: string) => {
+  const [, m, day] = d.split("-");
+  return `${Number(m)}월 ${Number(day)}일`;
 };
 const mdLabel = (d: string) => {
   const [, m, day] = d.split("-");
   return `${Number(m)}/${Number(day)}`;
 };
 
-export default function ReportView({ r, synthetic }: { r: Report; synthetic: boolean }) {
-  const view = toOwnerFactors(r);
-  const responses = buildResponses(r);
+export default function ReportView({ m }: { m: ScreenModel }) {
+  const view = m.factors;
+  const responses = m.responses;
   const [showAll, setShowAll] = useState(false);
 
-  const months = monthsBetween(r.store.license_date, r.as_of);
   const top = view.up.slice(0, 3);
   const rest = [...view.up.slice(3), ...view.down];
-  const bandLabel = BANDS.find((b) => b.k === r.risk.band)?.label ?? "-";
-
-  // 시연(비식별) 번들은 위치를 구까지만 보여준다 (T5·R2)
-  const location = synthetic
-    ? r.store.address_road ?? r.store.address_jibun ?? `서울특별시 ${r.store.gu}`
-    : `서울특별시 ${r.store.gu}`;
+  const bandLabel = BANDS.find((b) => b.k === m.risk.band)?.label ?? "-";
+  const checkedDates = [...new Set(m.policies.map((p) => p.checkedAt).filter((d): d is string => !!d))].sort();
 
   return (
     <main className="mx-auto w-full max-w-screen pb-[calc(48px+env(safe-area-inset-bottom))] pt-[env(safe-area-inset-top)] text-white">
@@ -55,22 +51,18 @@ export default function ReportView({ r, synthetic }: { r: Report; synthetic: boo
       </header>
 
       <p className="mx-[29px] mt-1 rounded-[10px] border border-dashed border-[#555a6e] px-4 py-2 text-[12px] leading-[18px] text-[#a9adbd]">
-        {synthetic ? "화면 확인용 합성 예시예요." : "시연용 비식별 실제 사례예요. 가게 이름과 주소는 표시하지 않아요."}
+        {m.banner}
       </p>
 
       {/* 가게 정보 카드 (146:6452) */}
       <section className="px-[29px] pt-[14px]">
         <div className="rounded-[10px] bg-[#3a3a3a] pb-[18px] pl-[27px] pr-5 pt-[19px]">
-          <h1 className="text-[20px] font-semibold leading-[25px] tracking-[-0.4px]">{r.store.name ?? `${r.store.gu} ${r.store.biz_type}`}</h1>
-          {r.store.status.current !== "open" && (
-            <p className="mt-2 text-[13px] leading-[18px] text-[#f0b4b4]">
-              {r.store.status.current === "closed" ? `${ymLabel(r.as_of)} 기준일 이후 폐업 신고가 확인된 가게예요.` : "현재 영업 상태를 확인할 수 없어요."}
-            </p>
-          )}
+          <h1 className="text-[20px] font-semibold leading-[25px] tracking-[-0.4px]">{m.title}</h1>
+          {m.statusNote && <p className="mt-2 text-[13px] leading-[18px] text-[#f0b4b4]">{m.statusNote}</p>}
           <dl className="mt-[17px] flex flex-col gap-[6px] text-[15px] leading-5">
-            <Row k="위치" v={location} />
-            {months !== null && <Row k="업력" v={`${ymLabel(r.as_of)} 기준 ${ageText(months)}`} />}
-            <Row k="업종" v={r.store.biz_type} />
+            {m.rows.map((row) => (
+              <Row key={row.k} k={row.k} v={row.v} />
+            ))}
           </dl>
         </div>
       </section>
@@ -86,23 +78,23 @@ export default function ReportView({ r, synthetic }: { r: Report; synthetic: boo
           {BANDS.map((b, i) => (
             <div
               key={b.k}
-              className={`${i < 2 ? "border-r border-[#2a2a2a]" : ""} ${b.k === r.risk.band ? "rounded-[10px]" : ""}`}
-              style={b.k === r.risk.band ? { backgroundImage: "linear-gradient(245deg, #F0F3FB 1%, #9AAEF4 100%)" } : undefined}
+              className={`${i < 2 ? "border-r border-[#2a2a2a]" : ""} ${b.k === m.risk.band ? "rounded-[10px]" : ""}`}
+              style={b.k === m.risk.band ? { backgroundImage: "linear-gradient(245deg, #F0F3FB 1%, #9AAEF4 100%)" } : undefined}
             />
           ))}
         </div>
         <div className="mt-[6px] grid grid-cols-3 text-center text-[14px] font-semibold leading-6 tracking-[-0.28px] text-[#b4b4b4]" aria-hidden>
           {BANDS.map((b) => (
-            <span key={b.k} className={b.k === r.risk.band ? "text-white" : ""}>
+            <span key={b.k} className={b.k === m.risk.band ? "text-white" : ""}>
               {b.label}
             </span>
           ))}
         </div>
 
         <ul className="mt-[20px] flex list-disc flex-col gap-2 pl-6 text-[16px] leading-6 tracking-[-0.32px]">
-          {r.risk.percentile !== null && (
+          {m.risk.percentile !== null && (
             <li>
-              같은 {r.risk.peer_group} 가게 중 위험 상위 <b className="font-semibold">{Math.max(1, 100 - r.risk.percentile)}%</b>예요.
+              같은 {m.risk.peer_group} 가게 중 위험 상위 <b className="font-semibold">{Math.max(1, 100 - m.risk.percentile)}%</b>예요.
             </li>
           )}
           <li className="text-[14px] leading-[22px] text-[#b4b4b4]">위험 수준은 모형이 비슷한 가게들과 비교한 상대적인 위치예요. 실제 폐업률이 아니에요.</li>
@@ -149,7 +141,7 @@ export default function ReportView({ r, synthetic }: { r: Report; synthetic: boo
             )}
           </ul>
         )}
-        <p className="mt-5 text-[12px] leading-[18px] text-[#9b9b9b]">{r.disclaimer}</p>
+        <p className="mt-5 text-[12px] leading-[18px] text-[#9b9b9b]">{m.disclaimer}</p>
       </section>
 
       {/* 대응 방향 (146:6471, 185:684~686) — 번호·세로선·알약 배지 틀만 재사용 (M5) */}
@@ -164,22 +156,26 @@ export default function ReportView({ r, synthetic }: { r: Report; synthetic: boo
 
       <div className="mt-14 h-3 bg-[#232323]" />
 
-      {/* 지원사업 (146:6477, 185:642·643) — 위험요인과 연결하지 않는다 (M6, T4) */}
+      {/* 지원사업 (146:6477, 185:642·643) — 위험요인과 연결하지 않는다 (M6, T4).
+          check_required는 '자격 조건이 맞는'으로 부르지 않고 카드마다 확인 못 한 조건 수를 밝힌다 (#54, DECISIONS_W3 8-4) */}
       <section className="pt-14">
         <h2 className="px-[30px] text-[22px] font-medium leading-[30px] tracking-[-0.44px]">
-          자격 조건이 맞는
+          가게 업종·지역으로
           <br />
-          지원사업이에요
+          찾은 지원사업이에요
         </h2>
-        {r.policy_matching === "not_performed" ? (
+        {m.policyMatching === "not_performed" ? (
           <p className="mt-[26px] px-[30px] text-[14px] leading-5 text-[#9b9b9b]">지원사업 정보를 준비하고 있어요.</p>
-        ) : r.policies.length === 0 ? (
+        ) : m.policies.length === 0 ? (
           <p className="mt-[26px] px-[30px] text-[14px] leading-5 text-[#9b9b9b]">지금 가게 조건으로 찾은 지원사업은 없어요.</p>
         ) : (
           <>
-            <p className="mt-3 px-[30px] text-[14px] leading-5 text-[#9b9b9b]">신청 전 공식 공고를 꼭 확인하세요.</p>
+            <p className="mt-3 px-[30px] text-[14px] leading-5 text-[#9b9b9b]">
+              위험요인과는 따로, 업종·지역·공고 자격 기준으로만 찾았어요. 신청 전에 공고를 꼭 확인해 주세요
+              {checkedDates.length > 0 ? ` (${checkedDates.map(mdLongLabel).join(", ")} 확인)` : ""}.
+            </p>
             <div className="no-scrollbar mt-[20px] flex snap-x gap-[5px] overflow-x-auto px-[30px]">
-              {orderPolicies(r.policies).map((p) => (
+              {orderPolicies(m.policies).map((p) => (
                 <PolicyCard key={p.id} p={p} />
               ))}
             </div>
@@ -190,11 +186,11 @@ export default function ReportView({ r, synthetic }: { r: Report; synthetic: boo
       {/* 하단 (146:6481) — M7 */}
       <footer className="px-[33px] pt-[45px] text-[14px] font-semibold leading-5 text-muted">
         <p>
-          {ymdLabel(r.as_of)} 기준이에요. 인허가 정보·주변 상권 통계·블로그 언급 수 같은 공개 데이터로 만든 상대 위험 수준이에요. 가게 자체의 매출·비용 자료는
+          {ymdLabel(m.asOf)} 기준이에요. 인허가 정보·주변 상권 통계·블로그 언급 수 같은 공개 데이터로 만든 상대 위험 수준이에요. 가게 자체의 매출·비용 자료는
           쓰지 않았어요. 위험요인은 모형의 신호이며 원인이 아니에요.
         </p>
-        <Link href="/" className="mt-6 inline-block underline underline-offset-2">
-          다른 가게 검색하기
+        <Link href={m.backLink.href} className="mt-6 inline-block underline underline-offset-2">
+          {m.backLink.label}
         </Link>
       </footer>
     </main>
@@ -202,8 +198,8 @@ export default function ReportView({ r, synthetic }: { r: Report; synthetic: boo
 }
 
 /** '사업 정리·재기' 성격의 사업은 등급과 관계없이 항상 맨 끝 (#54 묶음 필드가 확정되면 purpose로 교체) */
-function orderPolicies(ps: Policy[]): Policy[] {
-  const isExit = (p: Policy) => /재기|폐업|정리/.test(`${p.purpose ?? ""} ${p.name}`);
+function orderPolicies(ps: PolicyCardData[]): PolicyCardData[] {
+  const isExit = (p: PolicyCardData) => /재기|폐업|정리/.test(`${p.purpose ?? ""} ${p.name}`);
   return [...ps.filter((p) => !isExit(p)), ...ps.filter(isExit)];
 }
 
@@ -240,8 +236,15 @@ function FactorCard({ f }: { f: OwnerFactor }) {
   );
 }
 
-function PolicyCard({ p }: { p: Policy }) {
-  const nCheck = p.unverifiable_conditions.length;
+const APPLY_STATUS_TEXT = { open: "접수 중", closed: "접수 마감", unknown: "접수 상태 확인 필요" } as const;
+
+function PolicyCard({ p }: { p: PolicyCardData }) {
+  const meta = [
+    p.operator,
+    p.applyStatus ? APPLY_STATUS_TEXT[p.applyStatus] : null,
+    p.applyStatus !== "closed" && p.applyEnd ? `마감 ${mdLabel(p.applyEnd)}` : null,
+    p.checkedAt ? `확인일 ${mdLabel(p.checkedAt)}` : null,
+  ].filter(Boolean);
   return (
     <article className="flex min-h-[187px] w-[169px] shrink-0 snap-start flex-col justify-between gap-[22px] rounded-[10px] bg-[#f0f3fb] p-5">
       <div className="flex flex-col gap-[6px]">
@@ -249,12 +252,13 @@ function PolicyCard({ p }: { p: Policy }) {
           {p.operator.replace(/^\(예시\)\s*/, "").slice(0, 1)}
         </span>
         <p className="text-[16px] font-semibold leading-5 text-black">{p.name}</p>
-        <p className="text-[12px] font-medium leading-4 text-[#55596b]">
-          {p.operator} · 확인일 {mdLabel(p.collected_at)}
-          {p.apply_end ? ` · 마감 ${mdLabel(p.apply_end)}` : ""}
-        </p>
-        {p.match_status === "check_required" && nCheck > 0 && (
-          <p className="text-[12px] font-semibold leading-4 text-[#a83333]">조건 {nCheck}개는 공고에서 확인</p>
+        <p className="text-[12px] font-medium leading-4 text-[#55596b]">{meta.join(" · ")}</p>
+        {p.matchStatus === "check_required" ? (
+          <p className="text-[12px] font-semibold leading-4 text-[#a83333]">
+            {p.uncheckedCount > 0 ? `조건 ${p.uncheckedCount}개는` : "일부 조건은"} 저희가 알 수 없어요. 공고에서 한 번 확인해 주세요.
+          </p>
+        ) : (
+          <p className="text-[12px] font-semibold leading-4 text-[#2f7a4f]">사장님 가게 정보로 보면 신청 조건에 맞아요.</p>
         )}
       </div>
       {p.link ? (
