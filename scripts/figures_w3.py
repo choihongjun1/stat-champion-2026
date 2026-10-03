@@ -160,6 +160,9 @@ def f2(args, ax):
             ax.plot([x-.08, x+.08], [lo, lo], color="black")
             ax.plot([x-.08, x+.08], [hi, hi], color="black")
     ax.axhline(base, color="black", ls="--", label="전체 평균 " + rounded(base))
+    # 주석(약 2배) 공간: 막대·CI 상단 최댓값의 1.2배까지 항상 같은 규칙으로 확보한다(그림 간 일관성).
+    top = max(rates + [base] + ([hi for _, hi in ci] if ci is not None else []))
+    ax.set_ylim(0, top * 1.2)
     paths = [args.band_profile, args.run_meta]
     gate_allowed = False
     if args.s10_gate and args.s10_gate.is_file():

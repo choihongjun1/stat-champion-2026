@@ -172,3 +172,25 @@ def test_missing_font_returns_three(tmp_path, monkeypatch):
 def test_rounding():
     assert app.rounded(.1235) == "0.124"
     assert app.rounded(-.1235) == "-0.124"
+
+
+def test_f2_reserves_headroom_for_annotation(tmp_path):
+    import types
+    import matplotlib.pyplot as plt
+    path, meta, gate = [tmp_path / name for name in ("bands.csv", "run_meta.json", "gate.json")]
+    pd.DataFrame({"band": ["low", "mid", "high"], "n": [20, 10, 10], "obs_rate": [.04, .08, .2],
+                  "lo": [.02, .06, .15], "hi": [.07, .1, .25]}).to_csv(path, index=False)
+    meta.write_text("{}", encoding="utf-8")
+    gate.write_text(json.dumps({"decision": "allowed", "input_sha256": hashlib.sha256(meta.read_bytes()).hexdigest()}), encoding="utf-8")
+    args = types.SimpleNamespace(band_profile=path, run_meta=meta, s10_gate=gate, band_ci_low_col="lo", band_ci_high_col="hi")
+    fig, ax = plt.subplots(figsize=(9, 5))
+    try:
+        values, _ = app.f2(args, ax)
+        fig.canvas.draw()
+        assert values["s10_allowed"] is True
+        assert ax.get_ylim()[1] >= .25 * 1.15
+        note = next(t for t in ax.texts if t.get_text() == "약 2배")
+        box, axes_box = note.get_window_extent(), ax.get_window_extent()
+        assert axes_box.y0 <= box.y0 and box.y1 <= axes_box.y1
+    finally:
+        plt.close(fig)
