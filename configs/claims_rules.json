@@ -252,5 +252,23 @@
     "reason": "T3/W3-14: public report에 개인 확률·구간 키 자체 금지 (null 포함)",
     "mask": false,
     "scope": "public_report"
+  },
+  {
+    "id": "CL-20",
+    "severity": "error",
+    "patterns": [
+      "웹\\s*배포\\s*완료"
+    ],
+    "reason": "A2·R5: 웹 배포 완료 표현 금지",
+    "mask": false
+  },
+  {
+    "id": "CL-21",
+    "severity": "warn",
+    "patterns": [
+      "독립\\s*검증(?!\\s*구간)"
+    ],
+    "reason": "S7: 서울 부분집합을 독립 검증이라 부르지 않음(S10 '독립 검증 구간'은 제외)",
+    "mask": false
   }
 ]
