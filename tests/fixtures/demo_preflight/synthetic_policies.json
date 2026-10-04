@@ -1,0 +1,486 @@
+[
+  {
+    "id": "synthetic_policy_00",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": [
+        "일반음식점",
+        "휴게음식점",
+        "미용업"
+      ],
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_01",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": [
+        "일반음식점",
+        "휴게음식점",
+        "미용업"
+      ],
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_02",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_03",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_04",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_05",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_06",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_07",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_08",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_09",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_10",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_11",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_12",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_13",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_14",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_15",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_16",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_17",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_18",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_19",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_20",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_21",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_22",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_23",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_24",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_25",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_26",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  },
+  {
+    "id": "synthetic_policy_27",
+    "name": "(예시) 합성 지원",
+    "operator": "(예시) 합성 기관",
+    "link": "https://example.org/synthetic",
+    "announce_year": 2026,
+    "collected_at": "2026-10-03",
+    "eligibility_text": "합성 자격",
+    "conditions": {
+      "gu": null,
+      "biz_type": null,
+      "tenure_months_min": null,
+      "tenure_months_max": null
+    },
+    "unverifiable_conditions": [],
+    "related_factor_ids": []
+  }
+]

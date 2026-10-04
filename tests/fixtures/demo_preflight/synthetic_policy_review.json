@@ -1,0 +1,179 @@
+{
+  "contract_version": "demo-review-0.1",
+  "db_sha256": null,
+  "stores": [],
+  "policies_sha256": "5771d809df5f139370f201a7c543829931a43ebc40511e7f72303031ca5b916b",
+  "policy_checked_at": "2026-10-03",
+  "score_origin": "2026Q2",
+  "as_of": "2026-06-30",
+  "policies": [
+    {
+      "id": "synthetic_policy_00",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_01",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_02",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_03",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_04",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_05",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_06",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_07",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_08",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_09",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_10",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_11",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_12",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_13",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_14",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_15",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_16",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_17",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_18",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_19",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_20",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_21",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_22",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_23",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_24",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_25",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_26",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    },
+    {
+      "id": "synthetic_policy_27",
+      "public_eligible": true,
+      "apply_status": "open",
+      "checked_at": "2026-10-03"
+    }
+  ]
+}
