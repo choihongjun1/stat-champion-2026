@@ -1,0 +1,507 @@
+[
+  {
+    "id": "N-DML-56-ATE",
+    "label": "DML 음식점(56) 주 분석 ATE",
+    "metric": "무가중 HGB IRM ATE; profit_margin 표본별 1%·99% clip",
+    "window": "MDIS 2023; 업력 기준 2023-12",
+    "sample": "MDIS 56 주 표본",
+    "stage": "prescribe",
+    "artifact": "prescribe/dml_results.json",
+    "extract": {
+      "type": "json",
+      "path": [
+        "results",
+        {
+          "sample": "56 주"
+        },
+        "analyses",
+        "1_main",
+        "ate"
+      ]
+    },
+    "format": "{:.4f}",
+    "status": "확정",
+    "rule_ref": "S5",
+    "ci": {
+      "low": {
+        "type": "json",
+        "path": [
+          "results",
+          {
+            "sample": "56 주"
+          },
+          "analyses",
+          "1_main",
+          "ci_low"
+        ]
+      },
+      "high": {
+        "type": "json",
+        "path": [
+          "results",
+          {
+            "sample": "56 주"
+          },
+          "analyses",
+          "1_main",
+          "ci_high"
+        ]
+      }
+    },
+    "source": "scripts/run_w3_dml.py:195 (baee316)"
+  },
+  {
+    "id": "N-DML-ALL-ATE",
+    "label": "DML 전체 보조 주 분석 ATE",
+    "metric": "무가중 HGB IRM ATE; profit_margin 표본별 1%·99% clip",
+    "window": "MDIS 2023; 업력 기준 2023-12",
+    "sample": "MDIS 47·56·96 전체 보조 표본",
+    "stage": "prescribe",
+    "artifact": "prescribe/dml_results.json",
+    "extract": {
+      "type": "json",
+      "path": [
+        "results",
+        {
+          "sample": "전체 보조"
+        },
+        "analyses",
+        "1_main",
+        "ate"
+      ]
+    },
+    "format": "{:.4f}",
+    "status": "확정",
+    "rule_ref": "S5",
+    "ci": {
+      "low": {
+        "type": "json",
+        "path": [
+          "results",
+          {
+            "sample": "전체 보조"
+          },
+          "analyses",
+          "1_main",
+          "ci_low"
+        ]
+      },
+      "high": {
+        "type": "json",
+        "path": [
+          "results",
+          {
+            "sample": "전체 보조"
+          },
+          "analyses",
+          "1_main",
+          "ci_high"
+        ]
+      }
+    },
+    "source": "scripts/run_w3_dml.py:196 (baee316)"
+  },
+  {
+    "id": "N-DML-56-N",
+    "label": "DML 56 표본 N",
+    "metric": "DML 56 표본 N",
+    "window": "MDIS 2023",
+    "sample": "MDIS 56 주 표본",
+    "stage": "prescribe",
+    "artifact": "prescribe/dml_results.json",
+    "extract": {
+      "type": "json",
+      "path": [
+        "results",
+        {
+          "sample": "56 주"
+        },
+        "analyses",
+        "1_main",
+        "n"
+      ]
+    },
+    "format": "{:.0f}",
+    "status": "확정",
+    "rule_ref": "S2",
+    "source": "scripts/run_w3_dml.py:195 (baee316)"
+  },
+  {
+    "id": "N-DML-56-NTREAT",
+    "label": "DML 56 처치 N",
+    "metric": "DML 56 처치 N",
+    "window": "MDIS 2023",
+    "sample": "MDIS 56 주 표본",
+    "stage": "prescribe",
+    "artifact": "prescribe/dml_results.json",
+    "extract": {
+      "type": "json",
+      "path": [
+        "results",
+        {
+          "sample": "56 주"
+        },
+        "analyses",
+        "1_main",
+        "n_treated"
+      ]
+    },
+    "format": "{:.0f}",
+    "status": "확정",
+    "rule_ref": "S2",
+    "source": "scripts/run_w3_dml.py:195 (baee316)"
+  },
+  {
+    "id": "N-45-DIFF8",
+    "label": "#45 8-origin pooled AUC 차이",
+    "metric": "e_serving_fixed − a_hgb_enriched의 8-origin pooled AUC 차이",
+    "window": "선택값=고정값 origin 8개 (2023Q3~2025Q2)",
+    "sample": "8개 origin OOF; 점포 클러스터 부트스트랩",
+    "stage": "detect",
+    "artifact": "models/benchmark/nested_recheck_bootstrap.csv",
+    "extract": {
+      "type": "csv_cell",
+      "filter": {
+        "model_a": "e_serving_fixed",
+        "model_b": "a_hgb_enriched",
+        "scope": "선택값=고정값 origin 8개 (2023Q3~2025Q2)"
+      },
+      "column": "auc_diff"
+    },
+    "format": "{:.4f}",
+    "status": "확정",
+    "rule_ref": "#45",
+    "ci": {
+      "low": {
+        "type": "csv_cell",
+        "filter": {
+          "model_a": "e_serving_fixed",
+          "model_b": "a_hgb_enriched",
+          "scope": "선택값=고정값 origin 8개 (2023Q3~2025Q2)"
+        },
+        "column": "auc_ci_low"
+      },
+      "high": {
+        "type": "csv_cell",
+        "filter": {
+          "model_a": "e_serving_fixed",
+          "model_b": "a_hgb_enriched",
+          "scope": "선택값=고정값 origin 8개 (2023Q3~2025Q2)"
+        },
+        "column": "auc_ci_high"
+      }
+    },
+    "source": "scope: 박안석 제공·확인; 열 구조: src/models/benchmark.py:554,1202–1207"
+  },
+  {
+    "id": "N-AUC-MEAN10",
+    "label": "채택 모형 10-origin 평균 AUC",
+    "metric": "enriched feature set의 origin별 AUC를 무가중 산술평균",
+    "window": "OOF 2023Q1–2025Q2",
+    "sample": "채택 모형 enriched OOF, 10개 origin",
+    "stage": "detect",
+    "artifact": "models/detect_v0_enriched/oof_metrics_by_origin.csv",
+    "extract": {
+      "type": "csv_agg",
+      "filter": {
+        "feature_set": "enriched"
+      },
+      "column": "auc",
+      "agg": "mean",
+      "expected_rows": 10,
+      "expected_values": {
+        "origin": [
+          "2023Q1",
+          "2023Q2",
+          "2023Q3",
+          "2023Q4",
+          "2024Q1",
+          "2024Q2",
+          "2024Q3",
+          "2024Q4",
+          "2025Q1",
+          "2025Q2"
+        ]
+      }
+    },
+    "format": "{:.4f}",
+    "status": "확정",
+    "rule_ref": "S9 · H1 run 최종 지정(#49, 2026-10-03)",
+    "forbidden_alias": [
+      "N-AUC-POOLED-PRE"
+    ]
+  },
+  {
+    "id": "N-AUC-POOLED-PRE",
+    "label": "기존 OOF 채택 모형 pooled AUC(부록)",
+    "metric": "기존 OOF 10-origin 행을 합산한 pooled AUC; 재생성 전 잠정 값",
+    "window": "OOF 2023Q1–2025Q2",
+    "sample": "기존 OOF 채택 모형 e_serving_fixed; 재생성 전",
+    "stage": "detect",
+    "artifact": "models/benchmark/nested_recheck_summary.csv",
+    "extract": {
+      "type": "csv_cell",
+      "filter": {
+        "model": "e_serving_fixed"
+      },
+      "column": "pooled_auc"
+    },
+    "format": "{:.4f}",
+    "status": "잠정(재생성 전)",
+    "rule_ref": "S9 부록",
+    "forbidden_alias": [
+      "N-AUC-MEAN10",
+      "N-AUC-MEAN10-PRE"
+    ]
+  },
+  {
+    "id": "N-AUC-MEAN10-PRE",
+    "label": "기존 OOF 10-origin 평균 AUC",
+    "metric": "기존 OOF e_serving_fixed의 origin별 AUC 산술평균; 재생성 전 잠정 값",
+    "window": "OOF 2023Q1–2025Q2",
+    "sample": "기존 OOF 채택 모형 e_serving_fixed; 재생성 전",
+    "stage": "detect",
+    "artifact": "models/benchmark/nested_recheck_summary.csv",
+    "extract": {
+      "type": "csv_cell",
+      "filter": {
+        "model": "e_serving_fixed"
+      },
+      "column": "auc_mean"
+    },
+    "format": "{:.4f}",
+    "status": "잠정(재생성 전)",
+    "rule_ref": "S9 부록",
+    "forbidden_alias": [
+      "N-AUC-POOLED-PRE"
+    ]
+  },
+  {
+    "id": "N-LIFT-HIGH",
+    "label": "high 등급 lift",
+    "metric": "보정 test 창 high 관측 비율 / 같은 창 전체 관측 비율; 점포 클러스터 95% CI",
+    "window": "고정 보정 test 창 2025Q1–2025Q2; run_meta.calibration_windows.test로 확인",
+    "sample": "채택 모형 enriched test OOF",
+    "stage": "detect",
+    "artifact": "models/detect_v0_enriched/run_meta.json",
+    "extract": {
+      "type": "json",
+      "path": [
+        "band_provenance",
+        "high_lift_test"
+      ]
+    },
+    "format": "{:.4f}",
+    "status": "확정",
+    "rule_ref": "S10 · H1 run 최종 지정(#49, 2026-10-03)",
+    "ci": {
+      "low": {
+        "type": "json",
+        "path": [
+          "band_provenance",
+          "high_lift_ci95",
+          0
+        ]
+      },
+      "high": {
+        "type": "json",
+        "path": [
+          "band_provenance",
+          "high_lift_ci95",
+          1
+        ]
+      }
+    }
+  },
+  {
+    "id": "N-PANEL",
+    "label": "패널 점포 수",
+    "metric": "master_base의 유일 store_id 개수; W1 기록값 44,067",
+    "window": "master_base 전체 origin (재생성 산출물에서 확인)",
+    "sample": "서울 3구 일반음식점·휴게음식점·미용업 패널",
+    "stage": "detect",
+    "artifact": "master/master_base.parquet",
+    "extract": {
+      "type": "parquet_stat",
+      "op": "nunique",
+      "column": "store_id"
+    },
+    "format": "{:.0f}",
+    "status": "확정",
+    "rule_ref": "A4",
+    "source": "src/data/config.py:193–194; W1 기록값은 검증용 설명이며 추출 결과를 고정하지 않음"
+  },
+  {
+    "id": "N-PANEL-ROWS",
+    "label": "패널 점포×분기 수",
+    "metric": "master_base의 점포×분기 행 수; W1 기록값 527,934",
+    "window": "master_base 전체 origin (재생성 산출물에서 확인)",
+    "sample": "서울 3구 일반음식점·휴게음식점·미용업 패널",
+    "stage": "detect",
+    "artifact": "master/master_base.parquet",
+    "extract": {
+      "type": "parquet_stat",
+      "op": "rows"
+    },
+    "format": "{:.0f}",
+    "status": "확정",
+    "rule_ref": "A4",
+    "source": "src/data/config.py:193–194; W1 기록값은 검증용 설명이며 추출 결과를 고정하지 않음"
+  },
+  {
+    "id": "N-PANEL-EVENTS",
+    "label": "패널 12개월 폐업 라벨 합계",
+    "metric": "master_base event_12m 합계; W1 기록값 61,149",
+    "window": "master_base 전체 origin (재생성 산출물에서 확인)",
+    "sample": "서울 3구 일반음식점·휴게음식점·미용업 패널",
+    "stage": "detect",
+    "artifact": "master/master_base.parquet",
+    "extract": {
+      "type": "parquet_stat",
+      "op": "sum",
+      "column": "event_12m"
+    },
+    "format": "{:.0f}",
+    "status": "확정",
+    "rule_ref": "A4",
+    "source": "src/data/config.py:193–194; W1 기록값은 검증용 설명이며 추출 결과를 고정하지 않음"
+  },
+  {
+    "id": "N-PANEL-EVENT-RATE",
+    "label": "패널 12개월 폐업 라벨 비율",
+    "metric": "master_base event_12m 평균; W1 기록값 11.58%",
+    "window": "master_base 전체 origin (재생성 산출물에서 확인)",
+    "sample": "서울 3구 일반음식점·휴게음식점·미용업 패널",
+    "stage": "detect",
+    "artifact": "master/master_base.parquet",
+    "extract": {
+      "type": "parquet_stat",
+      "op": "mean",
+      "column": "event_12m"
+    },
+    "format": "{:.2%}",
+    "status": "확정",
+    "rule_ref": "A4",
+    "source": "src/data/config.py:193–194; W1 기록값은 검증용 설명이며 추출 결과를 고정하지 않음"
+  },
+  {
+    "id": "N-AUC-MEAN10-DEFAULT",
+    "label": "이전 파라미터(DEFAULT) 10-origin 평균 AUC",
+    "metric": "enriched feature set의 origin별 AUC를 무가중 산술평균; F1 비교 전용(서빙·진단에 쓰지 않음)",
+    "window": "OOF 2023Q1–2025Q2",
+    "sample": "이전 파라미터 DEFAULT(--params default) enriched OOF, 10개 origin",
+    "stage": "detect",
+    "artifact": "models/detect_v0_default/oof_metrics_by_origin.csv",
+    "extract": {
+      "type": "csv_agg",
+      "filter": {
+        "feature_set": "enriched"
+      },
+      "column": "auc",
+      "agg": "mean",
+      "expected_rows": 10,
+      "expected_values": {
+        "origin": [
+          "2023Q1",
+          "2023Q2",
+          "2023Q3",
+          "2023Q4",
+          "2024Q1",
+          "2024Q2",
+          "2024Q3",
+          "2024Q4",
+          "2025Q1",
+          "2025Q2"
+        ]
+      }
+    },
+    "format": "{:.4f}",
+    "status": "확정",
+    "rule_ref": "S9 비교(R1-4); H1 run 최종 지정(#49, 2026-10-03)",
+    "forbidden_alias": [
+      "N-AUC-MEAN10"
+    ]
+  },
+  {
+    "id": "N-SHORT-AUC-DIFF",
+    "label": "상호 2자 이하 − 3자 이상 10-origin 평균 AUC 차이 (기술 통계)",
+    "metric": "집단별 10-origin 평균 AUC의 차이; 기술 통계이며 원인을 뜻하지 않음; 점포 클러스터 부트스트랩 95% CI",
+    "window": "OOF 2023Q1–2025Q2",
+    "sample": "채택 모형 enriched OOF, 상호 정규화 길이 집단(2자 이하 / 3자 이상)",
+    "stage": "detect",
+    "artifact": "models/short_name_appendix.json",
+    "extract": {
+      "type": "json",
+      "path": [
+        "difference",
+        "mean_origin_auc"
+      ]
+    },
+    "format": "{:.4f}",
+    "status": "확정",
+    "rule_ref": "S1(#44 A안 부록)",
+    "ci": {
+      "low": {
+        "type": "json",
+        "path": [
+          "difference",
+          "mean_origin_auc_uncertainty",
+          "ci95",
+          0
+        ]
+      },
+      "high": {
+        "type": "json",
+        "path": [
+          "difference",
+          "mean_origin_auc_uncertainty",
+          "ci95",
+          1
+        ]
+      }
+    },
+    "source": "src/analysis/short_name_appendix.py (ce72e33)"
+  },
+  {
+    "id": "N-BAND-HIGH-SHARE",
+    "label": "검증 구간 높음 등급 비율",
+    "metric": "검증 구간 점포×분기 중 high 등급 비율",
+    "window": "고정 보정 test 창 2025Q1–2025Q2",
+    "sample": "채택 모형 enriched test OOF",
+    "stage": "detect",
+    "artifact": "models/detect_v0_enriched/band_profile.csv",
+    "extract": {
+      "type": "csv_cell",
+      "filter": {
+        "band": "high"
+      },
+      "column": "share",
+      "expected_rows": 1
+    },
+    "format": "{:.4f}",
+    "status": "확정",
+    "rule_ref": "S10",
+    "source": "src/models/bands.py:138-159"
+  },
+  {
+    "id": "N-BAND-HIGH-OBSRATE",
+    "label": "검증 구간 높음 등급 관측 폐업 비율",
+    "metric": "검증 구간 high 등급의 관측 폐업 비율",
+    "window": "고정 보정 test 창 2025Q1–2025Q2",
+    "sample": "채택 모형 enriched test OOF",
+    "stage": "detect",
+    "artifact": "models/detect_v0_enriched/band_profile.csv",
+    "extract": {
+      "type": "csv_cell",
+      "filter": {
+        "band": "high"
+      },
+      "column": "obs_rate",
+      "expected_rows": 1
+    },
+    "format": "{:.4f}",
+    "status": "확정",
+    "rule_ref": "S10",
+    "source": "src/models/bands.py:138-159"
+  }
+]
