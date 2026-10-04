@@ -55,7 +55,7 @@ SCREEN_FORBIDDEN = {
     "cause_assertion": re.compile(r"폐업\s*원인|원인은|때문에\s*(폐업|위험)"),  # claims-allow: CL-15
     "policy_eligible_claim": re.compile(r"신청\s*가능|자격\s*조건이\s*맞는|추천\s*(사업|지원)|적합한\s*(사업|지원)"),
 }
-ALLOWED_PERCENT = re.compile(r"위험 상위 \d+%")
+ALLOWED_PERCENT = re.compile(r"위험 (?:상위|하위) \d+%")
 
 
 def sha(p: Path) -> str:
