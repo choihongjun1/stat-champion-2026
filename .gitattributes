@@ -1,3 +1,12 @@
+# 제출 코드 zip(git archive)에서 빼는 경로. README "포함하지 않은 것"과
+# scripts/make_code_zip.py의 FORBIDDEN_PREFIXES와 같아야 한다(테스트가 대조).
+data/manual/** export-ignore
+outputs/** export-ignore
+notebooks/** export-ignore
+docs/drafts/** export-ignore
+docs/samples/serve_2025Q2_trial/** export-ignore
+docs/samples/w2-6_dummy/** export-ignore
+
 # W2-5 synthetic sample bundles: manifest.json records sha256 of the exact bytes,
 # so never convert line endings (core.autocrlf would break the hashes on checkout).
 docs/samples/w2-5/** -text
