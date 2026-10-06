@@ -5,3 +5,6 @@ docs/samples/submission_bundle/** -text
 
 # CLI synthetic policy-review hash fixtures require exact bytes.
 tests/fixtures/demo_preflight/** -text
+
+# 지원사업 원천: policy_apply.py가 원본 바이트의 sha256을 고정한다.
+data/policies/** -text

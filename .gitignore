@@ -17,6 +17,10 @@
 # 입력 데이터다. 이게 없으면 matching_validation을 새 클론에서 돌릴 수 없다.
 !/data/manual/
 !/data/manual/**
+# 예외: 지원사업 원천(공개 공고 정보, 점포 식별정보 없음). src/serving/policy_apply.py가
+# 이 두 파일의 sha256을 고정하므로 원본 바이트 그대로 둔다(DATA_CATALOG §7).
+!/data/policies/
+!/data/policies/**
 
 # Python
 __pycache__/
