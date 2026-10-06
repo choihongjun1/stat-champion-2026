@@ -11,7 +11,7 @@
 | 단계 | 하는 일 | 화면에 보이는 것 | 코드 |
 |---|---|---|---|
 | 1. 탐지 | 인허가·상권·지가·블로그 언급 등으로 12개월 폐업 위험 순위를 매긴다. 모형은 scikit-learn `HistGradientBoostingClassifier`(HGB) | 위험 등급(낮음·주의·높음)과 같은 구·업종 안의 순위. **개인 확률·예측 구간은 보여 주지 않는다** | `src/models/detect.py`, `train_detect.py`, `bands.py` |
-| 2. 진단 | 정확한 interventional Shapley로 위험 신호를 나눈다. 비교 기준(배경) 두 개에서 방향이 다른 요인은 "해석 민감"으로 표시 | 위험을 높이는/낮추는 신호와 방향. 숫자 기여도는 보여 주지 않으며, 신호는 원인이 아니다 | `src/models/diagnose.py`, `background.py` |
+| 2. 진단 | 정확한 interventional Shapley로 위험 신호를 나눈다. 비교 기준(배경) 두 개에서 **방향 또는 표시 상태가 다른** 요인은 "해석 민감"으로 표시 | 위험을 높이는/낮추는 신호와 방향. 숫자 기여도는 보여 주지 않으며, 신호는 원인이 아니다 | `src/models/diagnose.py`, `background.py` |
 | 3. 대응 방향 | 통계청 MDIS 소상공인실태조사 2023으로 전자상거래 매출과 영업이익률의 조건부 연관성을 double machine learning으로 추정 | 근거가 충분하지 않아 **"확인 불가"**로 표시하고 개선 방향을 제안하지 않는다 | `src/prescribe/dml_ecommerce.py`, `scripts/run_w3_dml.py` |
 | 4. 지원사업 | 위험요인과 연결하지 않고 업종·지역·공고 조건으로만 찾는다(2026-10-03 원문 확인 기준) | 접수 상태·마감·확인일, 저희가 알 수 없는 자격 조건 수 | `src/serving/build_db.py`, `policy_apply.py` |
 
@@ -33,6 +33,9 @@
 - **산출물:** `outputs/`(모형·진단·서빙 결과, 실제 점포 번들)
 - **수작업 검수 원자료:** `data/manual/`(실제 상호가 들어 있어 제외). 이 때문에 `src/data/matching_validation.py`의 상호 매칭 정밀도 재검증은 재현할 수 없습니다.
 - **과거 시험 샘플:** W2 시험 서빙 결과와 화면 개발용 더미(`docs/samples/serve_2025Q2_trial/`, `docs/samples/w2-6_dummy/`)
+- **작업 메모·노트북:** `docs/drafts/`, `notebooks/`
+
+이 제외 범위는 `.gitattributes`의 `export-ignore`로 고정돼 있고, 제출 zip은 아래 '코드 zip 만들기'의 스크립트로 만들고 검사합니다.
 
 따라서 **원자료부터 결과까지의 재현은 이 zip만으로는 할 수 없습니다.** 대신 아래처럼 합성 데이터로 코드와 화면 계약을 확인할 수 있습니다.
 
@@ -47,12 +50,14 @@ pip install -r requirements.txt
 python -m pytest -q
 ```
 
-- Python 3.13에서 확인했습니다(2026-10-05, 1,235건 통과·1건 skip — skip은 원자료가 있어야 도는 테스트).
+- Python 3.13에서 확인했습니다(2026-10-06). 전체 테스트가 통과하고, 원자료나 zip에서 뺀 샘플이 있어야 도는 테스트만 skip됩니다.
 - **한국어 Windows에서는 UTF-8 모드로 실행하세요.** 그렇지 않으면 한글 출력을 읽는 테스트 1건이 실패합니다.
   - PowerShell: `$env:PYTHONUTF8 = "1"` 후 실행
   - 명령 프롬프트: `set PYTHONUTF8=1` 후 실행
 
 ### 2. 제출 화면 (합성 사례)
+
+Node.js 22 이상이 필요합니다.
 
 ```bash
 cd app
@@ -70,11 +75,21 @@ python -m http.server 8000 --directory out
 
 ### 3. 금지 표현·식별정보 검사
 
+**저장소 루트에서** 실행합니다(2번을 마쳤다면 `cd ..`).
+
 ```bash
 python scripts/check_claims.py docs/samples/submission_bundle app/src --fail-on warn
 ```
 
 제출 화면·번들·보고서에 쓰지 않기로 한 표현(개인 확률 등, 목록은 `docs/CLAIMS.md` 2절)과 식별정보 패턴을 찾습니다. 규칙은 `configs/claims_rules.json`, 설명은 `docs/CHECK_CLAIMS.md`에 있습니다. 이 검사는 제출물용이라 소스 코드 전체에 걸면 열 이름(`store_id`)이나 합성 샘플의 가상 주소도 검출됩니다.
+
+## 코드 zip 만들기 (제출용)
+
+```bash
+python scripts/make_code_zip.py --ref <태그 또는 커밋> --out ../dash_code.zip
+```
+
+커밋된 내용만 zip에 들어가고 `.gitattributes`의 제외 범위가 적용됩니다. 금지 경로·금지 파일, 필수 파일, 금지 표현 검사가 모두 PASS일 때만 제출합니다. FAIL이 하나라도 있으면 종료 코드 1로 끝나고 "이 zip은 제출하지 마세요"를 출력합니다.
 
 ## 원자료가 있을 때의 실행 순서
 
@@ -83,6 +98,7 @@ python scripts/check_claims.py docs/samples/submission_bundle app/src --fail-on 
 | 순서 | 명령 | 문서 |
 |---|---|---|
 | 1 | `scripts/run_labels_stage1.py` — 인허가 패널·12개월 폐업 라벨 | `docs/LABEL_SPEC.md` |
+| 1-1 | `python src/data/build_targets.py` → `collect_online_presence.py` → `collect_blog_monthly.py` → `export_online_features.py`(모두 `python src/data/<파일>.py`, 프로젝트 루트에서) — 수집 대상 목록, 네이버·카카오 등록 여부, 블로그 월별 언급 수집 (API 키 필요, 키 이름은 `.env.example`) | `docs/DATA_CATALOG.md` §6 |
 | 2 | `python -m src.data.master`, `python -m src.data.master_score`, `python -m src.data.online_features` — 피처 마스터·온라인 지표 | `docs/MASTER_SPEC.md`, `docs/DATA_CATALOG.md` |
 | 3 | `python -m src.models.train_detect` — 탐지 모형·보정·등급 경계 | `docs/DECISIONS_W3.md` S9·S10·S13 |
 | 4 | `python -m src.models.background`, `python -m src.models.diagnose` — 위험 신호 진단(S8) | S8 |
