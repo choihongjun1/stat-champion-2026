@@ -125,7 +125,7 @@
 | `ci_low`, `ci_high` | 0~1 | 아니오 | **점포 단위 부트스트랩 재학습 예측의 5·95 백분위**. 신뢰구간이 아니다. `ci_low ≤ p ≤ ci_high` (검증) |
 | `interval_note` | string | 아니오 | 구간 설명 고정 문구. "신뢰구간·신뢰수준" 표현 금지 (검증) |
 | `band` | `low`/`mid`/`high` | 아니오 | 절대 확률 컷오프로 serve가 정한 값 그대로. 컷오프는 실행 메타(`serve_meta.band_cutoffs` → `runs.band_cutoffs_json` → 정적 `meta.json`의 `band_cutoffs`)에 `cut_mid`·`cut_high` 이름으로 둔다(§11). 표시명은 화면이 정한다 |
-| `percentile` | 0~100 정수 | 예 | 같은 score_origin·자치구·업종 안 위험도 백분위, 높을수록 위험 |
+| `percentile` | 0~100 정수 | 예 | 같은 score_origin·자치구·업종 안 위험도 백분위, 높을수록 위험. 화면 표기: 50 이상은 "위험 상위 N%"(N = max(1, 100 − percentile)), 50 미만은 "위험 하위 N%"(N = max(1, percentile)). 개인 확률이 아니다 |
 | `peer_group` | string | 아니오 | `"{gu} {biz_type}"`와 같아야 한다 (검증). **업력 조건 없음** |
 | `peer_median` | 0~1 | 아니오 | peer_group 위험도 중앙값 |
 | `model` | string | 아니오 | 예: `detect_v0_enriched` |
@@ -348,7 +348,7 @@ R1의 코드명은 위 초안(`outside_trdar` 등) 대신 서빙 쪽 `MISSING_RE
 ### PR #37 화면 변경 사항
 
 1. 요인 단위(8개, `factor_id`)로 표시하고 개별 변수 목록은 `values` "근거 데이터 보기"로 옮긴다.
-2. `peer_percentile`은 높을수록 위험 기여가 크다. `risk.percentile`의 "상위 N%" = 100 − percentile.
+2. `peer_percentile`은 높을수록 위험 기여가 크다. `risk.percentile`이 50 이상이면 "위험 상위 N%"(N = 100 − percentile), 50 미만이면 "위험 하위 N%"(N = percentile)로 표시한다(#70, CLAIMS 1절 화면 행).
 3. `peer_group`에서 업력 조건을 뺀다 ("광진구 미용업").
 4. 표시 상태 4종(§4)을 코드 필드로 분기한다. `영향 미미`는 접는다.
 5. 비용 유형은 "판단 불가"로 표시하고 0%p로 그리지 않는다.

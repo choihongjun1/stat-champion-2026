@@ -36,7 +36,7 @@ export function buildResponses(policyMatching: "performed" | "not_performed", po
             n === 0
               ? "지금 가게 조건으로 찾은 지원사업은 없어요."
               : nCheck > 0
-                ? `그중 ${nCheck}건은 자격 조건 일부를 저희가 알 수 없어요. 신청 전에 공고를 꼭 확인해 주세요.`
+                ? `찾은 사업 ${n}건 중 ${nCheck}건은 자격 조건 일부를 저희가 알 수 없어요. 신청 전에 공고를 꼭 확인해 주세요.`
                 : "신청 전에 공고를 꼭 확인해 주세요.",
           badge: "policy",
           badgeText: `가게 정보로 찾은 사업 ${n}건`,
