@@ -44,6 +44,8 @@ REQUIRED = (
     "docs/samples/submission_bundle/meta.json",
     "docs/samples/submission_bundle/manifest.json",
     "src/serving/policy_apply.py",
+    "data/policies/20261003/policies.json",
+    "data/policies/20261003/policies_apply.csv",
 )
 CLAIMS_TARGETS = ("README.md", "docs/samples/submission_bundle", "app/src")
 

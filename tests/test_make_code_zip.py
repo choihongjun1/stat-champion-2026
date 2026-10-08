@@ -46,3 +46,10 @@ def test_gitattributes_export_ignore_matches_forbidden_prefixes():
 def test_out_inside_repo_is_rejected():
     assert mcz.main(["--ref", "HEAD", "--out", str(ROOT / "dash_code_test.zip")]) == 2
     assert not (ROOT / "dash_code_test.zip").exists()
+
+
+def test_policy_source_files_are_required():
+    # 지원사업 원천(#72)은 제출 zip에 반드시 들어간다
+    for name in ("data/policies/20261003/policies.json", "data/policies/20261003/policies_apply.csv"):
+        assert name in mcz.REQUIRED
+        assert mcz.check_names([n for n in good_names() if n != name]) == [f"필수 파일 없음: {name}"]
