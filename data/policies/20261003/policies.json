@@ -1,0 +1,608 @@
+{
+  "policies": [
+    {
+      "id": "sbiz_digital_edu_1on1_2026",
+      "name": "2026년 찾아가는 1:1 디지털 교육",
+      "operator": "소상공인시장진흥공단",
+      "link": "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_000000000122273",
+      "announce_year": 2026,
+      "collected_at": "2026-09-30",
+      "eligibility_text": "온라인 진출의사가 있으나, 디지털 활용 수준 및 경영여건으로 집체교육 참여가 어려운 디지털 취약계층 소상공인 - ｢소상공인 기본법｣ 제2조에 따른 소상공인으로, 신청일 현재 정상적으로 영업 중인 점포",
+      "conditions": {
+        "gu": null,
+        "biz_type": null,
+        "tenure_months_min": null,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "온라인 진출의사가 있으나, 디지털 활용 수준 및 경영여건으로 집체교육 참여가 어려운 디지털 취약계층 소상공인"
+      ],
+      "related_factor_ids": [
+        "online_attention"
+      ]
+    },
+    {
+      "id": "sbiz_hope_return_diagnosis_2026",
+      "name": "2026년 희망리턴패키지 재기사업화(경영개선) 위기 소상공인 진단ㆍ멘토링 지원",
+      "operator": "소상공인시장진흥공단",
+      "link": "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_000000000121182",
+      "announce_year": 2026,
+      "collected_at": "2026-09-30",
+      "eligibility_text": "위기 소상공인 - 공단ㆍ지역신보ㆍ민간은행(17개사)으로부터 위기징후 모니터링 선별 기준에 따라 위기 소상공인으로 선별되어 위기 알림톡을 받은 자로서, 사업체를 휴ㆍ폐업하지 않고 정상적으로 영업 중인 소상공인",
+      "conditions": {
+        "gu": null,
+        "biz_type": null,
+        "tenure_months_min": null,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "공단ㆍ지역신보ㆍ민간은행(17개사)으로부터 위기징후 모니터링 선별 기준에 따라 위기 소상공인으로 선별되어 위기 알림톡을 받은 자"
+      ],
+      "related_factor_ids": [
+        "peer_sales",
+        "peer_competition",
+        "store_profile",
+        "tenure"
+      ]
+    },
+    {
+      "id": "sbiz_free_legal_tax_labor_2026",
+      "name": "2026년 소상공인 무료 법률ㆍ세무ㆍ노무 간편상담 지원사업",
+      "operator": "소상공인연합회",
+      "link": "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_000000000123334",
+      "announce_year": 2026,
+      "collected_at": "2026-09-30",
+      "eligibility_text": "소상공인이라면 누구나",
+      "conditions": {
+        "gu": null,
+        "biz_type": null,
+        "tenure_months_min": null,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [],
+      "related_factor_ids": [
+        "tenure"
+      ]
+    },
+    {
+      "id": "seoul_crisis_early_track2_2026h2",
+      "name": "2026년 하반기 위기 소상공인 조기발굴 및 선제지원(Track2)",
+      "operator": "서울신용보증재단",
+      "link": "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_000000000123842",
+      "announce_year": 2026,
+      "collected_at": "2026-10-01",
+      "eligibility_text": "서울시 내에서 사업장을 운영중인 점포형 소상공인 중 아래 조건 하나에 해당하는 소상공인 - 매출감소 : 업력이 2년 이상이며 최근 6개월 또는 전년 대비 매출 감소로 경영 위기에 직면한 소상공인 - 재해피해 : 재해중소기업 확인증 또는 피해사실확인서 발급 기업",
+      "conditions": {
+        "gu": null,
+        "biz_type": null,
+        "tenure_months_min": null,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "매출감소 : 업력이 2년 이상이며 최근 6개월 또는 전년 대비 매출 감소로 경영 위기에 직면한 소상공인",
+        "재해피해 : 재해중소기업 확인증 또는 피해사실확인서 발급 기업",
+        "사업 신청일 기준 사업자등록증 상 개업일이 2년 이상 경과한 기업",
+        "'25~'26년도 서울시 소상공인 종합지원사업을 지원받았거나 진행 중인 자 지원제외"
+      ],
+      "related_factor_ids": [
+        "peer_sales",
+        "peer_competition",
+        "store_profile"
+      ]
+    },
+    {
+      "id": "seoul_food_service_consulting_2026",
+      "name": "외식업 경영혁신 컨설팅 지원사업",
+      "operator": "한국표준협회",
+      "link": "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_000000000122153",
+      "announce_year": 2026,
+      "collected_at": "2026-10-01",
+      "eligibility_text": "서울시 내 일반ㆍ휴게음식점 - 배달 가능 업체 - 포스기가 있거나 모바일 기반 업무 수행 가능자",
+      "conditions": {
+        "gu": null,
+        "biz_type": [
+          "일반음식점",
+          "휴게음식점"
+        ],
+        "tenure_months_min": null,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "배달 가능 업체",
+        "포스기가 있거나 모바일 기반 업무 수행 가능자",
+        "프랜차이즈 본점・직영점 (가맹점은 신청 가능) 제외",
+        "신청일 기준 1년 이내 식품위생법, 원산지표시법 등 위반 업소 제외",
+        "25~26년 서울시 및 타공공기관 유사 컨설팅 지원 사업 선정 업소 제외"
+      ],
+      "related_factor_ids": [
+        "store_profile",
+        "peer_sales",
+        "tenure"
+      ]
+    },
+    {
+      "id": "sbiz_stability_voucher_2026",
+      "name": "소상공인 경영안정 바우처 지원사업",
+      "operator": "소상공인시장진흥공단",
+      "link": "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_000000000117908",
+      "announce_year": 2026,
+      "collected_at": "2026-10-01",
+      "eligibility_text": "'25년 연 매출액 0원 초과 1억 400만원 미만이며, 영업중인 소상공인",
+      "conditions": {
+        "gu": null,
+        "biz_type": null,
+        "tenure_months_min": null,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "'25년 연 매출액 0원 초과 1억 400만원 미만",
+        "2025년 12월 31일 이전(사업자등록증상 개업연월일 기준)"
+      ],
+      "related_factor_ids": []
+    },
+    {
+      "id": "sbiz_policy_loan_2026",
+      "name": "2026년 중소벤처기업부 소상공인 정책자금 융자사업 (5차 변경 공고)",
+      "operator": "소상공인시장진흥공단",
+      "link": "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_000000000126965",
+      "announce_year": 2026,
+      "collected_at": "2026-10-03",
+      "eligibility_text": "「소상공인기본법」제2조 및 같은 법 시행령 제3조의 소상공인 ※ 세부사업별 지원대상 상이, 자세한 사항 공고문 참조",
+      "conditions": {
+        "gu": null,
+        "biz_type": null,
+        "tenure_months_min": null,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "세부사업별 지원대상 상이, 자세한 사항 공고문 참조"
+      ],
+      "related_factor_ids": []
+    },
+    {
+      "id": "koreg_bizplus_card_individual_2026",
+      "name": "2026년 소상공인(개인사업자) 비즈플러스카드 지원사업",
+      "operator": "신용보증재단중앙회",
+      "link": "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_000000000119801",
+      "announce_year": 2026,
+      "collected_at": "2026-10-01",
+      "eligibility_text": "NCB 595점 ~ 964점이고, 업력이 6개월 이상이며, 매출액 기준을 충족하는 개인사업자(소상공인)",
+      "conditions": {
+        "gu": null,
+        "biz_type": null,
+        "tenure_months_min": 6,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "NCB 595점 ~ 964점",
+        "최근 2개월 동안 200만원 이상 또는 당기 부가세 신고 매출액이 1,200만원 이상인 소상공인",
+        "개인사업자"
+      ],
+      "related_factor_ids": []
+    },
+    {
+      "id": "seoul_sme_fund_loan_2026",
+      "name": "2026년 서울특별시 중소기업육성자금 융자지원",
+      "operator": "서울신용보증재단",
+      "link": "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_000000000126214",
+      "announce_year": 2026,
+      "collected_at": "2026-10-01",
+      "eligibility_text": "서울특별시 중소기업육성기금의 설치 및 운용에 관한 조례 시행규칙」 별표1 에 해당하는 서울 소재 중소기업 및 소상공인 ※ 자세한 지원대상 공고문 참조",
+      "conditions": {
+        "gu": null,
+        "biz_type": null,
+        "tenure_months_min": null,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "서울특별시 중소기업육성기금의 설치 및 운용에 관한 조례 시행규칙」 별표1 에 해당하는 서울 소재 중소기업 및 소상공인"
+      ],
+      "related_factor_ids": []
+    },
+    {
+      "id": "sbiz_hope_return_onestop_closure_2026",
+      "name": "2026년 희망리턴패키지 원스톱폐업지원",
+      "operator": "소상공인시장진흥공단",
+      "link": "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_000000000117676",
+      "announce_year": 2026,
+      "collected_at": "2026-09-30",
+      "eligibility_text": "폐업(예정) 소상공인",
+      "conditions": {
+        "gu": null,
+        "biz_type": null,
+        "tenure_months_min": null,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "폐업(예정) 소상공인"
+      ],
+      "related_factor_ids": []
+    },
+    {
+      "id": "ydp_special_credit_guarantee_2026",
+      "name": "소기업 소상공인 특별신용보증 추천",
+      "operator": "영등포구 (협력: 서울신용보증재단 영등포지점)",
+      "link": "https://www.ydp.go.kr/www/contents.do?key=3336",
+      "announce_year": 2026,
+      "collected_at": "2026-10-03",
+      "eligibility_text": "소기업/소상공인",
+      "conditions": {
+        "gu": [
+          "영등포구"
+        ],
+        "biz_type": null,
+        "tenure_months_min": null,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "서울신용보증재단 신용보증 심사 (서울신용보증재단 영등포지점 협력)"
+      ],
+      "related_factor_ids": [
+        "district"
+      ]
+    },
+    {
+      "id": "mapo_model_restaurant_2026",
+      "name": "2026년 모범음식점 지정",
+      "operator": "마포구 (보건소 위생과)",
+      "link": "https://www.mapo.go.kr/site/main/board/notice/277899",
+      "announce_year": 2026,
+      "collected_at": "2026-09-30",
+      "eligibility_text": "관내 일반음식점 중 개업 후 6개월이 경과한 업소 또는 영업정지 이상의 행정처분을 받아 지정이 취소된 업소 중 지정취소일로부터 2년이 경과된 업소",
+      "conditions": {
+        "gu": [
+          "마포구"
+        ],
+        "biz_type": [
+          "일반음식점"
+        ],
+        "tenure_months_min": 6,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "지정 제외대상: 호프, 소주방 등 주로 주류 취급 업소",
+        "지정 제외대상: 뱀탕, 사철탕 등 혐오식품 취급 업소",
+        "지정 제외대상: 특정요일, 특정시간대에만 영업하는 업소"
+      ],
+      "related_factor_ids": [
+        "district",
+        "store_profile"
+      ]
+    },
+    {
+      "id": "gwangjin_hvac_clean_care_2026",
+      "name": "2026년 소상공인 냉・난방기 클린케어 사업",
+      "operator": "광진구",
+      "link": "https://www.gwangjin.go.kr/portal/bbs/B0000378/view.do?notAncmtMgtNo=17096&menuNo=200192",
+      "announce_year": 2026,
+      "collected_at": "2026-09-30",
+      "eligibility_text": "다음 요건을 모두 충족하는 광진구 소재 점포형 소상공인 130개소 ① 개업일이 2024. 9. 29. 이전인 업체 ② 직전년도 연매출액이 2억 원 미만인 업체 ③ 점포를 임차하여 영업 중인 업체",
+      "conditions": {
+        "gu": [
+          "광진구"
+        ],
+        "biz_type": null,
+        "tenure_months_min": null,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "개업일이 2024. 9. 29. 이전인 업체",
+        "직전년도 연매출액이 2억 원 미만인 업체",
+        "점포를 임차하여 영업 중인 업체"
+      ],
+      "related_factor_ids": [
+        "district",
+        "store_profile"
+      ]
+    },
+    {
+      "id": "ydp_digital_transition_edu_2026h2",
+      "name": "2026년 하반기 소상공인 디지털 전환교육",
+      "operator": "영등포구 (일자리경제과)",
+      "link": "https://www.ydp.go.kr/www/selectBbsNttView.do?bbsNo=40&nttNo=419743&key=2848",
+      "announce_year": 2026,
+      "collected_at": "2026-10-01",
+      "eligibility_text": "영등포구 사업장 소재 및 거주 소상공인",
+      "conditions": {
+        "gu": [
+          "영등포구"
+        ],
+        "biz_type": null,
+        "tenure_months_min": null,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "영등포구 사업장 소재 및 거주 소상공인"
+      ],
+      "related_factor_ids": [
+        "online_attention",
+        "district"
+      ]
+    },
+    {
+      "id": "mapo_special_credit_guarantee_2026",
+      "name": "2026년 마포구 소기업·소상공인 특별신용보증 지원",
+      "operator": "마포구 (협력: 서울신용보증재단 마포종합지원센터)",
+      "link": "https://www.mapo.go.kr/site/main/nPortal/detail?bcId=19775",
+      "announce_year": 2026,
+      "collected_at": "2026-10-01",
+      "eligibility_text": "마포구 내 사업장을 둔 소기업·소상공인",
+      "conditions": {
+        "gu": [
+          "마포구"
+        ],
+        "biz_type": null,
+        "tenure_months_min": null,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "신청일 기준 최근 1년 이내 서울신용보증재단 신용보증을 받은 기업 지원제외",
+        "지방세‧국세 체납자, 금융기관 체납자, 신용관리정보 대상자 지원제외",
+        "신용보증기금과 기술보증기금의 보증을 동시에 받고 있는 업체 지원제외",
+        "신용보증기금 또는 기술보증기금의 이용 금액이 8억원을 초과하는 자 지원제외",
+        "기타 보증심사 결과 부적격 판정 업체 지원제외"
+      ],
+      "related_factor_ids": [
+        "district"
+      ]
+    },
+    {
+      "id": "seoul_employment_insurance_2026",
+      "name": "2026년 서울시 자영업자 고용보험료 지원사업",
+      "operator": "서울특별시 (수행: 서울신용보증재단)",
+      "link": "https://www.seoulsbdc.or.kr/cm/downloadFile/442159.do",
+      "announce_year": 2026,
+      "collected_at": "2026-10-03",
+      "eligibility_text": "'자영업자 고용보험'에 가입한 서울시 소재 소상공인",
+      "conditions": {
+        "gu": null,
+        "biz_type": null,
+        "tenure_months_min": null,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "'자영업자 고용보험'에 가입한 소상공인 (근로복지공단 별도 가입 필수)"
+      ],
+      "related_factor_ids": []
+    },
+    {
+      "id": "seoul_industrial_accident_insurance_2026",
+      "name": "2026년 서울시 자영업자 산재보험료 지원사업",
+      "operator": "서울특별시 (수행: 서울신용보증재단)",
+      "link": "https://www.seoulsbdc.or.kr/cm/downloadFile/442161.do",
+      "announce_year": 2026,
+      "collected_at": "2026-10-03",
+      "eligibility_text": "'중소기업사업주 산재보험'에 가입한 서울시 소재 소상공인",
+      "conditions": {
+        "gu": null,
+        "biz_type": null,
+        "tenure_months_min": null,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "'중소기업사업주 산재보험'에 가입한 소상공인 (근로복지공단 별도 가입 필수)"
+      ],
+      "related_factor_ids": []
+    },
+    {
+      "id": "seoul_selfemployed_clinic_2026",
+      "name": "2026년 자영업클리닉",
+      "operator": "서울특별시 (수행: 서울신용보증재단)",
+      "link": "https://www.seoulsbdc.or.kr/cm/downloadFile/520350.do",
+      "announce_year": 2026,
+      "collected_at": "2026-10-03",
+      "eligibility_text": "신청일 현재 정상영업 중인 서울시 소재 소상공인",
+      "conditions": {
+        "gu": null,
+        "biz_type": null,
+        "tenure_months_min": null,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "소상공인 기준 충족 (상시근로자 5명 미만, 주된 업종별 평균매출액 소기업 규모 기준 이내)"
+      ],
+      "related_factor_ids": []
+    },
+    {
+      "id": "seoul_field_mentoring_2026h2",
+      "name": "2026년 하반기 현장 멘토링 지원사업",
+      "operator": "서울특별시 (수행: 서울신용보증재단)",
+      "link": "https://www.seoulsbdc.or.kr/cm/downloadFile/575729.do",
+      "announce_year": 2026,
+      "collected_at": "2026-10-03",
+      "eligibility_text": "서울시에서 창업을 준비중인 예비 창업자 또는 신청일 기준 업력 3년 이내 서울시 소재 소상공인으로, 창업교육 1개를 이수한 자",
+      "conditions": {
+        "gu": null,
+        "biz_type": null,
+        "tenure_months_min": null,
+        "tenure_months_max": 36
+      },
+      "unverifiable_conditions": [
+        "서울신용보증재단 소상공인아카데미 교육(신청일 기준 1년 이내) 또는 서울시 프렙 아카데미 정규 과정(2025년 이후) 수료",
+        "현장 멘토링 사업(기본·심화·리마인드) 지원 이력이 있는 자 제외"
+      ],
+      "related_factor_ids": []
+    },
+    {
+      "id": "seoul_restaurant_job_matching_2026",
+      "name": "서울시 외식업 소상공인 인력 운영 지원(무료 직업소개소)",
+      "operator": "서울특별시 (운영: (사)한국외식업중앙회 지회, 유앤시니어사회적협동조합)",
+      "link": "https://news.seoul.go.kr/economy/archives/574704",
+      "announce_year": 2026,
+      "collected_at": "2026-10-03",
+      "eligibility_text": "외식업 소상공인(홀서빙·주방보조·조리 인력 구인)",
+      "conditions": {
+        "gu": null,
+        "biz_type": [
+          "일반음식점",
+          "휴게음식점"
+        ],
+        "tenure_months_min": null,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [],
+      "related_factor_ids": []
+    },
+    {
+      "id": "seoul_safety_bell_2026",
+      "name": "2026년 서울시 소상공인 안심벨",
+      "operator": "서울특별시",
+      "link": "https://mediahub.seoul.go.kr/archives/2019014",
+      "announce_year": 2026,
+      "collected_at": "2026-10-03",
+      "eligibility_text": "서울시 내 1인 점포 및 여성 소상공인 (2인 이상이라도 교대 근무 등 한시적 1인 근무도 지원 가능)",
+      "conditions": {
+        "gu": null,
+        "biz_type": null,
+        "tenure_months_min": null,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "1인 점포 또는 여성 소상공인 (교대 근무 등 한시적 1인 근무 포함)"
+      ],
+      "related_factor_ids": []
+    },
+    {
+      "id": "seoul_food_promotion_fund_loan_2026",
+      "name": "2026년 서울시 식품진흥기금 융자지원",
+      "operator": "서울특별시 (신청: 영업장 소재지 자치구 식품위생부서)",
+      "link": "https://mediahub.seoul.go.kr/archives/2017220",
+      "announce_year": 2026,
+      "collected_at": "2026-10-03",
+      "eligibility_text": "서울시 일반음식점·휴게음식점·제과점 등 식품위생업소의 시설·위생 개선 (신규 영업허가 후 1년 미만 업소 제외)",
+      "conditions": {
+        "gu": null,
+        "biz_type": [
+          "일반음식점",
+          "휴게음식점"
+        ],
+        "tenure_months_min": 12,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "최근 1년 이내 식품위생법 위반으로 행정처분받은 업소 제외",
+        "기존 식품진흥기금 융자금 상환 중인 업소 제외"
+      ],
+      "related_factor_ids": []
+    },
+    {
+      "id": "gwangjin_special_guarantee_recommend_2026",
+      "name": "광진구 소상공인 특별보증추천",
+      "operator": "광진구 (협력: 서울신용보증재단, 협력은행)",
+      "link": "https://www.gwangjin.go.kr/portal/main/contents.do?menuNo=200695",
+      "announce_year": 2026,
+      "collected_at": "2026-10-03",
+      "eligibility_text": "광진구 내 담보력이 부족한 관내 소기업, 소상공인(예비창업자 제외)",
+      "conditions": {
+        "gu": [
+          "광진구"
+        ],
+        "biz_type": null,
+        "tenure_months_min": null,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "담보력이 부족한 소기업·소상공인 (서울신용보증재단 보증 심사 후 승인)"
+      ],
+      "related_factor_ids": []
+    },
+    {
+      "id": "korcham_free_management_consulting_2026",
+      "name": "대한상공회의소 무료 경영상담 지원사업",
+      "operator": "대한상공회의소 (수행: 서울상공회의소 코참경영상담센터)",
+      "link": "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_000000000126265",
+      "announce_year": 2026,
+      "collected_at": "2026-10-03",
+      "eligibility_text": "경영상담이 필요한 기업 및 소상공인 등",
+      "conditions": {
+        "gu": null,
+        "biz_type": null,
+        "tenure_months_min": null,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [],
+      "related_factor_ids": []
+    },
+    {
+      "id": "kepco_high_efficiency_equipment_2026",
+      "name": "2026년도 소상공인 고효율기기 지원사업",
+      "operator": "한국전력공사",
+      "link": "https://en-ter.co.kr/ac/main/main.do",
+      "announce_year": 2026,
+      "collected_at": "2026-10-03",
+      "eligibility_text": "「소상공인기본법」 제2조와 「중소기업기본법」 제2조 제2항에 의한 소상공인 중 지원품목(에너지효율 1등급 냉(난)방기·세탁기·건조기·냉장고)을 신규 구매한 자",
+      "conditions": {
+        "gu": null,
+        "biz_type": null,
+        "tenure_months_min": null,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "에너지효율 1등급 지원품목(냉(난)방기·세탁기·건조기·냉장고)을 2026.1.1 이후 신규 구매",
+        "사업장 소재지가 아파트·주택 등 주거용 건물인 경우 제외 (영업활동 증빙 시 가능)"
+      ],
+      "related_factor_ids": []
+    },
+    {
+      "id": "sbiz_unfair_trade_relief_2026",
+      "name": "2026년 소상공인 불공정거래 피해구제 지원",
+      "operator": "소상공인시장진흥공단",
+      "link": "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_000000000120639",
+      "announce_year": 2026,
+      "collected_at": "2026-10-03",
+      "eligibility_text": "「소상공인기본법」 제2조에 따른 불공정거래 피해 소상공인",
+      "conditions": {
+        "gu": null,
+        "biz_type": null,
+        "tenure_months_min": null,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "불공정거래 피해를 입은 소상공인"
+      ],
+      "related_factor_ids": []
+    },
+    {
+      "id": "sbiz_local_crowdfunding_2026",
+      "name": "2026년 우리동네 크라우드펀딩 지원사업",
+      "operator": "소상공인시장진흥공단",
+      "link": "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_000000000120174",
+      "announce_year": 2026,
+      "collected_at": "2026-10-03",
+      "eligibility_text": "「소상공인기본법」 제2조에 따른 소상공인으로, 신청일 기준 정상적으로 영업 중인 소상공인 (유형별 조건 상이)",
+      "conditions": {
+        "gu": null,
+        "biz_type": null,
+        "tenure_months_min": null,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "(증권형) 업력 7년 이내 법인 소상공인(주식회사)",
+        "(리워드형) 펀딩 성공 후 제품 발송이 가능한 소상공인",
+        "(상권형) 지정상권 내 사업 영위 중인 소상공인"
+      ],
+      "related_factor_ids": []
+    },
+    {
+      "id": "sbiz_hope_return_reemployment_2026",
+      "name": "2026년 희망리턴패키지 특화취업지원 (취업교육·심리회복·전직장려수당)",
+      "operator": "소상공인시장진흥공단",
+      "link": "https://www.sbiz24.kr/#/pbanc/592",
+      "announce_year": 2026,
+      "collected_at": "2026-10-03",
+      "eligibility_text": "취업 의사가 있는 폐업(예정) 소상공인(만 15세 이상~만 69세 이하). 사업자등록증(또는 폐업사실증명원)상 사업 운영 기간 60일이 경과한 사업체의 대표",
+      "conditions": {
+        "gu": null,
+        "biz_type": null,
+        "tenure_months_min": 2,
+        "tenure_months_max": null
+      },
+      "unverifiable_conditions": [
+        "취업 의사가 있는 폐업(예정) 소상공인 (폐업일이 2023년 1월 1일 이후)",
+        "신청일 기준 만 15세 이상~만 69세 이하",
+        "전직장려수당은 심화교육 수료(1차 60만원) 및 취업 후 60일 이상 근속(2차 40만원) 시 지급"
+      ],
+      "related_factor_ids": []
+    }
+  ]
+}
