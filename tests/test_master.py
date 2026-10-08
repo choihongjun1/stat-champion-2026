@@ -34,7 +34,7 @@ def _spatial():
     return pd.DataFrame({
         "store_id": ["GR_1", "GR_2", "GR_3", "GR_9"],
         "gu": ["마포구", "광진구", "마포구", "마포구"],
-        "pnu": ["1144012000103580018", None, "1144012000103580019", None],
+        "pnu": ["1144012000193580018", None, "1144012000193580019", None],
         "coord_missing": [False, True, False, False],
         "coord_suspect": [False, False, False, False],
         "trdar_cd": ["3110001", None, None, "3110002"],

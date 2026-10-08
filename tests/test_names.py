@@ -17,7 +17,7 @@ def test_single_token_ending_jeom_is_not_branch():
 
 
 def test_paren_branch():
-    assert normalize_name("스타벅스(홍대점)") == ("스타벅스", "홍대점")
+    assert normalize_name("가나커피(샘플점)") == ("가나커피", "샘플점")
 
 
 def test_paren_non_branch_removed():
@@ -45,7 +45,7 @@ def test_missing():
 
 
 def test_hosu_branch():
-    assert normalize_name("파리바게뜨 여의도2호점") == ("파리바게뜨", "여의도2호점")
+    assert normalize_name("가나베이커리 샘플2호점") == ("가나베이커리", "샘플2호점")
 
 
 def test_branch_preserved_not_deleted():

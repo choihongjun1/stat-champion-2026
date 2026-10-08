@@ -4,8 +4,9 @@
 실행:
     python -m src.data.matching_validation
 
-입력 (data/manual/er_validation/, **git 추적**): 사람이 만든 판정·고정 표본이라
-산출물이 아니라 입력 데이터다. 이게 없으면 이 스크립트를 새 클론에서 돌릴 수 없다.
+입력 (data/manual/er_validation/, 로컬 전용): 사람이 만든 판정·고정 표본이라
+산출물이 아니라 입력 데이터다. 실제 점포 정보가 있어 공개 저장소에는 포함하지 않으므로,
+이 파일이 없는 클론에서는 이 스크립트를 돌릴 수 없다.
     - match_precision_sample_v1.csv      판정에 쓴 고정 표본 (140건). 파이프라인을 다시
                                           돌리면 표본이 바뀌므로 판정 당시 파일을 고정해 쓴다.
     - precision_labels_*.csv              행 단위 판정 (store_id, band, firstpass_label ...)

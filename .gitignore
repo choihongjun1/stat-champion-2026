@@ -13,10 +13,9 @@
 *.parquet
 *.zip
 
-# 예외: ER 검증용 수작업 판정/고정 표본은 파이프라인 산출물이 아니라 사람이 만든
-# 입력 데이터다. 이게 없으면 matching_validation을 새 클론에서 돌릴 수 없다.
+# ER 검증용 수작업 판정/고정 표본(CSV)은 실제 점포 정보가 있어 공개 저장소에 두지 않는다(로컬 전용).
+# 안내 README만 추적하고, CSV는 위 *.csv 규칙으로 무시된다.
 !/data/manual/
-!/data/manual/**
 # 예외: 지원사업 원천(공개 공고 정보, 점포 식별정보 없음). src/serving/policy_apply.py가
 # 이 두 파일의 sha256을 고정하므로 원본 바이트 그대로 둔다(DATA_CATALOG §7).
 !/data/policies/

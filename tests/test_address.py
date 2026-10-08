@@ -24,17 +24,17 @@ MAPPING = {
 
 
 def test_basic_jibun():
-    p = parse_jibun_address("서울특별시 마포구 서교동 358-18", MAPPING)
+    p = parse_jibun_address("서울특별시 마포구 서교동 9358-18", MAPPING)
     assert p.status == STATUS_OK
     assert (p.gu, p.dong, p.san) == ("마포구", "서교동", False)
-    assert (p.bunji_main, p.bunji_sub) == (358, 18)
-    assert p.pnu == "1144012000103580018"
+    assert (p.bunji_main, p.bunji_sub) == (9358, 18)
+    assert p.pnu == "1144012000193580018"
 
 
 def test_no_sub_bunji_defaults_zero():
-    p = parse_jibun_address("서울특별시 마포구 서교동 358", MAPPING)
+    p = parse_jibun_address("서울특별시 마포구 서교동 9358", MAPPING)
     assert p.status == STATUS_OK
-    assert p.pnu == "1144012000103580000"
+    assert p.pnu == "1144012000193580000"
 
 
 def test_san_with_space():
@@ -52,10 +52,10 @@ def test_san_without_space():
 
 def test_san_in_building_name_not_flagged():
     # 번지 뒤 건물명에 '산'이 들어가도 산 여부로 오인하지 않는다
-    p = parse_jibun_address("서울특별시 영등포구 여의도동 15-16 산정빌딩 102동", MAPPING)
+    p = parse_jibun_address("서울특별시 영등포구 여의도동 9015-16 산정빌딩 102동", MAPPING)
     assert p.status == STATUS_OK
     assert p.san is False
-    assert (p.bunji_main, p.bunji_sub) == (15, 16)
+    assert (p.bunji_main, p.bunji_sub) == (9015, 16)
 
 
 def test_longest_dong_match():
@@ -66,15 +66,15 @@ def test_longest_dong_match():
 
 
 def test_trailing_text_after_bunji():
-    p = parse_jibun_address("서울특별시 마포구 서교동 358-18 2층 (홍대입구)", MAPPING)
+    p = parse_jibun_address("서울특별시 마포구 서교동 9358-18 2층 (홍대입구)", MAPPING)
     assert p.status == STATUS_OK
-    assert (p.bunji_main, p.bunji_sub) == (358, 18)
+    assert (p.bunji_main, p.bunji_sub) == (9358, 18)
 
 
 def test_bunji_beonji_suffix():
-    p = parse_jibun_address("서울특별시 마포구 서교동 358-18번지", MAPPING)
+    p = parse_jibun_address("서울특별시 마포구 서교동 9358-18번지", MAPPING)
     assert p.status == STATUS_OK
-    assert (p.bunji_main, p.bunji_sub) == (358, 18)
+    assert (p.bunji_main, p.bunji_sub) == (9358, 18)
 
 
 def test_dong_only_address():
@@ -106,7 +106,7 @@ def test_unknown_dong():
 
 
 def test_assemble_pnu_format():
-    assert assemble_pnu("1144012000", False, 358, 18) == "1144012000103580018"
+    assert assemble_pnu("1144012000", False, 9358, 18) == "1144012000193580018"
     assert assemble_pnu("1144012000", True, 1, 0) == "1144012000200010000"
     assert len(assemble_pnu("1144012000", False, 9999, 9999)) == 19
 

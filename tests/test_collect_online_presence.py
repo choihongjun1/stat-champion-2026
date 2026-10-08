@@ -119,10 +119,10 @@ class IsQuotaResponseTest(unittest.TestCase):
 
 class ExtractDongTest(unittest.TestCase):
     def test_from_jibun(self):
-        self.assertEqual(cop.extract_dong("서울특별시 광진구 구의동 71-28"), "구의동")
+        self.assertEqual(cop.extract_dong("서울특별시 광진구 구의동 9071-28"), "구의동")
 
     def test_falls_back_to_road_when_jibun_missing(self):
-        self.assertEqual(cop.extract_dong(float("nan"), "서울특별시 광진구 광나루로36길 67, 1층 (구의동)"), "구의동")
+        self.assertEqual(cop.extract_dong(float("nan"), "서울특별시 광진구 샘플로99길 999, 1층 (구의동)"), "구의동")
 
     def test_empty_when_nothing_available(self):
         self.assertEqual(cop.extract_dong(float("nan"), None), "")
@@ -160,8 +160,8 @@ class NaverLocalTest(unittest.TestCase):
         return ctx
 
     def test_registered_true_when_name_dong_gu_match(self):
-        ctx = self._ctx([{"title": "선화분식", "address": "서울특별시 광진구 군자동 100"}])
-        r = cop.naver_local(ctx, "선화분식 군자동", "선화분식", "군자동", "광진구")
+        ctx = self._ctx([{"title": "샘플분식", "address": "서울특별시 광진구 군자동 100"}])
+        r = cop.naver_local(ctx, "샘플분식 군자동", "샘플분식", "군자동", "광진구")
         self.assertTrue(r["registered"])
         self.assertEqual(r["rank"], 1)
         self.assertEqual(r["n_candidates"], 1)
@@ -169,8 +169,8 @@ class NaverLocalTest(unittest.TestCase):
 
     def test_registered_false_when_gu_mismatches_other_sigungu(self):
         # 동명이동: 신길동이 영등포구에도, 안산 단원구에도 있음.
-        ctx = self._ctx([{"title": "선화분식", "address": "경기도 안산시 단원구 신길동 123"}])
-        r = cop.naver_local(ctx, "선화분식 신길동", "선화분식", "신길동", "영등포구")
+        ctx = self._ctx([{"title": "샘플분식", "address": "경기도 안산시 단원구 신길동 123"}])
+        r = cop.naver_local(ctx, "샘플분식 신길동", "샘플분식", "신길동", "영등포구")
         self.assertFalse(r["registered"])
         self.assertEqual(r["n_candidates"], 1)  # 검색은 됐지만(0건이 아님) 조건 불일치로 미매칭
 
@@ -204,8 +204,8 @@ class KakaoLocalTest(unittest.TestCase):
         return ctx
 
     def test_registered_requires_gu_match(self):
-        ctx = self._ctx([{"place_name": "선화분식", "address_name": "경기도 안산시 단원구 신길동 123"}])
-        r = cop.kakao_local(ctx, "선화분식 신길동", "선화분식", "신길동", "영등포구")
+        ctx = self._ctx([{"place_name": "샘플분식", "address_name": "경기도 안산시 단원구 신길동 123"}])
+        r = cop.kakao_local(ctx, "샘플분식 신길동", "샘플분식", "신길동", "영등포구")
         self.assertFalse(r["registered"])
         self.assertEqual(r["n_candidates"], 1)
 
@@ -213,12 +213,12 @@ class KakaoLocalTest(unittest.TestCase):
 class FilterMentionsTest(unittest.TestCase):
     def test_keeps_only_items_mentioning_store_name(self):
         items = [
-            {"title": "선화분식 방문기", "description": "맛있었다"},
+            {"title": "샘플분식 방문기", "description": "맛있었다"},
             {"title": "요즘 날씨가", "description": "덥네요"},
         ]
-        mentions = cop.filter_mentions(items, "선화분식")
+        mentions = cop.filter_mentions(items, "샘플분식")
         self.assertEqual(len(mentions), 1)
-        self.assertEqual(mentions[0]["title"], "선화분식 방문기")
+        self.assertEqual(mentions[0]["title"], "샘플분식 방문기")
 
 
 class ClassifyErrorTest(unittest.TestCase):

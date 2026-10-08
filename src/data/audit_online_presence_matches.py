@@ -2,7 +2,7 @@
 
 collect_online_presence.py는 "상호명이 검색결과 제목에 포함되는지"만 보고
 등록 여부를 True/False로 판단한다. 이 방식은 상호명이 짧거나 흔하면
-(예: "이화식당" -> "이화") 다른 가게를 잘못 매칭할 수 있다.
+(예: "가상식당" -> "가상") 다른 가게를 잘못 매칭할 수 있다.
 
 이 스크립트는 registered=True로 나온 건에 대해 후보의 주소를 다시 조회해서,
 점포의 실제 동(법정동)과 후보 주소의 동이 일치하는지로 매칭 정확도를 추정한다.
@@ -63,7 +63,7 @@ def fetch_kakao_candidate(query: str, store_name: str, headers: dict) -> dict:
         place_name = doc.get("place_name", "")
         if name_matches(store_name, place_name):
             # address_name(지번주소)은 법정동명을 포함하지만 road_address_name(도로명주소)은
-            # 보통 포함하지 않는다 (예: "자양로13길 98"에는 "자양동"이 없음) -> 지번주소를 우선.
+            # 보통 포함하지 않는다 (예: "○○로13길 98"처럼 도로명에는 "자양동"이 없음) -> 지번주소를 우선.
             return {
                 "title": place_name,
                 "address": doc.get("address_name", "") or doc.get("road_address_name", ""),
