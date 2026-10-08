@@ -320,7 +320,7 @@ def test_end_to_end(tmp_path, panel):
 
 
 # ---------------------------------------------------------------------------- 짧은 상호 처리 (#28)
-@pytest.mark.parametrize("raw, norm", [("요즘", "요즘"), ("카페 오늘", "카페오늘"), ("BHC-치킨!", "bhc치킨"),
+@pytest.mark.parametrize("raw, norm", [("요즘", "요즘"), ("카페 가나", "카페가나"), ("BHC-치킨!", "bhc치킨"),
                                        ("밥&술", "밥술"), ("커피２", "커피"), ("ㅋㅋ", ""), (None, "")])
 def test_match_name_norm_pinned_to_pr21(raw, norm):
     assert bm.match_name_norm(raw) == norm

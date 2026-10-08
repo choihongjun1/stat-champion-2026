@@ -53,10 +53,10 @@ def make_entities(rows):
 # --- 이름 결합 ---
 
 def test_combine_name_branch():
-    assert combine_name_branch("스타벅스", "홍대점") == "스타벅스홍대점"
-    assert combine_name_branch("스타벅스홍대점", "홍대점") == "스타벅스홍대점"  # 중복 방지
-    assert combine_name_branch("스타벅스", None) == "스타벅스"
-    assert combine_name_branch(None, "홍대점") is None
+    assert combine_name_branch("가나커피", "샘플점") == "가나커피샘플점"
+    assert combine_name_branch("가나커피샘플점", "샘플점") == "가나커피샘플점"  # 중복 방지
+    assert combine_name_branch("가나커피", None) == "가나커피"
+    assert combine_name_branch(None, "샘플점") is None
 
 
 # --- 유사도 ---
@@ -109,8 +109,8 @@ def test_tier1_same_entity_two_ids_not_ambiguous():
 
 def test_tier2_branch_combined():
     # 인허가 상호에 지점명이 붙어 있고 소진공은 상호/지점명 분리된 경우
-    lic = make_lic([("L1", "P1", "스타벅스", "홍대점", None, None)])
-    cand = make_cand([("S1", "P1", "스타벅스홍대점", "스타벅스홍대점", "S1")])
+    lic = make_lic([("L1", "P1", "가나커피", "샘플점", None, None)])
+    cand = make_cand([("S1", "P1", "가나커피샘플점", "가나커피샘플점", "S1")])
     res = match_exact_tiers(lic, cand)
     r = res.loc["L1"]
     assert r["matched"] and r["match_tier"] == 2
@@ -252,22 +252,22 @@ def test_cascade_confidence_levels():
 
 def test_name_structure_classes():
     assert name_structure("김밥천국", "김밥천국") == NAME_EXACT
-    assert name_structure("가보자", "가보자식당") == NAME_CONTAINMENT
-    assert name_structure("가보자식당", "가보자") == NAME_CONTAINMENT
-    assert name_structure("나라헤어", "유나헤어") == NAME_OTHER
+    assert name_structure("가상가게", "가상가게식당") == NAME_CONTAINMENT
+    assert name_structure("가상가게식당", "가상가게") == NAME_CONTAINMENT
+    assert name_structure("샘플가게", "샘플나게") == NAME_OTHER
 
 
 def test_four_char_single_substitution_scores_exactly_threshold():
     # 0.75는 4자 상호의 1자 치환이 정확히 통과하는 하한이다 — 구조 조건이 필요한 이유
-    assert seq_ratio("나라헤어", "유나헤어") == 0.75
-    assert seq_ratio("서강국시", "서강낚시") == 0.75
+    assert seq_ratio("샘플가게", "샘플나게") == 0.75
+    assert seq_ratio("테스트일", "테스트이") == 0.75
 
 
 # --- Tier4 이름 구조 조건 ---
 
 def test_tier4_substitution_rejected_with_structure_rule():
-    lic = make_lic([("L1", None, "나라헤어", None, 100.0, 100.0)])
-    ents = make_entities([("S1", "S1", "유나헤어", "유나헤어", 110.0, 100.0)])
+    lic = make_lic([("L1", None, "샘플가게", None, 100.0, 100.0)])
+    ents = make_entities([("S1", "S1", "샘플나게", "샘플나게", 110.0, 100.0)])
     res, _ = match_coord_tier(lic, ents, radius=30.0, threshold=0.75,
                               require_structure=True)
     r = res.loc["L1"]
@@ -279,16 +279,16 @@ def test_tier4_substitution_rejected_with_structure_rule():
 
 def test_tier4_substitution_matched_when_rule_disabled():
     # 구조 조건을 끄면 기존 동작(score만 비교)과 같아야 한다 (회귀 방지)
-    lic = make_lic([("L1", None, "나라헤어", None, 100.0, 100.0)])
-    ents = make_entities([("S1", "S1", "유나헤어", "유나헤어", 110.0, 100.0)])
+    lic = make_lic([("L1", None, "샘플가게", None, 100.0, 100.0)])
+    ents = make_entities([("S1", "S1", "샘플나게", "샘플나게", 110.0, 100.0)])
     res, _ = match_coord_tier(lic, ents, radius=30.0, threshold=0.75,
                               require_structure=False)
     assert res.loc["L1", "matched"]
 
 
 def test_tier4_containment_accepted():
-    lic = make_lic([("L1", None, "가보자", None, 100.0, 100.0)])
-    ents = make_entities([("S1", "S1", "가보자식당", "가보자식당", 101.0, 100.0)])
+    lic = make_lic([("L1", None, "가상가게", None, 100.0, 100.0)])
+    ents = make_entities([("S1", "S1", "가상가게식당", "가상가게식당", 101.0, 100.0)])
     res, _ = match_coord_tier(lic, ents, radius=30.0, threshold=0.75,
                               require_structure=True)
     r = res.loc["L1"]
@@ -297,10 +297,10 @@ def test_tier4_containment_accepted():
 
 def test_tier4_skips_substitution_and_takes_farther_exact():
     # 가까운 치환형 후보는 버리고, 더 먼 exact 후보를 택한다
-    lic = make_lic([("L1", None, "백조식당", None, 100.0, 100.0)])
+    lic = make_lic([("L1", None, "가상식당", None, 100.0, 100.0)])
     ents = make_entities([
-        ("S1", "S1", "백세식당", "백세식당", 103.0, 100.0),
-        ("S2", "S2", "백조식당", "백조식당", 125.0, 100.0),
+        ("S1", "S1", "가상상당", "가상상당", 103.0, 100.0),
+        ("S2", "S2", "가상식당", "가상식당", 125.0, 100.0),
     ])
     res, _ = match_coord_tier(lic, ents, radius=30.0, threshold=0.75,
                               require_structure=True)

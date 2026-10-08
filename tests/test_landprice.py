@@ -21,8 +21,8 @@ def _qa(year):
             "reference_months_in_file": [f"{year}-01-01"]}
 
 
-PNU_A = "1144012000103580018"
-PNU_B = "1121510300102130002"
+PNU_A = "1144012000193580018"
+PNU_B = "1121510300192130002"
 
 
 def test_left_join_preserves_unmatched(monkeypatch):

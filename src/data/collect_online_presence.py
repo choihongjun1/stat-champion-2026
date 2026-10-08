@@ -364,7 +364,7 @@ def naver_local(ctx: Context, query: str, store_name: str, dong: str, gu: str) -
 
 
 def naver_text_search(ctx: Context, url: str, query: str) -> tuple[list, int]:
-    # sort 생략 -> 기본값 sim(관련도). "선화분식 군자동"처럼 상호+동을 붙여 검색해도
+    # sort 생략 -> 기본값 sim(관련도). "샘플분식 군자동"처럼 상호+동을 붙여 검색해도
     # 네이버 블로그/카페 검색은 단어 단위로 느슨하게 매칭돼서, 상호와 무관한 글이
     # (심지어 스팸 블로그까지) 대량으로 잡히는 것이 확인됨 -> 아래에서 상호명 포함 여부로
     # 다시 걸러야 한다 (raw item 개수를 그대로 "언급 건수"로 쓰면 안 됨).
@@ -392,7 +392,7 @@ def kakao_local(ctx: Context, query: str, store_name: str, dong: str, gu: str) -
     for rank, doc in enumerate(docs, start=1):
         place_name = doc.get("place_name", "")
         # address_name(지번주소)은 법정동명을 포함하지만 road_address_name(도로명주소)은
-        # 보통 포함하지 않는다 (예: "자양로13길 98"에는 "자양동"이 없음) -> 지번주소를 우선.
+        # 보통 포함하지 않는다 (예: "○○로13길 98"처럼 도로명에는 "자양동"이 없음) -> 지번주소를 우선.
         address = doc.get("address_name", "") or doc.get("road_address_name", "")
         if name_matches(store_name, place_name) and dong_consistent(dong, address) and gu_consistent(gu, address):
             matches.append({"rank": rank, "matched_place_name": place_name, "matched_address": address})

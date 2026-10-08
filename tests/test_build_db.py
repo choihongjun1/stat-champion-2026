@@ -18,8 +18,8 @@ from src.serving import report_validation as rv
 from src.serving.release_contract import synthetic_provenance
 
 AS_OF = "2026-06-30"
-A, B, C, X = "GR_3040000-101-2023-00001", "SR_3130000-104-2020-00002", "BT_3220000-215-2019-00003", \
-    "GR_3040000-101-2010-00009"
+A, B, C, X = "GR_3040000-101-2023-90001", "SR_3130000-104-2020-90002", "BT_3220000-215-2019-00003", \
+    "GR_3040000-101-2010-90009"
 INTERVAL_NOTE = "학습 데이터가 달랐다면 예측이 얼마나 흔들렸을지의 범위이며, 폐업 확률 자체의 범위가 아닙니다."
 DISCLAIMER = "위험요인 기여도는 예측모형의 변수 기여도이며 인과적 원인이 아닙니다."
 
