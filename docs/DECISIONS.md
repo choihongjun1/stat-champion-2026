@@ -1,5 +1,14 @@
 # Decision Log
 
+## 2026-10-03 — AUC feasibility, experiment branch only
+
+- 사용자 요청에 따라 `exp/w3-auc-improvement`에서 최대 8,000개 점포 표본의 offline 실험만 수행한다.
+- 고정 protocol: `AUC_FEASIBILITY_PROTOCOL.md`. 2024 validation에서 선택 후 2025 final을 한 번 평가한다.
+- production feature schema, adopted HGB, calibration, cutoff, serving 및 오늘 밤 H4 경로를 변경하지 않는다.
+- 면적 결측 지시자만 실험한다. 상권 geometry/미래 online 수집 QA/ER 상태의 결측 proxy는 제외한다.
+- age>=24 결과는 표본 민감도이며 mature-label 또는 noise-free upper bound라고 주장하지 않는다.
+- online 원본이 없으면 base-only 결과로 표시하고 enriched/A3의 개선 가능성을 미검증으로 남긴다.
+
 분석·서비스 방향에 영향을 주는 확정 사항을 기록한다. 변경 시 기존 결정을 지우기보다 날짜와 변경 이유를 추가한다.
 
 > **2026-10-01 — W3 결정 동결:** W3 실행 규칙(S1~S13, T1~T8, A1~A5)은 `docs/DECISIONS_W3.md`와 Issue #49에 있다. 이 문서의 이전 결정과 충돌하면 그 문서가 우선한다(특히 2026-09-13 가중 기본 → W3 DML은 무가중 주 분석).
