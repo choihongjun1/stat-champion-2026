@@ -94,7 +94,9 @@ export default function ReportView({ m }: { m: ScreenModel }) {
         <ul className="mt-[20px] flex list-disc flex-col gap-2 pl-6 text-[16px] leading-6 tracking-[-0.32px]">
           {m.risk.percentile !== null && (
             <li>
-              같은 {m.risk.peer_group} 가게 중 위험 상위 <b className="font-semibold">{Math.max(1, 100 - m.risk.percentile)}%</b>예요.
+              {/* 순위 50 이상은 "위험 상위 N%"(N = 100 − 순위), 50 미만은 "위험 하위 N%"(N = 순위). 낮음 등급이 "상위 70%"로 읽히지 않게 한다. */}
+              같은 {m.risk.peer_group} 가게 중 위험 {m.risk.percentile >= 50 ? "상위" : "하위"}{" "}
+              <b className="font-semibold">{m.risk.percentile >= 50 ? Math.max(1, 100 - m.risk.percentile) : Math.max(1, m.risk.percentile)}%</b>예요.
             </li>
           )}
           <li className="text-[14px] leading-[22px] text-[#b4b4b4]">위험 수준은 모형이 비슷한 가게들과 비교한 상대적인 위치예요. 실제 폐업률이 아니에요.</li>
